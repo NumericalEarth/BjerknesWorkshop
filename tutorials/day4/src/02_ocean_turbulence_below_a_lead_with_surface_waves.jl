@@ -140,9 +140,13 @@ const Uˢ             = wave_amplitude^2 * wavenumber * wave_frequency  # surfac
 # Brine rejection adds salt into the ocean (a negative upward flux). Wind stress
 # acts on `v` (along the lead). All localized by the lead mask.
 #
-# !!! warning "Sign convention (P0 check)"
-#     Heat flux upward-positive = cooling; brine rejection uses a negative
-#     (downward) salt flux. Verify before trusting magnitudes.
+# !!! note "Sign convention (verified)"
+#     A positive *top* tracer flux fluxes the quantity upward, out of the ocean
+#     (Oceananigans `BoundaryConditions`; cf. the `ocean_wind_mixing_and_convection.jl`
+#     comment "a positive temperature flux at the surface implies cooling"). So a
+#     positive `Jᵀ` cools, and brine rejection — which *adds* salt — is a negative
+#     `Jˢ`. The wind stress on `v` is negative (like the example's negative `τx`),
+#     which accelerates the along-lead current. These signs are correct.
 
 @inline function Jᵀ(x, y, t, p)
     χ = top_hat(x; center = 0, width = p.W, edge = p.δ)

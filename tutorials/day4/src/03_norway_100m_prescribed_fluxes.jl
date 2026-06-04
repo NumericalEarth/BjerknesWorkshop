@@ -59,6 +59,12 @@ using Random
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
+# Per-phase wall-clock timing with a forced flush. This case has a slow startup
+# (see the performance note below); the checkpoints make each phase observable in
+# the (otherwise block-buffered) job log.
+const _t0 = Ref(time_ns())
+checkpoint(msg) = (@info @sprintf("⏱ %-26s %8.1f s", msg, 1e-9 * (time_ns() - _t0[])); flush(stderr))
+
 Random.seed!(100)
 
 config = RunConfig("03_norway_100m")
@@ -163,8 +169,10 @@ grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
 # the outer rim flat (done in `03a`). Note the DSM-vs-DTM and EGM2008-geoid-vs-ellipsoid
 # distinctions can bias peak heights by tens of meters — small for 1100 m peaks but
 # worth confirming.
+checkpoint("start")
 materialize_terrain!(grid, (x, y) -> h_fun(x, y))
 @info "Terrain materialized into grid."
+checkpoint("terrain materialized")
 
 # ## Compressible dynamics with acoustic substepping
 #
@@ -196,6 +204,7 @@ dynamics = CompressibleDynamics(time_discretization;
                                 slope_stencil = SlopeInsideInterpolation(),
                                 surface_pressure = p₀,
                                 reference_potential_temperature = potential_temperature_profile)
+checkpoint("dynamics built")
 
 # ## Prescribed surface fluxes over land and ocean: pick a regime and commit to it
 #
@@ -241,15 +250,20 @@ yc = [ynode(j, grid, Center()) for j in 1:Ny]
 ## Momentum flux prescribed as a drag (negative) — see sign warning below.
 ρu_surface = Oceananigans.on_architecture(arch, FT.(-(ℵ .* τx_land .+ (1 .- ℵ) .* τx_ocean)))
 
-# !!! warning "Sign convention (P0 check — highest-risk item)"
-#     Heat flux is prescribed positive upward (into the atmosphere) and momentum flux
-#     as a drag (negative: `ρu_surface = -(…)`). These MUST be validated against
-#     Breeze's neutral-ABL and mountain-wave reference examples before any flux
-#     magnitude is trusted. A flipped heat-flux sign turns convective heating into
-#     stabilizing cooling and kills the cold-air-outbreak plumes; a flipped or
-#     over-large drag can decelerate or even reverse the near-surface flow and destroy
-#     the gap jets. On a flat-bottom test, verify that surface heating *deepens* a
-#     mixed layer and that drag *reduces* near-surface wind.
+# !!! note "Sign convention (verified) and the constant-drag caveat"
+#     Signs are correct: a positive bottom `ρθ` flux *heats* the atmosphere (so the
+#     warm ocean, `Qʰ_ocean > 0`, drives the cold-air-outbreak plumes and the cold
+#     land, `Qʰ_land < 0`, stabilizes), and the negative `ρu_surface` is a drag that
+#     removes momentum — matching Breeze's `bomex.jl`/`neutral_atmospheric_boundary_layer.jl`
+#     (a bottom flux is *added* to the tendency).
+#
+#     **Caveat (a real limitation, not a bug):** unlike the velocity-dependent drag
+#     in case 1, this momentum flux is a *constant* prescribed stress, independent of
+#     the local wind. It removes momentum at the same rate even where the wind is weak
+#     or reversed (in lee eddies), so it is only physically faithful where the flow is
+#     consistently one-signed and brisk. A velocity-dependent bulk drag
+#     (`τ = ρ Cᴰ |u| u`, with a land/ocean `Cᴰ`) is the correct upgrade — left as a
+#     follow-up to keep the surface BC a simple, GPU-friendly static array here.
 
 ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρθ_surface))
 ρu_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρu_surface))
@@ -262,6 +276,7 @@ closure = SmagorinskyLilly()
 model = AtmosphereModel(grid; dynamics, advection, closure,
                         timestepper = :AcousticRungeKutta3,
                         boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
+checkpoint("model built")
 
 # ## Initial conditions
 #
@@ -296,7 +311,9 @@ end
 
 set!(model, ρ = model.dynamics.terrain_reference_density,
      θ = θᵢ, u = uᵢ, v = 0, w = 0, enforce_mass_conservation = false)
+checkpoint("set! done")
 Oceananigans.TimeSteppers.update_state!(model)
+checkpoint("update_state! done")
 
 # ## Simulation
 #
@@ -362,6 +379,7 @@ simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
 ## (No full-3D field output — the near-surface slices and transect drive the visualization.)
 
 write_once!(simulation.output_writers[:statics], model)
+checkpoint("statics written; starting run!")
 
 # ## Go time
 run!(simulation)

@@ -30,10 +30,14 @@
 #
 # This is a **Breeze atmosphere-only large-eddy simulation** with *prescribed*
 # bottom fluxes. There is no prognostic sea ice and no ocean model: the lead is a
-# smooth surface-flux mask, and the run is *dry* — no latent heat flux and no
-# cloud microphysics, so the real lead's ice/steam fog and condensational
-# buoyancy are absent (see the latent-heat caveat in the References section). We
-# pick a single 1 km lead — the canonical width that yields one clean plume and
+# smooth surface-flux mask. The run is **moist**: the lead supplies a latent heat
+# flux comparable to its sensible flux (Tetzlaff et al. 2015), and warm-phase
+# saturation-adjustment microphysics lets the moistened plume condense into the
+# visible **lead fog / steam plume** that is the open water's signature — a thin
+# cloud that rises with the thermals and advects downwind over the ice. (Real lead
+# fog is largely ice crystals; the warm-phase scheme produces the supercooled-liquid
+# analogue — see the microphysics caveat in the References.) We pick a single 1 km
+# lead — the canonical width that yields one clean plume and
 # matches the historical 1 km lead-parametrization baseline (Michaelis et al.
 # 2020) — and size the run to develop a recognizable plume on one H100 in roughly
 # fifteen minutes.
@@ -105,7 +109,7 @@ end
 z_faces = stretched_z_faces(Lz, Nz)
 @info "Vertical grid" Δz_surface = z_faces[2] - z_faces[1] Δz_top = z_faces[end] - z_faces[end-1]
 
-memory_report(Nx, Ny, Nz; FT, nfields = 5)
+memory_report(Nx, Ny, Nz; FT, nfields = 7)
 
 grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
                        x = (-Lx/2, Lx/2), y = (-Ly/2, Ly/2), z = z_faces,
@@ -195,6 +199,16 @@ const Qʰ_lead = FT(200)    # W m⁻², lead-averaged (range 100–300; 300 = st
 const τx_ice  = FT(0.01)   # N m⁻², surface stress magnitude
 const τx_lead = FT(0.05)
 
+# **Latent heat / moisture flux.** Over a winter lead the latent heat flux is
+# comparable to the sensible flux (Tetzlaff et al. 2015). We prescribe a lead
+# evaporation rate `E_lead = 1e-4 kg m⁻² s⁻¹`, i.e. a latent heat flux
+# `Lᵥ·E ≈ 2.5e6 × 1e-4 ≈ 250 W m⁻²` — comparable to the 200 W m⁻² sensible flux.
+# The ice surface supplies no moisture (`E_ice = 0`).
+const E_ice   = FT(0)      # kg m⁻² s⁻¹, moisture (water-vapor) flux
+const E_lead  = FT(3e-4)   # strong lead evaporation (≈ 750 W m⁻² latent): the
+                           # latent-dominated "sea smoke" regime that saturates the
+                           # cold near-surface air and forms fog.
+
 # ### Sensible heat flux on ρθ
 #
 # A kinematic heat flux `w′θ′ = Qʰ / (ρ cₚ)` corresponds to a flux of the
@@ -209,6 +223,20 @@ end
 
 ρθ_flux_parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, Q_ice = Qʰ_ice, Q_lead = Qʰ_lead, cₚ)
 ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρθ_flux; parameters = ρθ_flux_parameters))
+
+# ### Moisture flux on ρqᵉ
+#
+# `E` is already a mass flux (kg m⁻² s⁻¹), exactly the flux of the moisture
+# prognostic `ρqᵉ`. A positive (upward) flux moistens the air above (matching
+# `bomex.jl`, where a positive `w′qᵗ′` moistens).
+
+@inline function ρqᵉ_flux(x, y, t, p)
+    χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
+    return p.E_ice + χ * (p.E_lead - p.E_ice)
+end
+
+ρqᵉ_flux_parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, E_ice, E_lead)
+ρqᵉ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρqᵉ_flux; parameters = ρqᵉ_flux_parameters))
 
 # ### Momentum flux (drag)
 #
@@ -227,9 +255,12 @@ end
 #     exceed `τx_lead`. The qualitative point — heterogeneous surface drag — holds
 #     either way.
 #
-# !!! warning "Sign convention (P0 check)"
-#     Breeze bottom momentum fluxes are written as a *drag* (negative flux that
-#     removes momentum from the fluid). Confirm against the neutral-ABL example.
+# !!! note "Sign convention (verified)"
+#     A bottom flux is *added* to the tendency in Breeze
+#     (`BoundaryConditions/compute_flux_bcs.jl`), so a positive `ρθ` flux warms the
+#     air (matching `bomex.jl` where `w′θ′ = +8e-3` heats) and a *negative* `ρu`
+#     flux removes momentum — exactly the drag form used in `bomex.jl` and
+#     `neutral_atmospheric_boundary_layer.jl`. The signs here are correct.
 
 @inline function ρu_drag(x, y, t, ρu, ρv, p)
     χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
@@ -310,13 +341,15 @@ forcing = (; u = geostrophic.u, v = geostrophic.v, ρw = ρw_sponge, ρθ = ρθ
 
 # ## Model
 #
-# 9th-order WENO advection with a Smagorinsky–Lilly LES closure.
+# 9th-order WENO advection, a Smagorinsky–Lilly LES closure, and warm-phase
+# saturation-adjustment microphysics so the moistened plume can condense into fog.
 
 advection = WENO(order = 9)
 closure = SmagorinskyLilly()
+microphysics = SaturationAdjustment(equilibrium = WarmPhaseEquilibrium())
 
-model = AtmosphereModel(grid; dynamics, coriolis, advection, closure, forcing,
-                        boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs, ρv = ρv_bcs))
+model = AtmosphereModel(grid; dynamics, coriolis, advection, closure, microphysics, forcing,
+                        boundary_conditions = (; ρθ = ρθ_bcs, ρqᵉ = ρqᵉ_bcs, ρu = ρu_bcs, ρv = ρv_bcs))
 
 # ## Initial conditions
 #
@@ -327,13 +360,17 @@ model = AtmosphereModel(grid; dynamics, coriolis, advection, closure, forcing,
 const δu = FT(0.1)   # m s⁻¹
 const δθ = FT(0.1)   # K
 const zδ = FT(300)   # m
+const qᵗ₀ = FT(1.1e-3) # kg/kg, near-saturated sub-inversion background (≈ 80 % RH
+                       # at 260 K, where qˢᵃᵗ ≈ 1.4e-3); cold near-saturated air over
+                       # the warm lead is the sea-smoke / steam-fog setup.
 
 ϵ() = rand(FT) - FT(0.5)
 uᵢ(x, y, z) =  U₀  + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
 θᵢ(x, y, z) = θᵣ(z) + δθ * ϵ() * (z < zδ)
+qᵢ(x, y, z) = qᵗ₀ * (z < zᵢ)
 
-set!(model, θ = θᵢ, u = uᵢ, v = vᵢ)
+set!(model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 
 # ## Simulation
 #
@@ -365,6 +402,8 @@ add_callback!(simulation, progress, IterationInterval(100))
 u, v, w = model.velocities
 θ = liquid_ice_potential_temperature(model)
 T = model.temperature
+qᵛ = model.microphysical_fields.qᵛ   # water-vapor specific humidity
+qˡ = model.microphysical_fields.qˡ   # cloud-liquid (fog) specific humidity
 
 χ_field = Field{Center, Center, Nothing}(grid)
 set!(χ_field, (x, y) -> top_hat(x; center = 0, width = Wˡᵉᵃᵈ, edge = δˡᵉᵃᵈ))
@@ -374,13 +413,16 @@ set!(Qʰ_field, (x, y) -> Qʰ_ice + top_hat(x; center = 0, width = Wˡᵉᵃᵈ,
 jmid = Ny ÷ 2 + 1
 k_surface = 2
 
-base_3d = (; u, v, w, θ, T)
+base_3d = (; u, v, w, θ, T, qᵛ, qˡ)
 
 slice_outputs = (
     w_xz = view(w, :, jmid, :),
     θ_xz = view(θ, :, jmid, :),
+    qˡ_xz = view(qˡ, :, jmid, :),
+    qᵛ_xz = view(qᵛ, :, jmid, :),
     w_xy = view(w, :, :, k_surface),
     θ_xy = view(θ, :, :, k_surface),
+    qˡ_xy = view(qˡ, :, :, k_surface),
 )
 
 along_lead = NamedTuple(name => Average(@at((Center, Center, Center), base_3d[name]), dims = 2)
@@ -417,6 +459,7 @@ using CairoMakie
 if isfile(slice_name(config))
     w_xz = FieldTimeSeries(slice_name(config), "w_xz")
     θ_xz = FieldTimeSeries(slice_name(config), "θ_xz")
+    qˡ_xz = FieldTimeSeries(slice_name(config), "qˡ_xz")
     times = w_xz.times
     Nt = length(times)
 
@@ -427,18 +470,23 @@ if isfile(slice_name(config))
     n = Observable(Nt)
     wn = @lift interior(w_xz[$n], :, 1, :)
     θn = @lift interior(θ_xz[$n], :, 1, :)
+    qln = @lift interior(qˡ_xz[$n], :, 1, :) .* 1e3   # g/kg
     title = @lift "Sea-ice lead plume — t = " * prettytime(times[$n])
 
-    fig = Figure(size = (1100, 700))
+    fig = Figure(size = (1100, 950))
     Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
     axw = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w (m s⁻¹)")
     axθ = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "θ (K)")
+    axq = Axis(fig[3, 1], xlabel = "x (km)", ylabel = "z (km)", title = "cloud liquid qˡ (g kg⁻¹) — the lead fog")
 
     wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
+    qlmax = max(1e-4, maximum(interior(qˡ_xz[Nt])) * 1e3)
     hmw = heatmap!(axw, xkm, zkm, wn, colormap = :balance, colorrange = (-wlim, wlim))
     hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
+    hmq = heatmap!(axq, xkm, zkm, qln, colormap = :dense, colorrange = (0, qlmax))
     Colorbar(fig[1, 2], hmw)
     Colorbar(fig[2, 2], hmθ)
+    Colorbar(fig[3, 2], hmq)
 
     save(figure_name(config, "atmosphere_lead_final_slice"), fig)
 
@@ -498,8 +546,11 @@ nothing #hide
 #   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> —
 #   defines w⋆, the convective velocity scale used throughout.
 #
-# !!! note "Dry-run caveat (latent heat and clouds)"
-#     Over a real lead the latent heat flux is comparable to the sensible flux and
-#     a visible ice/steam fog forms. This pure-sensible dry run cannot reproduce
-#     the cloud signature or condensational buoyancy — acceptable for the demo, but
-#     keep it in mind when comparing to observations.
+# !!! note "Microphysics caveat (warm-phase vs. ice fog)"
+#     This run includes a latent heat flux and warm-phase (liquid-only) saturation
+#     adjustment, so the moistened plume condenses into a cloud-liquid `qˡ` fog and
+#     releases condensational latent heat. A *real* winter lead fog at ≈ 260 K is
+#     dominated by **ice crystals** (sea smoke / frost smoke); the warm-phase scheme
+#     produces the supercooled-liquid analogue and omits ice-phase microphysics and
+#     ice-cloud radiative effects. The fog's location, timing, and downwind advection
+#     are representative; its phase and exact water content are not quantitative.
