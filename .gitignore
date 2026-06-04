@@ -1,0 +1,21 @@
+# Documentation build output and generated pages
+docs/build/
+docs/src/day3/*.md
+docs/src/day4/*.md
+docs/src/status/*.md
+
+# Generated tutorial artifacts (Literate.script output, notebooks)
+tutorials/*/scripts/
+tutorials/*/notebooks/
+
+# Tutorial run outputs and pointers
+output/
+
+# gh-pages publishing worktree
+.gh-pages-worktree/
+
+# Logs
+logs/
+
+# Superseded prototype tree (migrated to tutorials/day4); kept locally for reference
+thursday/
