@@ -47,6 +47,7 @@ ENV["DOCS_PHASE"] = "render"
 
 include(joinpath(REPO_ROOT, "src", "TutorialWorkflow.jl"))
 using .TutorialWorkflow
+using Base64
 
 # ============================================================================
 # Literate postprocess: neutralize execution.
@@ -133,129 +134,76 @@ function append_results_section!(page_md::AbstractString, slug::AbstractString)
     spec = get(_RESULTS_SPEC, slug, nothing)
     spec === nothing && return nothing
 
-    figs = repr(spec.figures)
-    movs = repr(spec.movies)
+    reg = TutorialWorkflow.case_registry(REPO_ROOT)
+    idx = findfirst(c -> c.slug == slug, reg)
+    case = idx === nothing ? nothing : reg[idx]
 
-    # NOTE: the @setup block is evaluated by Documenter in the page build dir.
-    # It uses only TutorialWorkflow + Base file IO. REPO_ROOT is interpolated as
-    # a string literal so the helpers can locate the status pointers.
-    setup = """
+    _admon(kind, title, body) =
+        string("!!! ", kind, " \"", title, "\"\n\n    ", body, "\n\n")
+    _safe(f) = try f() catch; nothing end
 
-    ## Results
+    io = IOBuffer()
+    print(io, "\n## Results\n\n")
+    print(io, "The figures and movies below come from the most recent **successful** run of ",
+              "this case recorded by the deployment workflow. Nothing here launches a ",
+              "simulation; the docs build only loads cached artifacts and embeds them inline.\n\n")
 
-    The figures and movies below come from the most recent **successful** run of
-    this case recorded by the deployment workflow. If a run has not completed (or
-    its artifacts are missing) a status card is shown instead — the documentation
-    build never launches a simulation.
-
-    ```@setup $(slug)_results
-    import Main.TutorialWorkflow as TW
-
-    const _REPO_ROOT = raw"$(REPO_ROOT)"
-    const _SLUG = "$(slug)"
-    const _FIGURES = $(figs)
-    const _MOVIES = $(movs)
-
-    _case() = begin
-        reg = TW.case_registry(_REPO_ROOT)
-        idx = findfirst(c -> c.slug == _SLUG, reg)
-        idx === nothing ? nothing : reg[idx]
-    end
-
-    # Copy a cached artifact into the page build dir; return its basename (a
-    # path relative to the rendered page) or nothing if unavailable.
-    function _localize(name)
-        c = _case()
-        c === nothing && return nothing
-        src = TW.safe_artifact(c, name; root = _REPO_ROOT)
-        src === nothing && return nothing
-        dst = joinpath(@__DIR__, name)
-        try
-            cp(src, dst; force = true)
-        catch
-            return nothing
-        end
-        return name
-    end
-
-    _admonition(kind, title, body) =
-        string("!!! ", kind, " \\"", title, "\\"\\n\\n    ", body, "\\n")
-
-    # Status banner from the latest success / latest attempt pointers.
-    function _banner()
-        c = _case()
-        c === nothing && return _admonition("danger", "Unknown case",
-            "No registry entry for `" * _SLUG * "`.")
-        ok = TW.safe_latest_success(c; root = _REPO_ROOT)
-        if ok !== nothing && ok.status == "success"
-            cur = TW.outputs_are_current(c; root = _REPO_ROOT)
-            when = isempty(ok.finished) ? ok.started : ok.finished
-            note = cur ? "Outputs are current." :
-                "Outputs are from a previous configuration (parameters/source/manifest changed)."
-            return _admonition("info", "Last successful run: " * ok.run_id,
-                "Finished " * when * ". " * note)
-        end
-        attempt = try
-            TW.latest_attempt(c; root = _REPO_ROOT)
-        catch
-            nothing
-        end
+    # Status banner (static, evaluated now at make.jl time).
+    ok = case === nothing ? nothing : _safe(() -> TutorialWorkflow.safe_latest_success(case; root = REPO_ROOT))
+    if ok !== nothing && ok.status == "success"
+        cur = something(_safe(() -> TutorialWorkflow.outputs_are_current(case; root = REPO_ROOT)), false)
+        when = isempty(ok.finished) ? ok.started : ok.finished
+        note = cur ? "Outputs are current." :
+            "Outputs are from a previous configuration (parameters/source/manifest changed)."
+        print(io, _admon("info", "Last successful run: " * ok.run_id, "Finished " * when * ". " * note))
+    else
+        attempt = case === nothing ? nothing : _safe(() -> TutorialWorkflow.latest_attempt(case; root = REPO_ROOT))
         if attempt === nothing
-            return _admonition("danger", "No run yet",
-                "This case has not been run by the deployment workflow.")
+            print(io, _admon("danger", "No run yet",
+                "This case has not been run by the deployment workflow."))
         else
-            return _admonition("warning",
-                "No successful run (last status: " * attempt.status * ")",
-                "Showing the last known good artifacts if any exist below.")
+            print(io, _admon("warning", "No successful run (last status: " * attempt.status * ")",
+                "Showing last-known-good artifacts below if any exist."))
         end
     end
 
-    function _figure_md(name)
-        local rel = _localize(name)
-        rel === nothing && return _admonition("warning", "Figure unavailable",
-            "`" * name * "` was not found in the latest successful run.")
-        return string("![", name, "](", rel, ")\\n")
+    _artifact(name) = case === nothing ? nothing :
+        _safe(() -> TutorialWorkflow.safe_artifact(case, name; root = REPO_ROOT))
+
+    # Figures: inline as base64 data-URI images so they always render in the
+    # built site regardless of Documenter's prettyurls asset handling.
+    for name in spec.figures
+        src = _artifact(name)
+        if src === nothing || !isfile(src)
+            print(io, _admon("warning", "Figure unavailable",
+                "`" * name * "` was not found in the latest successful run."))
+        else
+            # Use raw HTML (not markdown ![](...)) so Documenter does not try to
+            # resolve the data URI as a local file path.
+            print(io, "```@raw html\n<img alt=\"", name,
+                  "\" style=\"max-width:100%;height:auto\" src=\"data:image/png;base64,",
+                  base64encode(read(src)), "\">\n```\n\n")
+        end
     end
 
-    function _movie_md(name)
-        local rel = _localize(name)
-        rel === nothing && return _admonition("warning", "Movie unavailable",
-            "`" * name * "` was not found in the latest successful run.")
-        return string(
-            "```@raw html\\n",
-            "<video controls width=\\"100%\\" src=\\"", rel, "\\"></video>\\n",
-            "```\\n",
-            "[Download ", name, "](", rel, ")\\n")
+    # Movies: inline as a base64 data-URI <video> in a raw-HTML block.
+    for name in spec.movies
+        src = _artifact(name)
+        if src === nothing || !isfile(src)
+            print(io, _admon("warning", "Movie unavailable",
+                "`" * name * "` was not found in the latest successful run."))
+        else
+            print(io, "```@raw html\n<video controls width=\"100%\" src=\"data:video/mp4;base64,",
+                  base64encode(read(src)), "\"></video>\n```\n\n")
+        end
     end
 
-    function results_md()
-        io = IOBuffer()
-        print(io, _banner(), "\\n")
-        for f in _FIGURES
-            print(io, _figure_md(f), "\\n")
-        end
-        for m in _MOVIES
-            print(io, _movie_md(m), "\\n")
-        end
-        return String(take!(io))
-    end
-    nothing
-    ```
-
-    ```@example $(slug)_results
-    using Markdown
-    Markdown.parse(results_md())
-    ```
-    """
-
-    open(page_md, "a") do io
-        # de-indent the heredoc (it is indented by 4 for readability above)
-        for line in eachline(IOBuffer(setup); keep = true)
-            print(io, replace(line, r"^    " => ""))
-        end
+    open(page_md, "a") do f
+        write(f, String(take!(io)))
     end
     return nothing
 end
+
 
 # ============================================================================
 # Render the Literate sources for the selected days.
