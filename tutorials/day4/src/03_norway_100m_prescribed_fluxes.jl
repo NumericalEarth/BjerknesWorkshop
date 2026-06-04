@@ -59,10 +59,6 @@ using Random
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-## Diagnostic checkpoint with forced flush (file/pipe stderr is otherwise buffered).
-checkpoint(msg) = (@info "⏱ $msg ($(round(1e-9*(time_ns()-_t0[]), digits=1)) s)"); flush(stderr)
-const _t0 = Ref(time_ns())
-
 Random.seed!(100)
 
 config = RunConfig("03_norway_100m")
@@ -169,7 +165,6 @@ grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
 # worth confirming.
 materialize_terrain!(grid, (x, y) -> h_fun(x, y))
 @info "Terrain materialized into grid."
-checkpoint("terrain materialized")
 
 # ## Compressible dynamics with acoustic substepping
 #
@@ -201,7 +196,6 @@ dynamics = CompressibleDynamics(time_discretization;
                                 slope_stencil = SlopeInsideInterpolation(),
                                 surface_pressure = p₀,
                                 reference_potential_temperature = potential_temperature_profile)
-checkpoint("dynamics built")
 
 # ## Prescribed surface fluxes over land and ocean: pick a regime and commit to it
 #
@@ -268,7 +262,6 @@ closure = SmagorinskyLilly()
 model = AtmosphereModel(grid; dynamics, advection, closure,
                         timestepper = :AcousticRungeKutta3,
                         boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
-checkpoint("model built")
 
 # ## Initial conditions
 #
@@ -303,9 +296,7 @@ end
 
 set!(model, ρ = model.dynamics.terrain_reference_density,
      θ = θᵢ, u = uᵢ, v = 0, w = 0, enforce_mass_conservation = false)
-checkpoint("set! done")
 Oceananigans.TimeSteppers.update_state!(model)
-checkpoint("update_state! done")
 
 # ## Simulation
 #
@@ -371,7 +362,6 @@ simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
 ## (No full-3D field output — the near-surface slices and transect drive the visualization.)
 
 write_once!(simulation.output_writers[:statics], model)
-checkpoint("statics written; starting run!")
 
 # ## Go time
 run!(simulation)
