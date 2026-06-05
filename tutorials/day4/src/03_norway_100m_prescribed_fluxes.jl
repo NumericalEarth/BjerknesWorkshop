@@ -60,9 +60,8 @@ using Random
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-# Per-phase wall-clock timing with a forced flush. This case has a slow startup
-# (see the performance note below); the checkpoints make each phase observable in
-# the (otherwise block-buffered) job log.
+# Per-phase wall-clock timing with a forced flush, for visibility into the
+# (compile-dominated) startup of this large compressible terrain run.
 const _t0 = Ref(time_ns())
 checkpoint(msg) = (@info @sprintf("⏱ %-26s %8.1f s", msg, 1e-9 * (time_ns() - _t0[])); flush(stderr))
 
@@ -111,35 +110,28 @@ land_fun = bilinear(land_data, xt, yt)
 
 # ## Grid and terrain-following vertical coordinate
 #
-# 100 km × 100 km × 12 km. The **production target is 100 m** horizontal
-# (1000 × 1000), which resolves the O(1–3 km) fjord gaps with ≥4–6 cells across and
-# the shallow-convection rolls of a cold-air outbreak. Here we run a far coarser
-# **625 m smoke grid** (160 × 160 × 64 ≈ 1.6 million cells) so the run completes
-# quickly on one H100.
+# 100 km × 100 km × 12 km at the **100 m production resolution**:
+# 1000 × 1000 × 160 ≈ 160 million cells. This resolves the O(1–3 km) fjord gaps with
+# ≥4–6 cells across, so the gap jets, windward flow splitting, and lee eddies are
+# sharp rather than blurred.
 #
-# !!! warning "Performance caveat — keep this grid modest"
-#     This compressible, terrain-following case has shown a **slow / stalling
-#     startup at large grids (≈256³ and above) on H100** (acoustic substepping +
-#     SLEVE coordinate construction). Keep the grid at or below ≈160×160×64 and the
-#     `stop_time` short (≤10 min sim) so the example finishes. Scaling up to the
-#     312.5 m smoke (256²) or the 100 m production target (1000²) requires
-#     **profiling first** — do not bump `Nx`/`Ny` blindly.
-#
-# !!! note "Resolution lowers the effective peak height (and M)"
-#     Lofoten fjord gaps are O(1–3 km); at 625 m a 1.5 km gap is only ~2–3 cells, so
-#     gap jets here will be weak and blurred — *do not over-interpret the absence of
-#     a sharp jet in this smoke run*. Coarsening also lowers the resolved peak height
-#     and pushes the achieved `M` below the nominal 1.35; the narrowest fjord jets
-#     and the cleanest blocking only emerge at the 100 m production grid.
+# !!! note "Runs on one H100 in ≈ 30 minutes"
+#     At 160 M cells this uses ≈ 14 GiB and completes 10 min of simulated time in
+#     ≈ 29 min wall on one H100 (model construction ≈ 46 s). This is only practical
+#     because the terrain reference-state (Exner) build was moved from a per-cell
+#     scalar host loop to a GPU column kernel in Breeze — without that fix,
+#     constructing the model at this size took *hours*. For a quick teaching run,
+#     coarsen to e.g. `Nx = Ny = 256, Nz = 64` (≈ 4 M cells, a few minutes), at the
+#     cost of blurring the narrowest fjord jets and lowering the effective `M`.
 
 const Lx = 100kilometers
 const Ly = 100kilometers
 const Lz = 12kilometers
 
-## Smoke grid (one H100, fast). Production target is 100 m ⇒ Nx = Ny = 1000 (profile first).
-const Nx = 160
-const Ny = 160
-const Nz = 64
+## 100 m production grid (≈160M cells, ~30 min on one H100). Coarsen for a quick run.
+const Nx = 1000
+const Ny = 1000
+const Nz = 160
 
 function stretched_z_faces(Lz, Nz; stretching = 1.1)
     σ(k) = (k - 1) / Nz
