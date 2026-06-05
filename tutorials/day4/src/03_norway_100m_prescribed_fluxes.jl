@@ -46,6 +46,7 @@
 # data live. We run a single dry configuration sized for one H100.
 
 using Breeze
+using Breeze: BulkDrag
 using Oceananigans
 using Oceananigans.Units
 using Oceananigans.Grids: xnode, ynode
@@ -223,20 +224,23 @@ checkpoint("dynamics built")
 #      (`Qʰ_land ≈ 0 to -10 W/m²`). This lights up vigorous convective plumes in the
 #      island wakes and pairs naturally with the terrain-forced jets.
 #
-# In *both* regimes the **land drags more than the ocean** (rougher surface;
-# `z₀_land ~ 0.1–1 m` vs. `z₀_ocean ~ 1e-4 m`): `τ_land ~ 0.1–0.2`,
-# `τ_ocean ~ 0.03–0.06 N/m²`. That contrast sharpens the coastal wind-speed jump that
-# helps organize the gap and barrier jets.
+# For momentum we use Breeze's `BulkDrag`, which applies the velocity-dependent
+# quadratic surface stress `Jᵘ = -Cᴰ |U| ρu` (opposing the *local* wind, so it
+# vanishes in calm air and lee eddies — unlike a constant prescribed stress). We
+# use a single representative neutral drag coefficient; the land/ocean contrast is
+# carried by the heat flux, which is the dominant driver of the cold-air outbreak.
+# (A land/ocean-varying `Cᴰ` would need a spatially varying coefficient, which
+# `BulkDrag` does not currently take.)
 #
 # We default to the **cold-air-outbreak** regime below. To switch to the summer case,
-# set `Qʰ_land = 150`, `Qʰ_ocean = 40` and keep both positive (land > ocean). We
-# precompute the surface flux as 2D arrays on the grid (GPU-safe) and pass them
-# directly to the boundary conditions.
+# set `Qʰ_land = 150`, `Qʰ_ocean = 40` and keep both positive (land > ocean). The
+# heat flux is precomputed as a 2D array on the grid (GPU-safe).
 
 ## --- Cold-air-outbreak (winter, ocean-heated) regime ---
 const Qʰ_ocean = FT(200);  const Qʰ_land = FT(-10)    # W m⁻²  (ocean is the heat source)
 ## --- Summer (land-heated) alternative: Qʰ_land = FT(150); Qʰ_ocean = FT(40) ---
-const τx_land  = FT(0.12); const τx_ocean = FT(0.05)  # N m⁻²  (land rougher ⇒ more drag)
+const Cᴰ = FT(1.5e-3)         # neutral bulk drag coefficient (uniform)
+const gustiness = FT(0.5)     # m s⁻¹, floor on |U| so calm air does not divide by zero
 
 q₀ = Breeze.Thermodynamics.MoistureMassFractions{FT} |> zero
 constants = ThermodynamicConstants()
@@ -247,26 +251,19 @@ yc = [ynode(j, grid, Center()) for j in 1:Ny]
 ℵ = [land_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]   # land fraction
 
 ρθ_surface = Oceananigans.on_architecture(arch, FT.((ℵ .* Qʰ_land .+ (1 .- ℵ) .* Qʰ_ocean) ./ cₚ))
-## Momentum flux prescribed as a drag (negative) — see sign warning below.
-ρu_surface = Oceananigans.on_architecture(arch, FT.(-(ℵ .* τx_land .+ (1 .- ℵ) .* τx_ocean)))
 
-# !!! note "Sign convention (verified) and the constant-drag caveat"
-#     Signs are correct: a positive bottom `ρθ` flux *heats* the atmosphere (so the
-#     warm ocean, `Qʰ_ocean > 0`, drives the cold-air-outbreak plumes and the cold
-#     land, `Qʰ_land < 0`, stabilizes), and the negative `ρu_surface` is a drag that
-#     removes momentum — matching Breeze's `bomex.jl`/`neutral_atmospheric_boundary_layer.jl`
-#     (a bottom flux is *added* to the tendency).
-#
-#     **Caveat (a real limitation, not a bug):** unlike the velocity-dependent drag
-#     in case 1, this momentum flux is a *constant* prescribed stress, independent of
-#     the local wind. It removes momentum at the same rate even where the wind is weak
-#     or reversed (in lee eddies), so it is only physically faithful where the flow is
-#     consistently one-signed and brisk. A velocity-dependent bulk drag
-#     (`τ = ρ Cᴰ |u| u`, with a land/ocean `Cᴰ`) is the correct upgrade — left as a
-#     follow-up to keep the surface BC a simple, GPU-friendly static array here.
+# !!! note "Sign convention (verified)"
+#     A bottom flux is *added* to the tendency in Breeze, so a positive `ρθ` flux
+#     heats the atmosphere (warm ocean `Qʰ_ocean > 0` drives the cold-air-outbreak
+#     plumes; cold land `Qʰ_land < 0` stabilizes). `BulkDrag` supplies the negative
+#     (wind-opposing) momentum flux — matching `bomex.jl` / the prescribed-SST example.
 
+## Velocity-dependent surface drag via Breeze's BulkDrag (the same object works for
+## both ρu and ρv; the momentum direction is inferred from the field location).
+drag = BulkDrag(coefficient = Cᴰ, gustiness = gustiness)
 ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρθ_surface))
-ρu_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρu_surface))
+ρu_bcs = FieldBoundaryConditions(bottom = drag)
+ρv_bcs = FieldBoundaryConditions(bottom = drag)
 
 # ## Model
 
@@ -275,7 +272,7 @@ closure = SmagorinskyLilly()
 
 model = AtmosphereModel(grid; dynamics, advection, closure,
                         timestepper = :AcousticRungeKutta3,
-                        boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
+                        boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs, ρv = ρv_bcs))
 checkpoint("model built")
 
 # ## Initial conditions
