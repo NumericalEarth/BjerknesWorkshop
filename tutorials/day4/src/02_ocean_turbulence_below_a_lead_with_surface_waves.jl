@@ -30,6 +30,15 @@
 # momentum, so passing a `StokesDrift` is all that is required — the vortex force
 # is added automatically.
 #
+# Crucially the wave field is **localized to the lead**: gravity waves grow over the
+# open water and are strongly damped once they propagate beneath the surrounding
+# ice (Tavri, Horvat & Pearson et al. 2026). We therefore use a **horizontally
+# varying ("3D") Stokes drift** `vˢ(x, z) = Uˢ(x) e^{2kz}` with `Uˢ(x)` confined to
+# the open lead — not the horizontally uniform Stokes drift of an open-ocean
+# Langmuir study. The across-lead gradient `∂x vˢ` this introduces is itself a
+# turbulence source (the crosswind-Stokes effect of Pearson, Grant & Polton 2019)
+# and concentrates the Langmuir cells and downwelling jets over the open water.
+#
 # The whole point of this case is the comparison, so the script runs **both** the
 # no-waves control and the waves case, one after the other, and writes a separate
 # set of outputs for each. The gallery (`04_...`) loads both.
@@ -62,6 +71,15 @@
 #       https://doi.org/10.1029/2001JC000822
 #     - Harcourt, R. R. & D'Asaro, E. A. (2008). *J. Phys. Oceanogr.* **38**,
 #       1542–1562. https://doi.org/10.1175/2007JPO3842.1
+#     - Pearson, B. C., Grant, A. L. M. & Polton, J. A. (2019). Pressure–strain
+#       terms in Langmuir turbulence. *J. Fluid Mech.* **880**, 5–31.
+#       https://doi.org/10.1017/jfm.2019.701 — crosswind-Stokes (∂x vˢ) as a source.
+#     - Wang, X., Kukulka, T. et al. (2022). Wind fetch and direction effects on
+#       Langmuir turbulence. *JGR Oceans* **127**, e2021JC018222.
+#       https://doi.org/10.1029/2021JC018222 — fetch-limited (young) waves & weaker LT.
+#     - Breivik, Ø., Janssen, P. A. E. M. & Bidlot, J.-R. (2014). Approximate
+#       Stokes drift profiles in deep water. *J. Phys. Oceanogr.* **44**, 2433–2445.
+#       https://doi.org/10.1175/JPO-D-14-0020.1 — broadband alternative to e^{2kz}.
 
 using Oceananigans
 using Oceananigans.Units
@@ -80,16 +98,18 @@ const FT = Float32
 
 # ## Domain, grid, and fixed parameters
 #
-# A 2 km × 1 km × 160 m domain at 6.25 m horizontal resolution with a stretched
-# vertical refined near the surface: 320 × 160 × 128 ≈ 6.6 million cells per run.
+# A 2 km × 1 km × 160 m domain at **2 m** horizontal resolution with a stretched
+# vertical refined near the surface: 1000 × 500 × 256 ≈ **128 million cells per run**
+# — the production target (run twice: no-waves control + waves). For a quick
+# teaching run coarsen to e.g. `Nx, Ny, Nz = 320, 160, 128` (~6.6 M cells).
 
 const Lx = 2kilometers   # across-lead
 const Ly = 1kilometer    # along-lead / wind / waves
 const Lz = 160meters     # depth
 
-const Nx = 320
-const Ny = 160
-const Nz = 128
+const Nx = 1000
+const Ny = 500
+const Nz = 256
 
 const refinement = 1.2   # higher → finer near surface
 const stretching = 8.0   # higher → faster coarsening at depth
@@ -119,20 +139,53 @@ const dSdz = FT(0.02)      # g kg⁻¹ m⁻¹, interior haline stratification (h
                            #   so a stable halocline below the fresh mixed layer sets the
                            #   restratification that the plumes and Langmuir cells work against.
 
-# Surface waves: a monochromatic deep-water wave field traveling along `y`. Its
-# Stokes drift decays as `exp(2k z)`; we pass the vertical derivative `∂z vˢ`,
-# and Oceananigans builds the vortex force internally. `const` lets the Stokes
-# functions compile on the GPU.
-const wave_amplitude = FT(0.8)               # m, swell-like amplitude (a local wind sea would be ≈ 0.4–0.6 m)
-const wavelength     = FT(60)                # m, swell long enough to penetrate the whole mixed layer
-const wavenumber     = FT(2π) / wavelength   # m⁻¹
-const g_earth        = FT(9.81)
-const wave_frequency = sqrt(g_earth * wavenumber)              # deep-water dispersion ω = √(g k)
-const Uˢ             = wave_amplitude^2 * wavenumber * wave_frequency  # surface Stokes drift ≈ 0.068 m s⁻¹
-# Stokes-drift e-folding depth 1/(2k) ≈ 4.8 m. A longer swell (80–150 m) would
-# shear the full mixed layer and deepen the active Langmuir region.
+# ## Surface waves: a horizontally varying ("3D") Stokes drift
+#
+# Waves travel along the lead axis `y` with Stokes drift `vˢ(x, z) = Uˢ(x) e^{2kz}`.
+# Two things make this *3D* rather than the horizontally uniform Stokes drift of an
+# open-ocean Langmuir study:
+#
+#  1. **Lead localization.** The surface Stokes drift `Uˢ(x)` is confined to the
+#     open water and decays under the flanking ice over a short attenuation length,
+#     because waves are strongly damped once they propagate beneath sea ice
+#     (Tavri, Horvat & Pearson et al. 2026). We reuse a smooth top-hat for `Uˢ(x)`.
+#  2. **Across-lead gradient.** The resulting `∂x vˢ` is a genuine forcing term — the
+#     crosswind-Stokes effect of Pearson, Grant & Polton (2019) — which concentrates
+#     the Langmuir cells and their downwelling jets over the open lead.
+#
+# We use Oceananigans' general `StokesDrift`, supplying the two nonzero gradients of
+# `vˢ(x, z)`: the Stokes shear `∂z vˢ` (the primary Langmuir driver) and the
+# across-lead gradient `∂x vˢ`. The deep-water monochromatic profile `e^{2kz}` is the
+# standard choice (a broadband Breivik et al. 2014 profile would sharpen the
+# near-surface shear). `const`s let the functions compile on the GPU.
+#
+# Fetch-limited lead waves are short, so we take a young-sea wavelength `λ = 20 m`
+# (`k ≈ 0.31 m⁻¹`, e-folding `1/(2k) ≈ 1.6 m`). The surface Stokes drift is set from
+# the target open-water turbulent Langmuir number `Laₜ = √(u★/Uˢ) ≈ 0.3` — the
+# wave-favorable regime for Arctic open water/MIZ (Tavri et al. 2026) — giving
+# `Uˢ_max ≈ u★ / Laₜ² ≈ 11 u★ ≈ 0.11 m s⁻¹` (steepness `ka ≈ 0.13`, amplitude ≈ 0.45 m).
+const wavelength = FT(20)                 # m, fetch-limited young lead waves
+const wavenumber = FT(2π) / wavelength    # m⁻¹  (k ≈ 0.31)
+const Uˢ_max     = FT(0.11)               # m s⁻¹ surface Stokes drift over open water (Laₜ ≈ 0.3)
+const Wʷᵃᵛᵉ      = Wˡᵉᵃᵈ                  # waves fill the open lead
+const δʷᵃᵛᵉ      = FT(40)                 # m, under-ice wave-attenuation length
 
-@inline ∂z_vˢ(z, t) = 2 * wavenumber * Uˢ * exp(2 * wavenumber * z)
+# Smooth top-hat localization Uˢ(x)/Uˢ_max ∈ [0,1] and its x-derivative (analytic),
+# so the Stokes drift lives over the lead and decays under the ice.
+@inline _ramp(r, δ)  = (1 + tanh(r / δ)) / 2
+@inline _dramp(r, δ) = (1 - tanh(r / δ)^2) / (2δ)
+@inline function _wave_mask(x, p)
+    return _ramp(x + p.W/2, p.δ) * _ramp(p.W/2 - x, p.δ)
+end
+@inline function _wave_mask_dx(x, p)
+    s1 = _ramp(x + p.W/2, p.δ); s2 = _ramp(p.W/2 - x, p.δ)
+    return _dramp(x + p.W/2, p.δ) * s2 - s1 * _dramp(p.W/2 - x, p.δ)
+end
+
+# The two nonzero Stokes-drift gradients of vˢ(x,z) = Uˢ_max·mask(x)·exp(2k z).
+@inline ∂z_vˢ(x, y, z, t, p) = _wave_mask(x, p)    * 2p.k * p.Uˢ * exp(2 * p.k * z)
+@inline ∂x_vˢ(x, y, z, t, p) = _wave_mask_dx(x, p) *        p.Uˢ * exp(2 * p.k * z)
+const stokes_parameters = (; Uˢ = Uˢ_max, k = wavenumber, W = Wʷᵃᵛᵉ, δ = δʷᵃᵛᵉ)
 
 # ### Surface flux functions
 #
@@ -188,7 +241,7 @@ function run_ocean_case(waves::Bool)
                                     bottom = GradientBoundaryCondition(dSdz))
     v_bcs = FieldBoundaryConditions(top = FluxBoundaryCondition(τy; parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, τ = τʸ_lead)))
 
-    stokes_drift = waves ? UniformStokesDrift(∂z_vˢ = ∂z_vˢ) : nothing
+    stokes_drift = waves ? StokesDrift(; ∂z_vˢ, ∂x_vˢ, parameters = stokes_parameters) : nothing
 
     model = NonhydrostaticModel(grid;
                                 advection = WENO(order = 9),
@@ -214,15 +267,15 @@ function run_ocean_case(waves::Bool)
     uᵢ(x, y, z) = u★ * 1e-1 * Ξ(z)
     set!(model, T = Tᵢ, S = Sᵢ, u = uᵢ, v = uᵢ, w = uᵢ)
 
-    ## Turbulent Langmuir number Laₜ = √(u★ / Uˢ) (McWilliams, Sullivan & Moeng 1997).
+    ## Turbulent Langmuir number Laₜ = √(u★ / Uˢ_max) (McWilliams, Sullivan & Moeng 1997).
     ## Laₜ ≲ 0.3–0.5 → Langmuir-dominated; ≈ 1 → shear-dominated. With waves on,
-    ## Uˢ ≈ 0.068 m s⁻¹ and u★ ≈ 0.010 m s⁻¹ give Laₜ ≈ 0.38, firmly Langmuir-dominated.
-    ## Belcher et al. (2012) / Pearson et al. (2015) place this regime where waves
-    ## reorganize the convective + wind-driven turbulence into Langmuir cells.
+    ## Over the open lead Uˢ_max ≈ 0.11 m s⁻¹ and u★ ≈ 0.010 m s⁻¹ give Laₜ ≈ 0.30,
+    ## the wave-favorable regime (Laₜ < 0.43; Tavri et al. 2026); under the ice the
+    ## Stokes drift → 0 so the flanks are shear/convection-dominated (Laₜ → ∞).
     if waves
-        Laₜ = sqrt(u★ / Uˢ)
-        @info @sprintf("[%s] Langmuir diagnostics: u★ = %.4f m/s, Uˢ = %.4f m/s, Laₜ = %.2f (Langmuir-dominated)",
-                       label, u★, Uˢ, Laₜ)
+        Laₜ = sqrt(u★ / Uˢ_max)
+        @info @sprintf("[%s] Langmuir diagnostics (open lead): u★ = %.4f m/s, Uˢ_max = %.4f m/s, Laₜ = %.2f",
+                       label, u★, Uˢ_max, Laₜ)
     else
         @info @sprintf("[%s] No waves: shear/convection only (Uˢ = 0, Laₜ → ∞)", label)
     end

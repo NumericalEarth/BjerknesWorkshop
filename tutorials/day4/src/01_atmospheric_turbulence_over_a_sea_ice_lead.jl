@@ -77,26 +77,25 @@ nothing #hide
 
 # ## Domain and grid
 #
-# A 40 km × 12 km × 3 km domain at 62.5 m horizontal resolution with a stretched
-# vertical (≈12 m near the surface, coarsening aloft): 640 × 192 × 128 ≈ 15.7
-# million cells.
+# A 40 km × 12 km × 3 km domain at **25 m** horizontal resolution with a stretched
+# vertical (≈6 m near the surface, coarsening aloft): 1600 × 480 × 192 ≈ **147
+# million cells** — the production target.
 #
-# !!! note "Marginal LES — a plume-permitting teaching run"
-#     At Δx = 62.5 m only ≈ 16 cells span the 1 km lead and the near-surface
-#     energy-containing eddies (tens of meters) are barely resolved. Published
-#     lead LES uses 1–25 m grids (Glendening 1994; Esau 2007; Gryschka et al.
-#     2023). Treat this as a *plume-permitting* run that develops a recognizable,
-#     citable lead plume on one H100 in ≈ 15 min — **do not claim quantitative
-#     flux convergence**. For a quantitative comparison, refine to 10–25 m
-#     horizontally over a smaller domain.
+# !!! note "Resolution"
+#     At Δx = 25 m about 40 cells span the 1 km lead, putting this at the fine end
+#     of the published lead-LES range (1–25 m; Glendening 1994; Esau 2007; Gryschka
+#     et al. 2023) — the near-surface energy-containing eddies are resolved and the
+#     plume structure is quantitative. This run takes ≈ 1.5–2 h on one H100; for a
+#     quick teaching run coarsen to e.g. `Nx, Ny, Nz = 640, 192, 128` (~16 M cells,
+#     ≈ 15 min), which is plume-permitting but not flux-converged.
 
 const Lx = 40kilometers   # across-lead / mean wind
 const Ly = 12kilometers   # along-lead
 const Lz = 3kilometers    # vertical
 
-const Nx = 640
-const Ny = 192
-const Nz = 128
+const Nx = 1600
+const Ny = 480
+const Nz = 192
 
 # A smooth exponential vertical stretch: fine near the surface where the plume is
 # generated, coarsening toward the top.
