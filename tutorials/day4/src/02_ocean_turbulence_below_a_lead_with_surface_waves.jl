@@ -98,18 +98,21 @@ const FT = Float32
 
 # ## Domain, grid, and fixed parameters
 #
-# A 2 km × 1 km × 160 m domain at **2 m** horizontal resolution with a stretched
-# vertical refined near the surface: 1000 × 500 × 256 ≈ **128 million cells per run**
-# — the production target (run twice: no-waves control + waves). For a quick
-# teaching run coarsen to e.g. `Nx, Ny, Nz = 320, 160, 128` (~6.6 M cells).
+# A 2 km × 1 km × 160 m domain at ~4 m horizontal resolution with a stretched
+# vertical refined near the surface: 512 × 256 × 128 ≈ **17 million cells per run**
+# (run twice: no-waves control + waves). We deliberately run at half the 2 m
+# "production" resolution but for **4 hours** of simulated time: Langmuir cells and
+# mixed-layer deepening develop over hours, so a longer, slightly coarser run shows
+# far more evolution than a short ultra-fine one. Refine to 1000×500×256 @ 2 m for a
+# production rendering once the science is set.
 
 const Lx = 2kilometers   # across-lead
 const Ly = 1kilometer    # along-lead / wind / waves
 const Lz = 160meters     # depth
 
-const Nx = 1000
-const Ny = 500
-const Nz = 256
+const Nx = 512
+const Ny = 256
+const Nz = 128
 
 const refinement = 1.2   # higher → finer near surface
 const stretching = 8.0   # higher → faster coarsening at depth
@@ -280,7 +283,7 @@ function run_ocean_case(waves::Bool)
         @info @sprintf("[%s] No waves: shear/convection only (Uˢ = 0, Laₜ → ∞)", label)
     end
 
-    simulation = Simulation(model; Δt = 1.0, stop_time = 30minutes)
+    simulation = Simulation(model; Δt = 1.0, stop_time = 4hours)
     conjure_time_step_wizard!(simulation, cfl = 0.7, max_Δt = 30.0)
 
     wall_clock = Ref(time_ns())
