@@ -117,11 +117,11 @@ dates   = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
 dataset = GLORYSMonthly()
 region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1))
 
-Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid)
-Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid)
-uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid)
-vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid)
-ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid)
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100)
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100)
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100)
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100)
+ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100)
 nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
@@ -175,7 +175,7 @@ S_obcs = FieldBoundaryConditions(
         wet = !immersed_peripheral_node(1, j, k, grid, Face(), Center(), Center())
         U += ifelse(wet, p.u[1, j, k, t] * Δzᶠᶜᶜ(1, j, k, grid), zero(U))
     end
-    return (U, @inbounds p.η[1, j, t])
+    return (U, @inbounds p.η[1, j, 1, t])
 end
 
 @inline function east_U_obc(i, j, grid, clock, fields, p)
@@ -185,7 +185,7 @@ end
         wet = !immersed_peripheral_node(grid.Nx + 1, j, k, grid, Face(), Center(), Center())
         U += ifelse(wet, p.u[grid.Nx + 1, j, k, t] * Δzᶠᶜᶜ(grid.Nx + 1, j, k, grid), zero(U))
     end
-    return (U, @inbounds p.η[grid.Nx, j, t])
+    return (U, @inbounds p.η[grid.Nx, j, 1, t])
 end
 
 @inline function north_V_obc(i, j, grid, clock, fields, p)
@@ -195,7 +195,7 @@ end
         wet = !immersed_peripheral_node(i, grid.Ny + 1, k, grid, Center(), Face(), Center())
         V += ifelse(wet, p.v[i, grid.Ny + 1, k, t] * Δzᶜᶠᶜ(i, grid.Ny + 1, k, grid), zero(V))
     end
-    return (V, @inbounds p.η[i, grid.Ny, t])
+    return (V, @inbounds p.η[i, grid.Ny, 1, t])
 end
 
 U_obcs = FieldBoundaryConditions(grid, (Face(), Center(), nothing);
@@ -218,11 +218,10 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
 
-@inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2),
-                                      rim(φ, 67, 0.5), rim(φ, 80, 0.5))
+@inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset = glorys, region), arch; rate = 1/5days, mask = sponge_mask)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset = glorys, region), arch; rate = 1/5days, mask = sponge_mask)
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
@@ -253,25 +252,20 @@ sea_ice = sea_ice_simulation(grid, ocean; advection = WENO(order = 7))
 # boundary data agree from the first time step. Temperature and salinity go to the ocean, thickness and
 # concentration to the ice; one `MetadataSet` feeds both models, each picking up the variables it owns:
 
-date = first(dates)
-glorys_variables = (:temperature, :salinity, :sea_ice_thickness, :sea_ice_concentration)
-glorys_set = MetadataSet(glorys_variables; dataset = glorys, date, region)
-
-set!(ocean.model,   glorys_set)
-set!(sea_ice.model, glorys_set)
+set!(ocean.model, T = Tᵉˣᵗ[1], S = Sᵉˣᵗ[1])
+set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset=ECCO4Monthly()),
+                    ℵ = Metadatum(:sea_ice_concentration, date=dates[1], dataset=ECCO4Monthly()))
 
 # ## The atmosphere and the coupled model
 #
 # JRA55 reanalysis supplies winds, temperature, humidity, precipitation, radiation and runoff; the turbulent
 # fluxes are computed interactively from the evolving SST and ice surface temperature, exactly as in a coupled
-# climate model run under the OMIP protocol. `OceanSeaIceModel` owns the components and every interface
+# climate model run under the OMIP protocol. `EarthSystemModel` owns the components and every interface
 # between them — each exchanged flux is a `Field` you can inspect and output; there is no hidden coupler:
 
-atmosphere = JRA55PrescribedAtmosphere(arch)
-radiation  = JRA55PrescribedRadiation(arch)
-land       = JRA55PrescribedLand(arch)
-
-coupled_model = OceanSeaIceModel(ocean, sea_ice; atmosphere, land, radiation)
+atmosphere    = JRA55PrescribedAtmosphere(arch)
+radiation     = JRA55PrescribedRadiation(arch)
+coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
@@ -293,7 +287,7 @@ function progress(sim)
     return nothing
 end
 
-add_callback!(simulation, progress, TimeInterval(1day))
+add_callback!(simulation, progress, IterationInterval(10))
 
 # ## Output
 #
@@ -309,12 +303,12 @@ sea_ice_outputs = (h = sea_ice.model.ice_thickness,
 ocean.output_writers[:surface] = JLD2Writer(ocean.model, ocean_outputs;
                                             filename = "barents_ocean_surface.jld2",
                                             indices = (:, :, grid.Nz),
-                                            schedule = TimeInterval(1day),
+                                            schedule = TimeInterval(1days),
                                             overwrite_existing = true)
 
 sea_ice.output_writers[:surface] = JLD2Writer(sea_ice.model, sea_ice_outputs;
                                               filename = "barents_sea_ice_surface.jld2",
-                                              schedule = TimeInterval(1day),
+                                              schedule = TimeInterval(1days),
                                               overwrite_existing = true)
 
 # The big red button:
