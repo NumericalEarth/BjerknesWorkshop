@@ -1,0 +1,395 @@
+# # The Barents Sea: a regional coupled ocean–sea ice simulation
+#
+# *Tuesday — one day in the high-latitude ocean, part 6: all of it together.*
+#
+# Everything we touched today meets in one place, and it happens to be the sea outside
+# the window: the **Barents Sea**, where the Atlantic water that the eddies of part 2
+# carry north meets the ice whose thermodynamics and dynamics we built in parts 3
+# and 4. It is the region where the Arctic's "Atlantification" is unfolding fastest —
+# the ice edge retreating as the Atlantic inflow warms
+# ([Årthun et al., 2012](https://doi.org/10.1175/JCLI-D-11-00466.1);
+# [Smedsrud et al., 2013](https://doi.org/10.1002/rog.20017)) — and it makes an ideal
+# regional target: small enough to simulate at eddy-permitting resolution on one GPU,
+# rich enough to contain an ice edge, a polar front, a warm inflow, and a shelf.
+#
+# [NumericalEarth.jl](https://github.com/NumericalEarth/NumericalEarth.jl) supplies the
+# unglamorous 90% that separates today's idealized experiments from a real regional
+# simulation: bathymetry regridding, state-estimate initial conditions, reanalysis
+# forcing, bulk fluxes, and the ocean–ice coupling. Contrarily to the traditional
+# regional-modeling workflow — namelists, preprocessing executables, grid generators —
+# the configuration here *is the program*: the same script style we have used since
+# this morning's sill.
+#
+# !!! warning "Hardware and data requirements"
+#     This is a GPU tutorial: ~3 km resolution over the Barents Sea is a few million
+#     grid cells. The first run downloads GLORYS12 and JRA55 data (a few GB, cached for
+#     every later run); GLORYS lives at the Copernicus Marine Service, so you need a
+#     (free) account and a one-time `CopernicusMarine.login()`. On the workshop cluster
+#     the cache is pre-staged. On a laptop you can still read along, or halve every
+#     resolution number and run on the CPU with some patience.
+#
+# !!! warning "Development stack"
+#     The open boundary conditions used below live on the
+#     `ss/open-boundary-conditions` branch of Oceananigans, and the day-2 environment
+#     `dev`s that branch together with compat-adjusted ClimaSeaIce and NumericalEarth
+#     checkouts (see the `[sources]` section of the environment's `Project.toml`).
+#     Expect this section of the stack to evolve faster than the rest of the tutorial.
+
+using NumericalEarth
+using Oceananigans
+using Oceananigans.Units
+using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
+using Oceananigans.Units: Time
+using CopernicusMarine   # enables the GLORYS download extension
+using Dates
+using Printf
+
+arch = GPU()
+
+# ## A regional grid
+#
+# A latitude–longitude box from the Lofoten basin to Franz Josef Land: longitude
+# 5°E–60°E, latitude 67°N–80°N, at 1/8° — about 3.5 km zonally and 14 km meridionally
+# at these latitudes, eddy-permitting for the ~5 km Barents deformation radius. The
+# vertical grid concentrates 40 levels toward the surface over 4000 m, enough to hold
+# the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at
+# 200–400 m:
+
+λ₁, λ₂ = 5, 60    # longitude extent [°E]
+φ₁, φ₂ = 67, 80   # latitude extent [°N]
+
+Nx = 8 * (λ₂ - λ₁)
+Ny = 8 * (φ₂ - φ₁)
+Nz = 40
+
+depth = 4000meters
+z = ExponentialDiscretization(Nz, -depth, 0; scale = depth/4, mutable = true)
+
+underlying_grid = LatitudeLongitudeGrid(arch;
+                                        size = (Nx, Ny, Nz),
+                                        longitude = (λ₁, λ₂),
+                                        latitude = (φ₁, φ₂),
+                                        z,
+                                        halo = (7, 7, 7))
+
+bottom_height = regrid_bathymetry(underlying_grid;
+                                  minimum_depth = 15,
+                                  interpolation_passes = 5,
+                                  major_basins = 1)
+
+grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
+                            active_cells_map = true)
+
+# The same `ImmersedBoundaryGrid` as this morning's sill — Novaya Zemlya and the
+# Norwegian coast are just very large sills. Let's look at the stage:
+
+using CairoMakie
+
+h_bottom = interior(grid.immersed_boundary.bottom_height, :, :, 1)
+
+fig = Figure(size = (900, 350))
+ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]",
+          title = "Barents Sea bathymetry")
+hm = heatmap!(ax, range(λ₁, λ₂, Nx), range(φ₁, φ₂, Ny), h_bottom,
+              colormap = :deep, colorrange = (-depth, 0))
+Colorbar(fig[1, 2], hm, label = "bottom height [m]")
+save("barents_bathymetry.png", fig)
+nothing #hide
+
+# ![](barents_bathymetry.png)
+#
+# ## Open boundary conditions from GLORYS12
+#
+# A regional domain has open edges: Atlantic water must flow in through the western
+# boundary and Arctic water through the northern one. We treat them with genuine
+# **open boundary conditions**, fed by the GLORYS12 reanalysis (1/12°, monthly), in the
+# combination that regional modeling converged on decades ago:
+#
+# - the **barotropic mode** gets a Flather (1976) characteristic condition: the
+#   incoming Riemann invariant is prescribed, the outgoing one radiates freely — surface
+#   gravity waves leave the domain instead of sloshing back from the boundary;
+# - **baroclinic velocities and tracers** get an
+#   [Orlanski (1976)](https://doi.org/10.1016/0021-9991(76)90023-1) radiation condition
+#   with adaptive nudging
+#   ([Marchesiello et al., 2001](https://doi.org/10.1016/S1463-5003(00)00013-5)): the
+#   boundary value follows a locally-diagnosed phase speed on outflow, and relaxes
+#   toward the external data on inflow — strongly when the flow enters, weakly when it
+#   leaves.
+#
+# The external data: GLORYS12 monthly fields, pre-interpolated onto the model grid as
+# `FieldTimeSeries` with a lazy, GPU-aware backend that keeps two months in memory and
+# interpolates linearly in time. (The simulation clock starts at the first date below,
+# so model time and dataset time agree.)
+
+dates = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
+glorys = GLORYSMonthly()
+
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature; dates, dataset = glorys), grid)
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;    dates, dataset = glorys), grid)
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;  dates, dataset = glorys), grid)
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;  dates, dataset = glorys), grid)
+nothing #hide
+
+# Discrete boundary functions hand the external values to the boundary machinery: each
+# evaluates its `FieldTimeSeries` at the boundary index and the current clock time —
+# the same zero-overhead pattern as every forcing and flux function this week:
+
+@inline west_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[1,           j, k, Time(clock.time)]
+@inline east_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
+@inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Time(clock.time)]
+
+@inline east_u_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx + 1, j, k, Time(clock.time)]
+@inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny + 1, k, Time(clock.time)]
+nothing #hide
+
+# Radiation timescales à la Marchesiello: a day on inflow (the boundary follows GLORYS
+# closely where water enters), a month on outflow (the interior solution leaves
+# undisturbed). The south boundary is the Norwegian coast — land — and keeps the
+# default wall:
+
+radiation = Radiation(inflow_timescale = 1days, outflow_timescale = 30days)
+
+u_obcs = FieldBoundaryConditions(
+    west = NormalFlowBoundaryCondition(west_obc,   discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation),
+    east = NormalFlowBoundaryCondition(east_u_obc, discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation))
+
+v_obcs = FieldBoundaryConditions(
+    north = NormalFlowBoundaryCondition(north_v_obc, discrete_form = true, parameters = vᵉˣᵗ, scheme = radiation))
+
+T_obcs = FieldBoundaryConditions(
+    west  = ValueBoundaryCondition(west_obc,  discrete_form = true, parameters = Tᵉˣᵗ, scheme = radiation),
+    east  = ValueBoundaryCondition(east_obc,  discrete_form = true, parameters = Tᵉˣᵗ, scheme = radiation),
+    north = ValueBoundaryCondition(north_obc, discrete_form = true, parameters = Tᵉˣᵗ, scheme = radiation))
+
+S_obcs = FieldBoundaryConditions(
+    west  = ValueBoundaryCondition(west_obc,  discrete_form = true, parameters = Sᵉˣᵗ, scheme = radiation),
+    east  = ValueBoundaryCondition(east_obc,  discrete_form = true, parameters = Sᵉˣᵗ, scheme = radiation),
+    north = ValueBoundaryCondition(north_obc, discrete_form = true, parameters = Sᵉˣᵗ, scheme = radiation))
+
+# The Flather condition acts on the barotropic transports `U` and `V` — inside every
+# barotropic substep of the split-explicit solver — with zero external transport and
+# elevation: tides and external surges are not in this experiment, so the boundary's
+# job is purely to let the interior's own barotropic signals out (prescribing GLORYS
+# `zos` as the external elevation is a natural refinement):
+
+U_obcs = FieldBoundaryConditions(grid, (Face(), Center(), nothing);
+                                 west = FlatherBoundaryCondition((0, 0)),
+                                 east = FlatherBoundaryCondition((0, 0)))
+
+V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
+                                 north = FlatherBoundaryCondition((0, 0)))
+
+# ## ... and a sponge behind them
+#
+# Open boundary conditions are good at radiating what arrives perpendicularly and
+# following the prescribed inflow; they are imperfect for everything else (oblique
+# waves, boundary-trapped instabilities, slow drift). The standard belt-and-braces
+# complement is a thin **sponge layer** just inside the open edges, restoring toward
+# the same GLORYS12 data with `DatasetRestoring` — a 5-day timescale at the edge,
+# fading to nothing within a couple of degrees:
+
+# (The south rim is mostly Norwegian coast and keeps its wall, but its open southwest
+# corner — Norwegian Sea — relies entirely on the sponge, so it stays in the mask.)
+
+@inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
+
+@inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2),
+                                      rim(φ, 67, 0.5), rim(φ, 80, 0.5))
+
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset = glorys), arch;
+                      rate = 1/5days, mask = sponge_mask)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset = glorys), arch;
+                      rate = 1/5days, mask = sponge_mask)
+
+# ## The ocean component
+#
+# The familiar hydrostatic model, assembled by `ocean_simulation` with realistic
+# defaults — TEOS-10 equation of state, CATKE vertical mixing, WENO advection,
+# split-explicit free surface — plus our open boundaries and sponge forcings. The
+# lateral boundary conditions merge side-by-side with the defaults, so the surface
+# fluxes (which the coupler owns), the bottom drag, and the immersed drag stay wired.
+# At eddy-permitting resolution we leave the Gent–McWilliams parameterization *out*:
+# the front of part 2 taught us what the resolved eddies can do by themselves:
+
+ocean = ocean_simulation(grid;
+                         forcing = (T = FT, S = FS),
+                         boundary_conditions = (u = u_obcs, v = v_obcs,
+                                                T = T_obcs, S = S_obcs,
+                                                U = U_obcs, V = V_obcs))
+
+# ## The sea-ice component
+#
+# The two halves of sea ice we met in parts 3 and 4 — slab thermodynamics and EVP
+# dynamics — assembled by `sea_ice_simulation` and wired to the ocean below: the
+# ice–ocean heat flux uses the model's evolving sea-surface salinity for the freezing
+# point, and the ice feels the surface currents as a bottom stress:
+
+sea_ice = sea_ice_simulation(grid, ocean; advection = WENO(order = 7))
+
+# ## Initial conditions: the Barents Sea in winter
+#
+# Mid-winter 1993 from GLORYS12 — the same reanalysis that feeds the boundaries, so
+# the initial state and the boundary data agree from the first time step. Temperature
+# and salinity go to the ocean, thickness and concentration to the ice; one
+# `MetadataSet` feeds both models, each picking up the variables it owns:
+
+date = first(dates)
+glorys_variables = (:temperature, :salinity, :sea_ice_thickness, :sea_ice_concentration)
+glorys_set = MetadataSet(glorys_variables; dataset = glorys, date)
+
+set!(ocean.model,   glorys_set)
+set!(sea_ice.model, glorys_set)
+
+# ## The atmosphere and the coupled model
+#
+# JRA55 reanalysis supplies winds, temperature, humidity, precipitation, radiation and
+# runoff; the turbulent fluxes are computed interactively from the evolving SST and ice
+# surface temperature, exactly as in a coupled climate model run under the OMIP
+# protocol. `OceanSeaIceModel` owns the components and every interface between them —
+# each exchanged flux is a `Field` you can inspect and output; there is no hidden
+# coupler:
+
+atmosphere = JRA55PrescribedAtmosphere(arch)
+radiation  = JRA55PrescribedRadiation(arch)
+land       = JRA55PrescribedLand(arch)
+
+coupled_model = OceanSeaIceModel(ocean, sea_ice; atmosphere, land, radiation)
+
+# Two months, from mid-winter into the spring freeze-up maximum:
+
+simulation = Simulation(coupled_model; Δt = 2minutes, stop_time = 60days)
+
+wall_time = Ref(time_ns())
+
+function progress(sim)
+    ocean = sim.model.ocean
+    sea_ice = sim.model.sea_ice
+    T = ocean.model.tracers.T
+    h = sea_ice.model.ice_thickness
+    msg = @sprintf("time: %s, iter: %d, extrema(T): (%.1f, %.1f) °C, max(h): %.2f m, wall: %s",
+                   prettytime(sim), iteration(sim),
+                   minimum(T), maximum(T), maximum(h),
+                   prettytime(1e-9 * (time_ns() - wall_time[])))
+    @info msg
+    wall_time[] = time_ns()
+    return nothing
+end
+
+add_callback!(simulation, progress, TimeInterval(1day))
+
+# ## Output
+#
+# Daily surface fields from both components:
+
+ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities)
+
+sea_ice_outputs = (h = sea_ice.model.ice_thickness,
+                   ℵ = sea_ice.model.ice_concentration,
+                   u = sea_ice.model.velocities.u,
+                   v = sea_ice.model.velocities.v)
+
+ocean.output_writers[:surface] = JLD2Writer(ocean.model, ocean_outputs;
+                                            filename = "barents_ocean_surface.jld2",
+                                            indices = (:, :, grid.Nz),
+                                            schedule = TimeInterval(1day),
+                                            overwrite_existing = true)
+
+sea_ice.output_writers[:surface] = JLD2Writer(sea_ice.model, sea_ice_outputs;
+                                              filename = "barents_sea_ice_surface.jld2",
+                                              schedule = TimeInterval(1day),
+                                              overwrite_existing = true)
+
+# The big red button:
+
+run!(simulation)
+
+# ## Sixty days over the Barents
+#
+# Sea-surface temperature with the ice cover drawn on top — the two protagonists of the
+# Barents Sea climate story in one frame:
+
+To = FieldTimeSeries("barents_ocean_surface.jld2",   "T"; backend = OnDisk())
+hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "h"; backend = OnDisk())
+ℵi = FieldTimeSeries("barents_sea_ice_surface.jld2", "ℵ"; backend = OnDisk())
+
+times = To.times
+
+land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
+
+n = Observable(length(times))
+
+title = @lift "Barents Sea — day " * string(round(Int, times[$n] / day))
+
+Tₙ = @lift begin
+    T = interior(To[$n], :, :, 1)
+    T[land_mask] .= NaN
+    T
+end
+
+iceₙ = @lift begin
+    hℵ = interior(hi[$n], :, :, 1) .* interior(ℵi[$n], :, :, 1)
+    hℵ[land_mask] .= NaN
+    hℵ[hℵ .< 0.05] .= NaN
+    hℵ
+end
+
+λ = range(λ₁, λ₂, Nx)
+φ = range(φ₁, φ₂, Ny)
+
+fig = Figure(size = (1000, 450))
+fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
+
+ax = Axis(fig[2, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
+hm_T = heatmap!(ax, λ, φ, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
+hm_h = heatmap!(ax, λ, φ, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
+Colorbar(fig[2, 2], hm_T, label = "SST [°C]")
+Colorbar(fig[2, 3], hm_h, label = "ice volume per area [m]")
+
+CairoMakie.record(fig, "barents_sea.mp4", 1:length(times), framerate = 8) do i
+    n[] = i
+end
+nothing #hide
+
+# ![](barents_sea.mp4)
+#
+# Things to look for, with the day's tutorials in mind: the warm Atlantic tongue
+# entering between Bear Island and the Norwegian coast and holding the southwestern
+# Barents ice-free (the reason Murmansk is a year-round port); the ice edge sitting
+# along the polar front where that inflow meets Arctic water; eddies — live, resolved
+# relatives of part 2 — stirring the front; leads and ridges from part 4's rheology
+# opening and closing in the pack as storms pass through the JRA55 winds; and part 3's
+# thermodynamics quietly thickening the ice in the cold northeastern corner.
+#
+# ## Things to try
+#
+# !!! tip "Watching the fluxes"
+#     The coupler's flux fields are all addressable —
+#     `coupled_model.interfaces.atmosphere_sea_ice_interface.fluxes.sensible_heat`, for
+#     instance. Adding the ice–ocean and atmosphere–ocean heat fluxes to the output
+#     writers turns the simulation into a flux laboratory: where does the ocean lose
+#     most heat, over the open Barents or through the leads?
+#
+# !!! tip "Atlantification, accelerated"
+#     Initializing and forcing the boundaries from a different year — replace 1993
+#     throughout with 2015, say (GLORYS12 covers 1993–2021) — changes the Atlantic
+#     inflow temperature at the western boundary. How far east does the ice edge sit
+#     after sixty days, compared with 1993?
+#
+# !!! tip "Anatomy of an open boundary"
+#     Three ablations, one lesson each: walls + sponge only (drop the
+#     `boundary_conditions`) — watch boundary reflections contaminate the interior;
+#     open boundaries without the sponge (drop the `forcing`) — watch the slow drift
+#     the radiation conditions cannot hold back; and GLORYS `zos` as the Flather
+#     external elevation (`Metadata(:free_surface; ...)`) — the storm surges of the
+#     reanalysis now enter the domain through the barotropic mode.
+#
+# !!! tip "The eddy dividend"
+#     The 1/8° grid is eddy-*permitting*. At 1/16° (one number at the top) the Barents
+#     becomes properly eddy-resolving — and a candidate for the distributed techniques
+#     of part 7. Does the polar front sharpen? Does the ice edge get filamented?
+#
+# !!! tip "From the Barents to the globe"
+#     The same components in a global configuration — `TripolarGrid` instead of the
+#     regional box, no sponge needed — is the `one_degree_simulation` example in the
+#     NumericalEarth repository, and the gateway to Thursday's coupled simulations
+#     with an interactive atmosphere. The script is shorter than this one.

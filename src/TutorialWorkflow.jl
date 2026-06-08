@@ -60,6 +60,14 @@ Base.@kwdef struct TutorialCase
     parameters::NamedTuple = NamedTuple()
     critical::Bool = false
     description::String = ""
+    # Project (repo-relative) the runner activates for the subprocess; "" → repo root.
+    # Day-1/2 tutorials carry their own environments (Oceananigans/ClimaSeaIce/
+    # NumericalEarth stacks) that must not be resolved into the root project.
+    project::String = ""
+    # Working directory for the subprocess: :root (default; day-3/4 scripts route
+    # their artifacts via CASE_OUTPUT_DIR) or :artifacts (day-1/2 scripts write
+    # figures/movies to cwd, so cwd *is* the artifacts dir).
+    workdir::Symbol = :root
 end
 
 """
@@ -324,6 +332,13 @@ function manifest_hash(root::AbstractString = pwd())
     return file_hash(path)
 end
 
+"Repo-relative project dir a case runs under (its own env, or the root project)."
+case_project(case, root::AbstractString) =
+    isempty(case.project) ? root : joinpath(root, case.project)
+
+"Manifest hash of the environment the case actually runs in."
+case_manifest_hash(case, root::AbstractString) = manifest_hash(case_project(case, root))
+
 # ============================================================================
 # Registry
 # ============================================================================
@@ -332,6 +347,10 @@ const DAY4_SRC = "tutorials/day4/src"
 const DAY4_SCRIPTS = "tutorials/day4/scripts"
 const DAY3_SRC = "tutorials/day3/src"
 const DAY3_SCRIPTS = "tutorials/day3/scripts"
+const DAY2_SRC = "tutorials/day2/src"
+const DAY2_SCRIPTS = "tutorials/day2/scripts"
+const DAY1_SRC = "tutorials/day1/src"
+const DAY1_SCRIPTS = "tutorials/day1/scripts"
 
 """
     case_registry(root=pwd()) -> Vector{TutorialCase}
@@ -343,6 +362,96 @@ accepted for symmetry but the returned paths are repo-relative.
 """
 function case_registry(root::AbstractString = pwd())
     cases = TutorialCase[]
+
+    # ---- Day 1 (Monday GPU tutorials; own env, CPU-runnable) ----
+    push!(cases, TutorialCase(
+        day = 1, name = "GPU computing and a 2D turbulence solver", slug = "gpu_computing",
+        source = joinpath(DAY1_SRC, "01_gpu_computing.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "01_gpu_computing.jl"),
+        output_root = joinpath("output", "day1", "gpu_computing"),
+        required_outputs = ["two_dimensional_turbulence.mp4"],
+        optional_outputs = ["two_dimensional_turbulence_gpu.mp4"],
+        parameters = (Nx = 256, Ny = 256, ν = 5e-4, stop_time = 5.0),
+        critical = false,
+        description = "GPU arrays, KernelAbstractions kernels, and a C-grid Navier–Stokes solver (CPU fallback).",
+        project = "tutorials/day1",
+        workdir = :artifacts,
+    ))
+    push!(cases, TutorialCase(
+        day = 1, name = "Distributed nonhydrostatic LES", slug = "distributed_convection",
+        source = joinpath(DAY1_SRC, "02_distributed_nonhydrostatic.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "02_distributed_nonhydrostatic.jl"),
+        output_root = joinpath("output", "day1", "distributed_convection"),
+        required_outputs = ["distributed_demo.jl", "distributed_convection.jl"],
+        critical = false,
+        description = "Domain decomposition demo (2 CPU MPI ranks) plus the multi-GPU convection driver.",
+        project = "tutorials/day1",
+        workdir = :artifacts,
+    ))
+
+    # ---- Day 2 (Tuesday ocean & sea-ice tutorials; own env, CPU-runnable) ----
+    push!(cases, TutorialCase(
+        day = 2, name = "Internal tide over a sill", slug = "internal_tide",
+        source = joinpath(DAY2_SRC, "01_hydrostatic_internal_tide.jl"),
+        generated_script = joinpath(DAY2_SCRIPTS, "01_hydrostatic_internal_tide.jl"),
+        output_root = joinpath("output", "day2", "internal_tide"),
+        required_outputs = ["internal_tide_domain.png", "internal_tide.mp4"],
+        parameters = (Nx = 256, Nz = 128, latitude = 60, stop_days = 4),
+        critical = false,
+        description = "HydrostaticFreeSurfaceModel fundamentals: immersed sill, tidal forcing, wave beams.",
+        project = "tutorials/day2",
+        workdir = :artifacts,
+    ))
+    push!(cases, TutorialCase(
+        day = 2, name = "Baroclinic instability in a channel", slug = "baroclinic_instability",
+        source = joinpath(DAY2_SRC, "02_baroclinic_instability.jl"),
+        generated_script = joinpath(DAY2_SCRIPTS, "02_baroclinic_instability.jl"),
+        output_root = joinpath("output", "day2", "baroclinic_instability"),
+        required_outputs = ["baroclinic_instability_energy.png", "baroclinic_instability.mp4"],
+        parameters = (Nx = 96, Ny = 96, Nz = 16, latitude = 70, stop_days = 30),
+        critical = false,
+        description = "Eddying re-entrant channel: front release, custom drag BC, adaptive time step.",
+        project = "tutorials/day2",
+        workdir = :artifacts,
+    ))
+    push!(cases, TutorialCase(
+        day = 2, name = "Sea ice thermodynamics", slug = "sea_ice_thermodynamics",
+        source = joinpath(DAY2_SRC, "03_sea_ice_thermodynamics.jl"),
+        generated_script = joinpath(DAY2_SCRIPTS, "03_sea_ice_thermodynamics.jl"),
+        output_root = joinpath("output", "day2", "sea_ice_thermodynamics"),
+        required_outputs = ["freezing_bucket.png", "semtner_forcing.png", "arctic_seasonal_cycle.png"],
+        critical = false,
+        description = "ClimaSeaIce slab thermodynamics: freezing bucket and the Semtner seasonal cycle.",
+        project = "tutorials/day2",
+        workdir = :artifacts,
+    ))
+    push!(cases, TutorialCase(
+        day = 2, name = "Sea ice dynamics", slug = "sea_ice_dynamics",
+        source = joinpath(DAY2_SRC, "04_sea_ice_dynamics.jl"),
+        generated_script = joinpath(DAY2_SCRIPTS, "04_sea_ice_dynamics.jl"),
+        output_root = joinpath("output", "day2", "sea_ice_dynamics"),
+        required_outputs = ["sea_ice_dynamics.mp4"],
+        parameters = (N = 128, substeps = 120, stop_days = 2),
+        critical = false,
+        description = "EVP rheology benchmark: leads and linear kinematic features under a traveling anticyclone.",
+        project = "tutorials/day2",
+        workdir = :artifacts,
+    ))
+    push!(cases, TutorialCase(
+        day = 2, name = "Capsizing iceberg", slug = "capsizing_iceberg",
+        source = joinpath(DAY2_SRC, "05_capsizing_iceberg.jl"),
+        generated_script = joinpath(DAY2_SCRIPTS, "05_capsizing_iceberg.jl"),
+        output_root = joinpath("output", "day2", "capsizing_iceberg"),
+        required_outputs = ["capsizing_iceberg.mp4", "iceberg_tilt.png"],
+        parameters = (Nx = 512, Nz = 128, width = 70, height = 200, τ = 2.0),
+        critical = false,
+        description = "Implementing new physics: penalized rigid iceberg, two-way coupled, GPU-compatible.",
+        project = "tutorials/day2",
+        workdir = :artifacts,
+    ))
+    # Day-2 parts 6 (Barents Sea coupled, GPU + datasets) and 7 (distributed channel,
+    # multi-GPU) are deliberately NOT registered: their pages render from the Literate
+    # sources, but the runner has no business launching them on the docs host.
 
     # ---- Day 3 (lightweight placeholders) ----
     push!(cases, TutorialCase(
@@ -686,9 +795,9 @@ function outputs_are_current(case::TutorialCase; root::AbstractString = pwd())
         info.source_hash == file_hash(joinpath(root, case.source)) || return false
     end
 
-    # manifest hash (unless ignored)
+    # manifest hash (unless ignored) — of the env the case runs in
     if !haskey(ENV, "IGNORE_MANIFEST_HASH")
-        info.manifest_hash == manifest_hash(root) || return false
+        info.manifest_hash == case_manifest_hash(case, root) || return false
     end
 
     return true
@@ -731,7 +840,7 @@ function run_case_resilient!(case::TutorialCase; root::AbstractString = pwd())
     run_class = current_run_class()
     src_hash = file_hash(joinpath(root, case.source))
     par_hash = parameter_hash(case.parameters)
-    man_hash = manifest_hash(root)
+    man_hash = case_manifest_hash(case, root)
     started = now(UTC)
 
     allow_failures = _truthy(get(ENV, "ALLOW_CASE_FAILURES", "false"))
@@ -778,8 +887,10 @@ function run_case_resilient!(case::TutorialCase; root::AbstractString = pwd())
         env["CASE_OUTPUT_DIR"] = artifacts
         env["RUN_CLASS"] = run_class
         env["DOCS_PHASE"] = "run"
-        cmd = `$(Base.julia_cmd()) --project=$(root) $(script)`
-        cmd = setenv(cmd, env; dir = root)
+        project = case_project(case, root)
+        subprocess_dir = case.workdir === :artifacts ? artifacts : root
+        cmd = `$(Base.julia_cmd()) --project=$(project) $(script)`
+        cmd = setenv(cmd, env; dir = subprocess_dir)
         open(stdout_log, "w") do out
             open(stderr_log, "w") do err
                 proc = run(pipeline(cmd; stdout = out, stderr = err); wait = false)
