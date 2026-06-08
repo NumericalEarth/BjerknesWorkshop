@@ -110,19 +110,19 @@ nothing #hide
 # The external data: GLORYS12 monthly fields, pre-interpolated onto the model grid as `FieldTimeSeries` with a
 # lazy, GPU-aware backend that keeps two months in memory and interpolates linearly in time. (The simulation
 # clock starts at the first date below, so model time and dataset time agree.)
+#
+# We also crop the GLORYS download to the model footprint (a 1° margin past the grid covers the halos and the
+# boundary interpolation) instead of pulling the global 1/12° fields:
 
-dates = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
-glorys = GLORYSMonthly()
+dates   = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
+dataset = GLORYSMonthly()
+region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1), z = (-depth, 0))
 
-# Crop the GLORYS download to the model footprint (a 1° margin past the grid covers the halos and the boundary
-# interpolation) instead of pulling the global 1/12° fields:
-region = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1), z = (-depth, 0))
-
-Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset = glorys, region), grid)
-Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset = glorys, region), grid)
-uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset = glorys, region), grid)
-vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset = glorys, region), grid)
-ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset = glorys, region), grid)
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid)
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid)
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid)
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid)
+ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid)
 nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
@@ -390,9 +390,9 @@ nothing #hide
 # !!! tip "Anatomy of an open boundary"
 #     Three ablations, one lesson each: walls + sponge only (drop the `boundary_conditions`) — watch boundary
 #     reflections contaminate the interior; open boundaries without the sponge (drop the `forcing`) — watch
-#     the slow drift the radiation conditions cannot hold back; and GLORYS `zos` as the Flather external
-#     elevation (`Metadata(:free_surface; ...)`) — the storm surges of the reanalysis now enter the domain
-#     through the barotropic mode.
+#     the slow drift the radiation conditions cannot hold back; and zeroing the Flather external state
+#     (`FlatherBoundaryCondition((0, 0))` in place of the GLORYS transport and `zos`) — watch the Atlantic
+#     inflow's barotropic transport get damped right at the boundary, the very error this case now avoids.
 #
 # !!! tip "The eddy dividend"
 #     The 1/8° grid is eddy-*permitting*. At 1/16° (one number at the top) the Barents becomes properly
