@@ -30,15 +30,13 @@
 #     NumericalEarth checkouts (see the `[sources]` section of the environment's `Project.toml`). Expect this
 #     section of the stack to evolve faster than the rest of the tutorial.
 
-using NumericalEarth
-using Oceananigans
-using Oceananigans.Units
+using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
+using Oceananigans.ImmersedBoundaries: immersed_peripheral_node
 using Oceananigans.Units: Time
+using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
-using Dates
-using Printf
 
 arch = GPU()
 
@@ -50,7 +48,7 @@ arch = GPU()
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
 λ₁, λ₂ = 5, 60    # longitude extent [°E]
-φ₁, φ₂ = 67, 80   # latitude extent [°N]
+φ₁, φ₂ = 60, 80   # latitude extent [°N]
 
 Nx = 8 * (λ₂ - λ₁)
 Ny = 8 * (φ₂ - φ₁)
@@ -77,9 +75,10 @@ grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
 # The same `ImmersedBoundaryGrid` as this morning's sill — Novaya Zemlya and the Norwegian coast are just very
 # large sills. Let's look at the stage:
 
-using CairoMakie
+using CairoMakie, SixelTerm
 
-h_bottom = interior(grid.immersed_boundary.bottom_height, :, :, 1)
+h_bottom = Array(interior(grid.immersed_boundary.bottom_height, :, :, 1))
+h_bottom[h_bottom .≥ 0] .= NaN
 
 fig = Figure(size = (900, 350))
 ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]",
@@ -116,7 +115,7 @@ nothing #hide
 
 dates   = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
 dataset = GLORYSMonthly()
-region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1), z = (-depth, 0))
+region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1))
 
 Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid)
 Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid)
@@ -129,12 +128,12 @@ nothing #hide
 # `FieldTimeSeries` at the boundary index and the current clock time — the same zero-overhead pattern as every
 # forcing and flux function this week:
 
-@inline west_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[1,           j, k, Time(clock.time)]
-@inline east_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
+@inline  west_obc(j, k, grid, clock, fields, φ) = @inbounds φ[1,           j, k, Time(clock.time)]
+@inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
 @inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Time(clock.time)]
 
-@inline east_u_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx + 1, j, k, Time(clock.time)]
-@inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny + 1, k, Time(clock.time)]
+@inline east_u_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx+1, j, k, Time(clock.time)]
+@inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny+1, k, Time(clock.time)]
 nothing #hide
 
 # Radiation timescales à la Marchesiello: a day on inflow (the boundary follows GLORYS closely where water
@@ -165,14 +164,16 @@ S_obcs = FieldBoundaryConditions(
 # `∫uᵉˣᵗ dz` and the external free-surface elevation. Feeding GLORYS here — not zero — is what lets the
 # Atlantic inflow's depth-mean transport actually cross the boundary; with `(0, 0)` the Flather would radiate
 # the barotropic mode toward rest and damp the very inflow this domain exists to capture. `Uᵉˣᵗ` is the column
-# integral of the GLORYS velocity already loaded in `uᵉˣᵗ`/`vᵉˣᵗ` (dry cells are zero-filled, so the sum is
-# the wet-column transport), and `ηᵉˣᵗ` is the GLORYS `zos` read at the boundary:
+# integral of the GLORYS velocity already loaded in `uᵉˣᵗ`/`vᵉˣᵗ`, with `immersed_peripheral_node` skipping
+# the solid cells so the sum is exactly the wet-column transport (rather than trusting the dataset to zero its
+# land points), and `ηᵉˣᵗ` is the GLORYS `zos` read at the boundary:
 
 @inline function west_U_obc(i, j, grid, clock, fields, p)
     t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        U += p.u[1, j, k, t] * Δzᶠᶜᶜ(1, j, k, grid)
+        wet = !immersed_peripheral_node(1, j, k, grid, Face(), Center(), Center())
+        U += ifelse(wet, p.u[1, j, k, t] * Δzᶠᶜᶜ(1, j, k, grid), zero(U))
     end
     return (U, @inbounds p.η[1, j, t])
 end
@@ -181,7 +182,8 @@ end
     t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        U += p.u[grid.Nx + 1, j, k, t] * Δzᶠᶜᶜ(grid.Nx + 1, j, k, grid)
+        wet = !immersed_peripheral_node(grid.Nx + 1, j, k, grid, Face(), Center(), Center())
+        U += ifelse(wet, p.u[grid.Nx + 1, j, k, t] * Δzᶠᶜᶜ(grid.Nx + 1, j, k, grid), zero(U))
     end
     return (U, @inbounds p.η[grid.Nx, j, t])
 end
@@ -190,7 +192,8 @@ end
     t = Time(clock.time)
     V = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        V += p.v[i, grid.Ny + 1, k, t] * Δzᶜᶠᶜ(i, grid.Ny + 1, k, grid)
+        wet = !immersed_peripheral_node(i, grid.Ny + 1, k, grid, Center(), Face(), Center())
+        V += ifelse(wet, p.v[i, grid.Ny + 1, k, t] * Δzᶜᶠᶜ(i, grid.Ny + 1, k, grid), zero(V))
     end
     return (V, @inbounds p.η[i, grid.Ny, t])
 end
