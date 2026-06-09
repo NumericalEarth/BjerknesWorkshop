@@ -137,20 +137,27 @@ atmosphere = atmosphere_simulation(atmos_grid;
 # `set!` acts on the wrapped `atmosphere.model`. `qᵗ` is the total-water mass fraction
 # (the moist prognostic variable).
 
-const U₀  = FT(5)        # m s⁻¹ mean wind, along x (the cloud-street axis)
-const θ₀  = FT(288)      # K, reference / surface potential temperature
-const qᵗ₀ = FT(6e-3)     # kg/kg near-surface total water (modest marine humidity)
-const zq  = FT(800)      # m, humidity scale height (boundary-layer moisture)
-const zδ  = FT(600)      # m, perturbation seeding depth
-const δθ  = FT(0.05)     # K, thermal perturbation amplitude
-const δu  = FT(0.05)     # m s⁻¹, velocity perturbation amplitude
+const U₀    = FT(5)       # m s⁻¹ mean wind, along x (the cloud-street axis)
+const θ_bl  = FT(288)     # K, well-mixed boundary-layer potential temperature (= reference)
+const zᵢ    = FT(1000)    # m, initial inversion height (boundary-layer top)
+const Δθᵢ   = FT(6)       # K, capping-inversion strength (θ jump at zᵢ)
+const Γθ    = FT(4e-3)    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
+const qᵗ_bl = FT(9e-3)    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
+const qᵗ_ft = FT(2e-3)    # kg/kg, dry free troposphere above the inversion
+const zδ    = FT(600)     # m, perturbation seeding depth
+const δθ    = FT(0.05)    # K, thermal perturbation amplitude
+const δu    = FT(0.05)    # m s⁻¹, velocity perturbation amplitude
 
 ϵ() = rand(FT) - FT(0.5)
 
-θᵢ(x, y, z) = θ₀ + δθ * ϵ() * (z < zδ)
+## A well-mixed, moist boundary layer capped by an inversion at zᵢ, with a stable,
+## dry free troposphere above. The warm filament heats and moistens this layer; thermals
+## rise to their lifting condensation level (a few hundred metres up), saturate into
+## cloud, and are capped near zᵢ — organizing into wind-aligned cloud streets.
+θᵢ(x, y, z) = (z < zᵢ ? θ_bl : θ_bl + Δθᵢ + Γθ * (z - zᵢ)) + δθ * ϵ() * (z < zδ)
+qᵢ(x, y, z) = z < zᵢ ? qᵗ_bl : qᵗ_ft
 uᵢ(x, y, z) = U₀ + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
-qᵢ(x, y, z) = qᵗ₀ * exp(-z / zq)
 
 set!(atmosphere.model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 
@@ -182,9 +189,20 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 #
 # We add a tiny random thermal perturbation in the mixed layer to seed ocean
 # convection once surface cooling begins.
+#
+# !!! warning "Units: the ocean is in °C, the atmosphere is in K"
+#     The ocean uses the TEOS-10 equation of state, whose conservative temperature
+#     is in **degrees Celsius**, and the air–sea coupler defaults to
+#     `ocean_temperature_units = DegreesCelsius()`. So the ocean temperature here is
+#     `17–20 °C`, *not* Kelvin. The Breeze atmosphere, by contrast, is in Kelvin
+#     (`potential_temperature = 288 K`). Setting the ocean in Kelvin silently breaks
+#     the flux calculation: the coupler adds 273.15, evaluates the saturation
+#     humidity at ~563 K — where the saturation vapour pressure exceeds the ambient
+#     pressure — and returns a *negative* interface humidity, which drives a runaway
+#     spurious-condensation instability. Keep the ocean in °C.
 
-const T_cold = FT(290)      # K, background SST (≈ 17 °C, mid-latitude)
-const ΔT     = FT(3)        # K, filament warm anomaly
+const T_cold = FT(17)       # °C, background SST (mid-latitude)
+const ΔT     = FT(3)        # K = °C, filament warm anomaly
 const σ      = FT(1000)     # m, filament half-width scale (≈ 2 km full width)
 const h      = FT(40)       # m, initial ocean mixed-layer depth
 const N²     = FT(1e-4)     # s⁻², interior stratification (buoyancy frequency²)
@@ -278,11 +296,17 @@ u_a  = atmosphere.model.velocities.u
 qˡ_a = atmosphere.model.microphysical_fields.qˡ   # cloud liquid (the visible cloud)
 qᵛ_a = atmosphere.model.microphysical_fields.qᵛ   # water vapor
 
-## Near-surface horizontal slices (the cloud-street top view) and an across-filament
-## y–z transect at mid-domain x.
+## Cloud base sits a few hundred metres up (at the lifting condensation level), so a
+## near-surface slice would miss the cloud entirely. We view the cloud street on a
+## horizontal level inside the cloud layer (≈ 800 m, between cloud base and the
+## inversion), where the warm-filament-organized cloud pattern is clearest.
+k_a_cloud = max(1, round(Int, 800 / (Lz_a / Nz_a)))   # atmosphere level nearest z ≈ 800 m
+
+## Near-surface horizontal slices (surface convergence + SST) and an across-filament
+## y–z transect at mid-domain x; the cloud is shown on an in-cloud horizontal level.
 atmos_outputs = (
     w_xy  = view(w_a,  :, :, k_a_surface),
-    qˡ_xy = view(qˡ_a, :, :, k_a_surface),
+    qˡ_xy = view(qˡ_a, :, :, k_a_cloud),
     θ_xy  = view(θ_a,  :, :, k_a_surface),
     w_yz  = view(w_a,  imid, :, :),
     qˡ_yz = view(qˡ_a, imid, :, :),
@@ -394,11 +418,11 @@ if isfile(atmos_file) && isfile(ocean_file)
     Label(fig[0, 1:4], title, fontsize = 18, tellwidth = false)
 
     axq = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "y (km)",
-               title = "cloud liquid qˡ (g kg⁻¹) — the cloud street")
+               title = "cloud liquid qˡ at z ≈ 800 m (g kg⁻¹) — the cloud street")
     axw = Axis(fig[1, 3], xlabel = "x (km)", ylabel = "y (km)",
                title = "near-surface w (m s⁻¹)")
     axT = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "y (km)",
-               title = "SST T (K) — the warm filament")
+               title = "SST T (°C) — the warm filament")
     axF = Axis(fig[2, 3], xlabel = "x (km)", ylabel = "y (km)",
                title = "sensible heat flux Q (W m⁻²)")
     axwa = Axis(fig[3, 1], xlabel = "y (km)", ylabel = "z (m)",

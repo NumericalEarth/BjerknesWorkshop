@@ -131,16 +131,25 @@ set!(atmosphere.model,
 # atmosphere, its *top* boundary conditions are blank coupling fields the coupler
 # fills — we do not set surface fluxes by hand.
 #
-# We start the ocean **warm and uniform**: `T = 293 K` (≈ 20 °C), about 3 K warmer
-# than the overlying air, with a uniform salinity of 35 g kg⁻¹. That ≈ 3 K air–sea
-# contrast is the engine: it drives an upward heat flux, convection in the air
-# above, and cooling-driven convection in the ocean below.
+# We start the ocean **warm and uniform**: `T = 20 °C`, about 3 K warmer than the
+# overlying air, with a uniform salinity of 35 g kg⁻¹. That ≈ 3 K air–sea contrast is
+# the engine: it drives an upward heat flux, convection in the air above, and
+# cooling-driven convection in the ocean below.
+#
+# !!! warning "Units: the ocean is in °C, the atmosphere is in K"
+#     The ocean's TEOS-10 equation of state and the air–sea coupler both expect the
+#     ocean temperature in **degrees Celsius** (`ocean_temperature_units =
+#     DegreesCelsius()`), so `T = 20 °C` here — *not* Kelvin. The Breeze atmosphere is
+#     in Kelvin (`potential_temperature = 290 K`). Mixing the two up silently breaks
+#     the flux calculation: a Kelvin SST is read as 293 °C, the saturation humidity is
+#     evaluated at ~566 K (above the ambient pressure), and the interface humidity goes
+#     negative — driving a runaway spurious-condensation instability. Keep the ocean in °C.
 
 ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic)
 
 ## A warm, salty, initially quiescent ocean. `ocean_simulation` returns a
 ## `Simulation`, so `set!` targets `ocean.model`.
-set!(ocean.model, T = FT(293), S = FT(35))
+set!(ocean.model, T = FT(20), S = FT(35))
 
 # ## Couple them
 #
