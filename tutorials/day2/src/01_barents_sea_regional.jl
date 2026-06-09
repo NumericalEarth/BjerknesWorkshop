@@ -136,11 +136,11 @@ nothing #hide
 @inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny+1, k, Time(clock.time)]
 nothing #hide
 
-# Radiation timescales à la Marchesiello: a day on inflow (the boundary follows GLORYS closely where water
-# enters), a month on outflow (the interior solution leaves undisturbed). The south boundary is the Norwegian
+# Radiation timescales à la Marchesiello: 1days on inflow (the boundary follows GLORYS closely where water
+# enters), infinite on outflow (the interior solution leaves undisturbed). The south boundary is the Norwegian
 # coast — land — and keeps the default wall:
 
-radiation = Radiation(inflow_timescale = 30minutes, outflow_timescale = Inf)
+radiation = Radiation(inflow_timescale = 1days, outflow_timescale = Inf)
 
 u_obcs = FieldBoundaryConditions(
     west = NormalFlowBoundaryCondition(west_obc,   discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation),
