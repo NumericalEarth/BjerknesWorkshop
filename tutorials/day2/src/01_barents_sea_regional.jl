@@ -238,12 +238,13 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
 # eddies can do by themselves:
 
-closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
+closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e9))
+time_discretization = Oceananigans.TimeSteppers.AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
 
 ocean = ocean_simulation(grid;
                          free_surface = SplitExplicitFreeSurface(grid; substeps=100),
-                         momentum_advection = WENOVectorInvariant(order=5), 
-                         tracer_advection = WENO(order=5, minimum_buffer_upwind_order=1),
+                         momentum_advection = WENOVectorInvariant(order=5, time_discretization), 
+                         tracer_advection = WENO(order=5, time_discretization, minimum_buffer_upwind_order=1),
                          closure = closure,
                          forcing = (T = FT, S = FS),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
