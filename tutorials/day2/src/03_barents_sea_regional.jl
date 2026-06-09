@@ -1,6 +1,6 @@
 # # The Barents Sea: a regional coupled ocean–sea ice simulation
 #
-# *Tuesday — one day in the high-latitude ocean, part 6: all of it together.*
+# *A realistic regional coupled ocean–sea ice simulation.*
 #
 # Everything we touched today meets in one place, and it happens to be the sea outside the window: the
 # **Barents Sea**, where the Atlantic water that the eddies of part 2 carry north meets the ice whose
@@ -400,32 +400,3 @@ nothing #hide
 # closing in the pack as storms pass through the JRA55 winds; and part 3's thermodynamics quietly thickening
 # the ice in the cold northeastern corner.
 #
-# ## Things to try
-#
-# !!! tip "Watching the fluxes"
-#     The coupler's flux fields are all addressable —
-#     `coupled_model.interfaces.atmosphere_sea_ice_interface.fluxes.sensible_heat`, for instance. Adding the
-#     ice–ocean and atmosphere–ocean heat fluxes to the output writers turns the simulation into a flux
-#     laboratory: where does the ocean lose most heat, over the open Barents or through the leads?
-#
-# !!! tip "Atlantification, accelerated"
-#     Initializing and forcing the boundaries from a different year — replace 1993 throughout with 2015, say
-#     (GLORYS12 covers 1993–2021) — changes the Atlantic inflow temperature at the western boundary. How far
-#     east does the ice edge sit after sixty days, compared with 1993?
-#
-# !!! tip "Anatomy of an open boundary"
-#     Three ablations, one lesson each: walls + sponge only (drop the `boundary_conditions`) — watch boundary
-#     reflections contaminate the interior; open boundaries without the sponge (drop the `forcing`) — watch
-#     the slow drift the radiation conditions cannot hold back; and zeroing the Flather external state
-#     (`FlatherBoundaryCondition((0, 0))` in place of the GLORYS transport and `zos`) — watch the Atlantic
-#     inflow's barotropic transport get damped right at the boundary, the very error this case now avoids.
-#
-# !!! tip "The eddy dividend"
-#     The 1/8° grid is eddy-*permitting*. At 1/16° (one number at the top) the Barents becomes properly
-#     eddy-resolving — and a candidate for the distributed techniques of part 7. Does the polar front sharpen?
-#     Does the ice edge get filamented?
-#
-# !!! tip "From the Barents to the globe"
-#     The same components in a global configuration — `TripolarGrid` instead of the regional box, no sponge
-#     needed — is the `one_degree_simulation` example in the NumericalEarth repository, and the gateway to
-#     Thursday's coupled simulations with an interactive atmosphere. The script is shorter than this one.
