@@ -169,7 +169,7 @@ S_obcs = FieldBoundaryConditions(
 # land points), and `ηᵉˣᵗ` is the GLORYS `zos` read at the boundary:
 
 @inline function west_U_obc(i, j, grid, clock, fields, p)
-    t = Time(clock.time)
+    t = isnothing(clock) ? 0 : Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = !immersed_peripheral_node(1, j, k, grid, Face(), Center(), Center())
@@ -179,7 +179,7 @@ S_obcs = FieldBoundaryConditions(
 end
 
 @inline function east_U_obc(i, j, grid, clock, fields, p)
-    t = Time(clock.time)
+    t = isnothing(clock) ? 0 : Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = !immersed_peripheral_node(grid.Nx + 1, j, k, grid, Face(), Center(), Center())
@@ -189,7 +189,7 @@ end
 end
 
 @inline function north_V_obc(i, j, grid, clock, fields, p)
-    t = Time(clock.time)
+    t = isnothing(clock) ? 0 : Time(clock.time)
     V = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = !immersed_peripheral_node(i, grid.Ny + 1, k, grid, Center(), Face(), Center())
@@ -232,7 +232,21 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: the front of part 2 taught us what the resolved eddies
 # can do by themselves:
 
+@inline _area_scaled_biharmonic_viscosity(i, j, k, grid, ℓx, ℓy, ℓz, clock, fields, λ) =
+    Oceananigans.Operators.Az(i, j, k, grid, ℓx, ℓy, ℓz)^2 / λ
+
+function area_scaled_biharmonic_viscosity(FT=Oceananigans.defaults.FloatType; timescale=15days)
+    return HorizontalScalarBiharmonicDiffusivity(FT;
+        ν = _area_scaled_biharmonic_viscosity,
+        discrete_form = true,
+        parameters = timescale)
+end
+
 ocean = ocean_simulation(grid;
+                         free_surface = SplitExplicitFreeSurface(grid; substeps=100),
+                         momentum_advection = WENO(order=5, minimum_buffer_upwind_order=1),
+                         tracer_advection = WENO(order=5, minimum_buffer_upwind_order=1),
+                         closure = (NumericalEarth.Oceans.default_ocean_closure(), area_scaled_biharmonic_viscosity()),
                          forcing = (T = FT, S = FS),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
                                                 T = T_obcs, S = S_obcs,
@@ -244,7 +258,7 @@ ocean = ocean_simulation(grid;
 # `sea_ice_simulation` and wired to the ocean below: the ice–ocean heat flux uses the model's evolving
 # sea-surface salinity for the freezing point, and the ice feels the surface currents as a bottom stress:
 
-sea_ice = sea_ice_simulation(grid, ocean; advection = WENO(order = 7))
+sea_ice = sea_ice_simulation(grid, ocean; dynamics=nothing)
 
 # ## Initial conditions: the Barents Sea in winter
 #
@@ -269,7 +283,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 2minutes, stop_time = 60days)
+simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days)
 
 wall_time = Ref(time_ns())
 
@@ -293,7 +307,9 @@ add_callback!(simulation, progress, IterationInterval(10))
 #
 # Daily surface fields from both components:
 
-ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities)
+u, v, w = ocean.model.velocities
+𝒱 = @at((Center, Center, Center), sqrt(u^2 + v^2))
+ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities, (; 𝒱))
 
 sea_ice_outputs = (h = sea_ice.model.ice_thickness,
                    ℵ = sea_ice.model.ice_concentration,
@@ -320,9 +336,10 @@ run!(simulation)
 # Sea-surface temperature with the ice cover drawn on top — the two protagonists of the Barents Sea climate
 # story in one frame:
 
-To = FieldTimeSeries("barents_ocean_surface.jld2",   "T"; backend = OnDisk())
-hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "h"; backend = OnDisk())
-ℵi = FieldTimeSeries("barents_sea_ice_surface.jld2", "ℵ"; backend = OnDisk())
+To = FieldTimeSeries("barents_ocean_surface.jld2",   "T")
+Uo = FieldTimeSeries("barents_ocean_surface.jld2",   "𝒱")
+hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "h")
+ℵi = FieldTimeSeries("barents_sea_ice_surface.jld2", "ℵ")
 
 times = To.times
 
@@ -330,16 +347,23 @@ land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
 
 n = Observable(length(times))
 
-title = @lift "Barents Sea — day " * string(round(Int, times[$n] / day))
+title = @lift "Barents Sea — day " * string(round(Int, times[$n] / days))
 
 Tₙ = @lift begin
-    T = interior(To[$n], :, :, 1)
+    T = interior(To, :, :, 1, $n)
     T[land_mask] .= NaN
     T
 end
 
+Uₙ = @lift begin
+    U = interior(Uo, :, :, 1, $n)
+    U[land_mask] .= NaN
+    U
+end
+
+
 iceₙ = @lift begin
-    hℵ = interior(hi[$n], :, :, 1) .* interior(ℵi[$n], :, :, 1)
+    hℵ = interior(hi, :, :, 1, $n) .* interior(ℵi, :, :, 1, $n)
     hℵ[land_mask] .= NaN
     hℵ[hℵ .< 0.05] .= NaN
     hℵ
@@ -348,14 +372,18 @@ end
 λ = range(λ₁, λ₂, Nx)
 φ = range(φ₁, φ₂, Ny)
 
-fig = Figure(size = (1000, 450))
-fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
+fig = Figure(size = (1200, 450))
+fig[0, 1:4] = Label(fig, title, fontsize = 20, tellwidth = false)
 
-ax = Axis(fig[2, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
+ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
 hm_T = heatmap!(ax, λ, φ, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
+ax = Axis(fig[1, 3])
 hm_h = heatmap!(ax, λ, φ, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
-Colorbar(fig[2, 2], hm_T, label = "SST [°C]")
-Colorbar(fig[2, 3], hm_h, label = "ice volume per area [m]")
+ax = Axis(fig[2, 1])
+hm_U = heatmap!(ax, λ, φ, Uₙ, colormap = Reverse(:solar), colorrange = (0, 0.5))
+Colorbar(fig[1, 2], hm_T, label = "SST [°C]")
+Colorbar(fig[1, 4], hm_h, label = "ice volume per area [m]")
+Colorbar(fig[2, 2], hm_h, label = "Surface speed [ms⁻¹]")
 
 CairoMakie.record(fig, "barents_sea.mp4", 1:length(times), framerate = 8) do i
     n[] = i
