@@ -38,7 +38,7 @@ using Oceananigans.Units: Time
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
 
-arch = GPU()
+arch = CPU()
 
 # ## A regional grid
 #
@@ -168,34 +168,39 @@ S_obcs = FieldBoundaryConditions(
 # the solid cells so the sum is exactly the wet-column transport (rather than trusting the dataset to zero its
 # land points), and `ηᵉˣᵗ` is the GLORYS `zos` read at the boundary:
 
-@inline function west_U_obc(i, j, grid, clock, fields, p)
+@inline wetcell(i, j, k, grid, ℓx, ℓy, ℓz) = 
+    !immersed_peripheral_node(i, j, k, grid, ℓx, ℓy, ℓz) & !immersed_active_node(i, j, k, grid, ℓx, ℓy, ℓz)
+
+@inline function west_U_obc(j, k, grid, clock, fields, p)
     t = isnothing(clock) ? 0 : Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        wet = !immersed_peripheral_node(1, j, k, grid, Face(), Center(), Center())
+        wet = wetcell(1, j, k, grid, Face(), Center(), Center())
         U += ifelse(wet, p.u[1, j, k, t] * Δzᶠᶜᶜ(1, j, k, grid), zero(U))
     end
     return (U, @inbounds p.η[1, j, 1, t])
 end
 
-@inline function east_U_obc(i, j, grid, clock, fields, p)
+@inline function east_U_obc(j, k, grid, clock, fields, p)
+    i = grid.Nx+1
     t = isnothing(clock) ? 0 : Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        wet = !immersed_peripheral_node(grid.Nx + 1, j, k, grid, Face(), Center(), Center())
-        U += ifelse(wet, p.u[grid.Nx + 1, j, k, t] * Δzᶠᶜᶜ(grid.Nx + 1, j, k, grid), zero(U))
+        wet = wetcell(i, j, k, grid, Face(), Center(), Center())
+        U += ifelse(wet, p.u[i, j, k, t] * Δzᶠᶜᶜ(i, j, k, grid), zero(U))
     end
     return (U, @inbounds p.η[grid.Nx, j, 1, t])
 end
 
-@inline function north_V_obc(i, j, grid, clock, fields, p)
+@inline function north_V_obc(i, k, grid, clock, fields, p)
+    j = grid.Ny+1
     t = isnothing(clock) ? 0 : Time(clock.time)
     V = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
-        wet = !immersed_peripheral_node(i, grid.Ny + 1, k, grid, Center(), Face(), Center())
-        V += ifelse(wet, p.v[i, grid.Ny + 1, k, t] * Δzᶜᶠᶜ(i, grid.Ny + 1, k, grid), zero(V))
+        wet = wetcell(i, j, k, grid, Face(), Center(), Center())
+        V += ifelse(wet, p.v[i, j, k, t] * Δzᶜᶠᶜ(i, j, k, grid), zero(V))
     end
-    return (V, @inbounds p.η[i, grid.Ny, 1, t])
+    return (V, @inbounds p.η[i, j, 1, t])
 end
 
 U_obcs = FieldBoundaryConditions(grid, (Face(), Center(), nothing);
