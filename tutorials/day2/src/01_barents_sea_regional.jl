@@ -38,7 +38,7 @@ using Oceananigans.Units: Time
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
 
-arch = CPU()
+arch = GPU()
 
 # ## A regional grid
 #
