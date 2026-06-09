@@ -140,7 +140,7 @@ nothing #hide
 # enters), a month on outflow (the interior solution leaves undisturbed). The south boundary is the Norwegian
 # coast — land — and keeps the default wall:
 
-radiation = Radiation(inflow_timescale = 30minutes, outflow_timescale = 30days)
+radiation = Radiation(inflow_timescale = 30minutes, outflow_timescale = Inf)
 
 u_obcs = FieldBoundaryConditions(
     west = NormalFlowBoundaryCondition(west_obc,   discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation),
