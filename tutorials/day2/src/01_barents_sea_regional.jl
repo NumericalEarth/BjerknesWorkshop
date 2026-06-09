@@ -238,7 +238,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
 # eddies can do by themselves:
 
-closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e9))
+closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
 
 ocean = ocean_simulation(grid;
                          free_surface = SplitExplicitFreeSurface(grid; substeps=100),
