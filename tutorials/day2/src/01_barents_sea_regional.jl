@@ -140,7 +140,7 @@ nothing #hide
 # enters), a month on outflow (the interior solution leaves undisturbed). The south boundary is the Norwegian
 # coast — land — and keeps the default wall:
 
-radiation = Radiation(inflow_timescale = 100, outflow_timescale = 30days)
+radiation = Radiation(inflow_timescale = 30minutes, outflow_timescale = 30days)
 
 u_obcs = FieldBoundaryConditions(
     west = NormalFlowBoundaryCondition(west_obc,   discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation),
@@ -282,7 +282,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days, stop_iteration=1440)
+simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days)
 
 wall_time = Ref(time_ns())
 
