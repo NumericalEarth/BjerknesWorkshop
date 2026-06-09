@@ -130,16 +130,6 @@ const _RESULTS_SPEC = Dict(
         figures = ["baroclinic_instability_energy.png"],
         movies = ["baroclinic_instability.mp4"],
     ),
-    "sea_ice_thermodynamics" => (
-        title = "Sea ice thermodynamics",
-        figures = ["semtner_forcing.png", "freezing_bucket.png", "arctic_seasonal_cycle.png"],
-        movies = String[],
-    ),
-    "sea_ice_dynamics" => (
-        title = "Sea ice dynamics",
-        figures = String[],
-        movies = ["sea_ice_dynamics.mp4"],
-    ),
     "capsizing_iceberg" => (
         title = "Capsizing iceberg",
         figures = ["iceberg_tilt.png"],

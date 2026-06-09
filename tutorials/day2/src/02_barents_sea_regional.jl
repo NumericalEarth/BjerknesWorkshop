@@ -38,7 +38,7 @@ using Oceananigans.Units: Time
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
 
-arch = GPU()
+arch = CPU()
 
 # ## A regional grid
 #
@@ -132,7 +132,7 @@ nothing #hide
 @inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
 @inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Time(clock.time)]
 
-@inline east_u_obc(j, k, grid, clock, fields, φ)  = @inbounds φ[grid.Nx+1, j, k, Time(clock.time)]
+@inline  east_u_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx+1, j, k, Time(clock.time)]
 @inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny+1, k, Time(clock.time)]
 nothing #hide
 
