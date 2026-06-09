@@ -169,7 +169,7 @@ S_obcs = FieldBoundaryConditions(
 # land points), and `ηᵉˣᵗ` is the GLORYS `zos` read at the boundary:
 
 @inline wetcell(i, j, k, grid, ℓx, ℓy, ℓz) = 
-    !immersed_peripheral_node(i, j, k, grid, ℓx, ℓy, ℓz) & !immersed_active_node(i, j, k, grid, ℓx, ℓy, ℓz)
+    !immersed_peripheral_node(i, j, k, grid, ℓx, ℓy, ℓz) & !immersed_inactive_node(i, j, k, grid, ℓx, ℓy, ℓz)
 
 @inline function west_U_obc(j, k, grid, clock, fields, p)
     t = isnothing(clock) ? 0 : Time(clock.time)
@@ -239,21 +239,14 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: the front of part 2 taught us what the resolved eddies
 # can do by themselves:
 
-@inline _area_scaled_biharmonic_viscosity(i, j, k, grid, ℓx, ℓy, ℓz, clock, fields, λ) =
-    Oceananigans.Operators.Az(i, j, k, grid, ℓx, ℓy, ℓz)^2 / λ
-
-function area_scaled_biharmonic_viscosity(FT=Oceananigans.defaults.FloatType; timescale=5days)
-    return HorizontalScalarBiharmonicDiffusivity(FT;
-        ν = _area_scaled_biharmonic_viscosity,
-        discrete_form = true,
-        parameters = timescale)
-end
+closure = (NumericalEarth.Oceans.default_ocean_closure(),
+           HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
 
 ocean = ocean_simulation(grid;
                          free_surface = SplitExplicitFreeSurface(grid; substeps=100),
                          momentum_advection = WENOVectorInvariant(order=5), 
                          tracer_advection = WENO(order=5, minimum_buffer_upwind_order=1),
-                         closure = (NumericalEarth.Oceans.default_ocean_closure(), area_scaled_biharmonic_viscosity()),
+                         closure = closure,
                          forcing = (T = FT, S = FS),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
                                                 T = T_obcs, S = S_obcs,
