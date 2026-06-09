@@ -221,6 +221,8 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 @inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
 
 FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
+Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
+Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
 FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
@@ -233,7 +235,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # can do by themselves:
 
 ocean = ocean_simulation(grid;
-                         forcing = (T = FT, S = FS),
+                         forcing = (T = FT, S = FS, u = Fu, v = Fv),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
                                                 T = T_obcs, S = S_obcs,
                                                 U = U_obcs, V = V_obcs))
