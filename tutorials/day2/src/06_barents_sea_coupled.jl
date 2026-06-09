@@ -113,8 +113,8 @@ nothing #hide
 # We also crop the GLORYS download to the model footprint (a 1° margin past the grid covers the halos and the
 # boundary interpolation) instead of pulling the global 1/12° fields:
 
-dates   = DateTime(1993, 1, 1) : Month(1) : DateTime(1994, 1, 1)
-dataset = GLORYSMonthly()
+dates   = DateTime(1993, 1, 1) : Day(1) : DateTime(1993, 2, 20)
+dataset = GLORYSDaily()
 region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1))
 
 Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100)
@@ -237,7 +237,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 @inline _area_scaled_biharmonic_viscosity(i, j, k, grid, ℓx, ℓy, ℓz, clock, fields, λ) =
     Oceananigans.Operators.Az(i, j, k, grid, ℓx, ℓy, ℓz)^2 / λ
 
-function area_scaled_biharmonic_viscosity(FT=Oceananigans.defaults.FloatType; timescale=15days)
+function area_scaled_biharmonic_viscosity(FT=Oceananigans.defaults.FloatType; timescale=5days)
     return HorizontalScalarBiharmonicDiffusivity(FT;
         ν = _area_scaled_biharmonic_viscosity,
         discrete_form = true,
@@ -246,10 +246,10 @@ end
 
 ocean = ocean_simulation(grid;
                          free_surface = SplitExplicitFreeSurface(grid; substeps=100),
-                         momentum_advection = WENO(order=5, minimum_buffer_upwind_order=1),
+                         momentum_advection = WENOVectorInvariant(order=5), 
                          tracer_advection = WENO(order=5, minimum_buffer_upwind_order=1),
                          closure = (NumericalEarth.Oceans.default_ocean_closure(), area_scaled_biharmonic_viscosity()),
-                         forcing = (T = FT, S = FS, u = Fu, v = Fv),
+                         forcing = (T = FT, S = FS),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
                                                 T = T_obcs, S = S_obcs,
                                                 U = U_obcs, V = V_obcs))
@@ -285,7 +285,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days)
+simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days, stop_iteration=1440)
 
 wall_time = Ref(time_ns())
 
