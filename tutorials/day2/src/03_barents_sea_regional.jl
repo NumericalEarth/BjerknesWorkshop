@@ -292,6 +292,7 @@ function progress(sim)
     sea_ice = sim.model.sea_ice
     u, v, w = ocean.model.velocities
     T = ocean.model.tracers.T
+    S = ocean.model.tracers.S
     h = sea_ice.model.ice_thickness
     msg = @sprintf("time: %s, iter: %d, extrema(T, S): (%.1f, %.1f) °C (%.1f, %.1f) psu, max(|U|): (%.2e, %.2e, %.2e), max(h): %.2f m, wall: %s",
                    prettytime(sim), iteration(sim),
