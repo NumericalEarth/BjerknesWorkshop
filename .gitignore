@@ -22,3 +22,11 @@ logs/
 # Superseded prototype tree (migrated to tutorials/day4); kept locally for reference
 thursday/
 .deps/
+
+# The python environment should resolve automatically.
+.CondaPkg/*
+CondaPkg.toml
+tutorials/day1/.CondaPkg/*
+tutorials/day1/CondaPkg.toml
+tutorials/day2/.CondaPkg/*
+tutorials/day2/CondaPkg.toml
