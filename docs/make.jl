@@ -83,6 +83,20 @@ function demote_example_blocks(content::AbstractString)
     return String(take!(out))
 end
 
+# Because nothing executes at build time, the inline `![](figure.png)` references in
+# the Literate sources (which point at files the *script* produces in its working
+# directory) would render as broken images. Drop those lines; the cached figures and
+# movies are embedded by the appended Results section instead.
+const _LOCAL_IMAGE_LINE = r"^!\[[^\]]*\]\((?!https?://)[^)]+\)\s*$"
+
+function strip_local_images(content::AbstractString)
+    out = IOBuffer()
+    for line in eachline(IOBuffer(content); keep = true)
+        occursin(_LOCAL_IMAGE_LINE, rstrip(line)) || print(out, line)
+    end
+    return String(take!(out))
+end
+
 # ============================================================================
 # Results section appended to each day-N page (safe, cached-only embedding).
 # ============================================================================
@@ -96,6 +110,31 @@ end
 # to embed for each case. Figures embed as images; movies as an HTML5 <video>
 # (with a download link fallback). Missing files become admonition cards.
 const _RESULTS_SPEC = Dict(
+    "gpu_computing" => (
+        title = "GPU computing and a 2D turbulence solver",
+        figures = String[],
+        movies = ["two_dimensional_turbulence.mp4"],
+    ),
+    "distributed_convection" => (
+        title = "Distributed nonhydrostatic LES",
+        figures = String[],
+        movies = String[],
+    ),
+    "internal_tide" => (
+        title = "Internal tide over a sill",
+        figures = ["internal_tide_domain.png"],
+        movies = ["internal_tide.mp4"],
+    ),
+    "baroclinic_instability" => (
+        title = "Baroclinic instability in a channel",
+        figures = ["baroclinic_instability_energy.png"],
+        movies = ["baroclinic_instability.mp4"],
+    ),
+    "capsizing_iceberg" => (
+        title = "Capsizing iceberg",
+        figures = ["iceberg_tilt.png"],
+        movies = ["capsizing_iceberg.mp4"],
+    ),
     "lead_atmosphere" => (
         title = "Atmospheric turbulence over a sea-ice lead",
         figures = ["atmosphere_lead_final_slice.png"],
@@ -239,7 +278,7 @@ function render_day(day::Int)
             execute = false,
             credit = false,
             flavor = Literate.DocumenterFlavor(),
-            postprocess = demote_example_blocks)
+            postprocess = strip_local_images ∘ demote_example_blocks)
 
         mdname = replace(f, r"\.jl$" => ".md")
         mdpath = joinpath(outdir, mdname)
@@ -273,7 +312,9 @@ write_summary_pages!(case_registry(REPO_ROOT); root = REPO_ROOT)
 function _nav_for_day(day::Int)
     pages = get(day_pages, day, String[])
     isempty(pages) && return nothing
-    label = day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
+    label = day == 1 ? "Day 1 — GPU computing" :
+            day == 2 ? "Day 2 — One day in the high-latitude ocean" :
+            day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
             day == 4 ? "Day 4 — Boundary heterogeneity & turbulence" :
             "Day $day"
     return label => pages

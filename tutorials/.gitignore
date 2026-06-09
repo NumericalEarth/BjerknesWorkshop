@@ -1,0 +1,8 @@
+# run artifacts produced by executing the literate tutorials in-place
+*.jld2
+*.mp4
+*.png
+*.gif
+distributed_demo.jl
+distributed_convection.jl
+distributed_channel.jl
