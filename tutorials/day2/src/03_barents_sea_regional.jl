@@ -2,9 +2,9 @@
 #
 # *A realistic regional coupled ocean–sea ice simulation.*
 #
-# Everything we touched today meets in one place, and it happens to be the sea outside the window: the
-# **Barents Sea**, where the Atlantic water that the eddies of part 2 carry north meets the ice whose
-# thermodynamics and dynamics we built in parts 3 and 4. It is the region where the Arctic's "Atlantification"
+# Several threads of ocean–sea ice modeling meet in one place, and it happens to be a sea worth watching: the
+# **Barents Sea**, where the Atlantic water that baroclinic eddies carry north meets the ice governed by slab
+# thermodynamics and EVP dynamics. It is the region where the Arctic's "Atlantification"
 # is unfolding fastest — the ice edge retreating as the Atlantic inflow warms
 # ([Årthun et al., 2012](https://doi.org/10.1175/JCLI-D-11-00466.1);
 # [Smedsrud et al., 2013](https://doi.org/10.1002/rog.20017)) — and it makes an ideal regional target: small
@@ -12,10 +12,10 @@
 # front, a warm inflow, and a shelf.
 #
 # [NumericalEarth.jl](https://github.com/NumericalEarth/NumericalEarth.jl) supplies the unglamorous 90% that
-# separates today's idealized experiments from a real regional simulation: bathymetry regridding,
+# separates an idealized experiment from a real regional simulation: bathymetry regridding,
 # state-estimate initial conditions, reanalysis forcing, bulk fluxes, and the ocean–ice coupling. Contrarily
 # to the traditional regional-modeling workflow — namelists, preprocessing executables, grid generators — the
-# configuration here *is the program*: the same script style we have used since this morning's sill.
+# configuration here *is the program*: the same script style as an idealized internal-tide sill.
 #
 # !!! warning "Hardware and data requirements"
 #     This is a GPU tutorial: ~3 km resolution over the Barents Sea is a few million grid cells. The first run
@@ -72,7 +72,7 @@ bottom_height = regrid_bathymetry(underlying_grid;
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
                             active_cells_map = true)
 
-# The same `ImmersedBoundaryGrid` as this morning's sill — Novaya Zemlya and the Norwegian coast are just very
+# The same `ImmersedBoundaryGrid` as an idealized sill — Novaya Zemlya and the Norwegian coast are just very
 # large sills. Let's look at the stage:
 
 using CairoMakie, SixelTerm
@@ -126,7 +126,7 @@ nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
 # `FieldTimeSeries` at the boundary index and the current clock time — the same zero-overhead pattern as every
-# forcing and flux function this week:
+# forcing and flux function:
 
 @inline  west_obc(j, k, grid, clock, fields, φ) = @inbounds φ[1,           j, k, Time(clock.time)]
 @inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
@@ -140,7 +140,7 @@ nothing #hide
 # enters), a month on outflow (the interior solution leaves undisturbed). The south boundary is the Norwegian
 # coast — land — and keeps the default wall:
 
-radiation = Radiation(inflow_timescale = 1days, outflow_timescale = 30days)
+radiation = Radiation(inflow_timescale = 100, outflow_timescale = 30days)
 
 u_obcs = FieldBoundaryConditions(
     west = NormalFlowBoundaryCondition(west_obc,   discrete_form = true, parameters = uᵉˣᵗ, scheme = radiation),
@@ -235,11 +235,10 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # of state, CATKE vertical mixing, WENO advection, split-explicit free surface — plus our open boundaries and
 # sponge forcings. The lateral boundary conditions merge side-by-side with the defaults, so the surface fluxes
 # (which the coupler owns), the bottom drag, and the immersed drag stay wired. At eddy-permitting resolution
-# we leave the Gent–McWilliams parameterization *out*: the front of part 2 taught us what the resolved eddies
-# can do by themselves:
+# we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
+# eddies can do by themselves:
 
-closure = (NumericalEarth.Oceans.default_ocean_closure(),
-           HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
+closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e9))
 
 ocean = ocean_simulation(grid;
                          free_surface = SplitExplicitFreeSurface(grid; substeps=100),
@@ -253,7 +252,7 @@ ocean = ocean_simulation(grid;
 
 # ## The sea-ice component
 #
-# The two halves of sea ice we met in parts 3 and 4 — slab thermodynamics and EVP dynamics — assembled by
+# The two halves of sea ice — slab thermodynamics and EVP dynamics — assembled by
 # `sea_ice_simulation` and wired to the ocean below: the ice–ocean heat flux uses the model's evolving
 # sea-surface salinity for the freezing point, and the ice feels the surface currents as a bottom stress:
 
@@ -393,10 +392,10 @@ nothing #hide
 
 # ![](barents_sea.mp4)
 #
-# Things to look for, with the day's tutorials in mind: the warm Atlantic tongue entering between Bear Island
+# Things to look for: the warm Atlantic tongue entering between Bear Island
 # and the Norwegian coast and holding the southwestern Barents ice-free (the reason Murmansk is a year-round
-# port); the ice edge sitting along the polar front where that inflow meets Arctic water; eddies — live,
-# resolved relatives of part 2 — stirring the front; leads and ridges from part 4's rheology opening and
-# closing in the pack as storms pass through the JRA55 winds; and part 3's thermodynamics quietly thickening
+# port); the ice edge sitting along the polar front where that inflow meets Arctic water; live, resolved eddies
+# stirring the front; leads and ridges from the EVP rheology opening and
+# closing in the pack as storms pass through the JRA55 winds; and the slab thermodynamics quietly thickening
 # the ice in the cold northeastern corner.
 #

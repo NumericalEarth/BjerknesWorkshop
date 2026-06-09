@@ -2,17 +2,17 @@
 #
 # *A realistic global ocean–sea ice simulation.*
 #
-# Everything we built today was idealized: rectangular domains, synthetic initial
+# The idealized examples use rectangular domains, synthetic initial
 # conditions, forcing written as one-line Julia functions. [NumericalEarth.jl]
 # (https://github.com/NumericalEarth/NumericalEarth.jl) closes the gap to the real
-# Earth: it wraps Oceananigans and ClimaSeaIce — the very models you have been driving
-# all day — and adds the unglamorous 90% of realistic modeling: bathymetry regridding,
+# Earth: it wraps Oceananigans and ClimaSeaIce — the very models behind the idealized
+# examples — and adds the unglamorous 90% of realistic modeling: bathymetry regridding,
 # state-estimate initial conditions, reanalysis surface forcing, bulk flux
 # computations, and the coupling glue between components.
 #
 # Contrarily to the traditional GCM workflow — namelists, configuration files, a build
 # system, and a queue of preprocessing executables — the configuration here *is the
-# program*: the same hundred-line script style you have used since this morning, scaled
+# program*: the same hundred-line script style as the idealized examples, scaled
 # up to a global, JRA55-forced, eddy-parameterized ocean–sea ice simulation. This is the
 # configuration class that NumericalEarth runs for OMIP-style integrations, and what we
 # set up below is, give or take resolution, a one-degree OMIP experiment.
@@ -68,15 +68,15 @@ bottom_height = regrid_bathymetry(underlying_grid;
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
                             active_cells_map = true)
 
-# The same `ImmersedBoundaryGrid` as this morning's sill — continents are just very
+# The same `ImmersedBoundaryGrid` as the internal-tide sill — continents are just very
 # large sills. With `active_cells_map = true` the GPU kernels iterate only over wet
 # cells, which at one degree saves roughly a third of the work.
 #
 # ## Closures: the physics we cannot afford
 #
 # At one degree the mesoscale eddies of the baroclinic-instability tutorial are not
-# resolved — so we put back, as a parameterization, exactly the eddy fluxes we watched
-# develop this morning: the Gent–McWilliams skew flux plus isopycnal (Redi) diffusion.
+# resolved — so we put back, as a parameterization, exactly the eddy fluxes seen in the
+# baroclinic-instability example: the Gent–McWilliams skew flux plus isopycnal (Redi) diffusion.
 # For the surface boundary layer we use CATKE, a prognostic turbulent-kinetic-energy
 # vertical mixing scheme:
 
@@ -104,7 +104,7 @@ ocean = ocean_simulation(grid; momentum_advection, tracer_advection, free_surfac
 
 # ## The sea-ice component
 #
-# `sea_ice_simulation` builds the ClimaSeaIce model of the morning tutorials — slab
+# `sea_ice_simulation` builds the ClimaSeaIce model of the sea-ice examples — slab
 # thermodynamics plus EVP dynamics — already wired to feel the ocean below:
 
 sea_ice = sea_ice_simulation(grid, ocean; advection = tracer_advection)
@@ -272,7 +272,7 @@ nothing #hide
 # - **Regional.** Cut a Nordic Seas domain with `LatitudeLongitudeGrid` (or a rotated
 #   `RotatedLatitudeLongitudeGrid` centered on the pole) and the same components — see
 #   the Arctic experiment in the NumericalEarth repository.
-# - **Interactive atmosphere.** Thursday morning replaces `JRA55PrescribedAtmosphere`
-#   with a prognostic atmosphere, and the same `OceanSeaIceModel` becomes a small
+# - **Interactive atmosphere.** A prognostic atmosphere can replace `JRA55PrescribedAtmosphere`,
+#   and the same `OceanSeaIceModel` becomes a small
 #   coupled ESM. It is, indeed, easier than you think.
 #

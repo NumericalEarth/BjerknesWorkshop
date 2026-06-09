@@ -1,6 +1,6 @@
 # # Julia essentials: enough to drive an ocean model
 #
-# *Monday morning — right after the showcase.*
+# *Arrays, broadcasting, multiple dispatch, and a first GPU kernel.*
 #
 # You just watched three simulations that are, underneath, short Julia scripts. This notebook gives you
 # exactly the Julia you need to read and write those scripts — no more. We are not here to make you a
