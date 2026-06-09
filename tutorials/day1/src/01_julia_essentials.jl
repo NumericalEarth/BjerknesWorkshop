@@ -240,6 +240,6 @@ else
                    N, N, 1e3cpu_time)
 end
 
-# The same `stencil` function, the same call — only the array type changed. On the workshop's GPU nodes
-# the speedup is what makes eddy-resolving and large-eddy simulation affordable at all.
+# The same `stencil` function, the same call — only the array type changed. On GPU hardware that speedup
+# is what makes eddy-resolving and large-eddy simulation affordable at all.
 #
