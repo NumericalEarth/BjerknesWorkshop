@@ -47,8 +47,8 @@ arch = CPU()
 # Barents deformation radius. The vertical grid concentrates 40 levels toward the surface over 4000 m, enough
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
-λ₁, λ₂ = 5, 60    # longitude extent [°E]
-φ₁, φ₂ = 60, 80   # latitude extent [°N]
+λ₁, λ₂ =  5, 60   
+φ₁, φ₂ = 63, 78   
 
 Nx = 8 * (λ₂ - λ₁)
 Ny = 8 * (φ₂ - φ₁)
@@ -115,7 +115,7 @@ nothing #hide
 
 dates   = DateTime(1993, 1, 1) : Day(1) : DateTime(1993, 2, 20)
 dataset = GLORYSDaily()
-region  = BoundingBox(longitude = (λ₁ - 1, λ₂ + 1), latitude = (φ₁ - 1, φ₂ + 1))
+region  = BoundingBox(longitude=(0, 80), latitude=(55, 85))
 
 Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100)
 Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100)
@@ -222,7 +222,6 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # relies entirely on the sponge, so it stays in the mask.)
 
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
-
 @inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
 
 FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
