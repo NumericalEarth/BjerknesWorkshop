@@ -539,6 +539,78 @@ function case_registry(root::AbstractString = pwd())
         description = "Breeze terrain-following LES over coastal Norway (Lofoten) with prescribed land/ocean fluxes.",
     ))
     push!(cases, TutorialCase(
+        day = 4, name = "Intro: 2D atmospheric free convection",
+        slug = "intro_atmosphere",
+        source = joinpath(DAY4_SRC, "05_intro_atmosphere_convection.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "05_intro_atmosphere_convection.jl"),
+        output_root = joinpath("output", "day4", "intro_atmosphere"),
+        required_outputs = ["05_intro_atmosphere_convection_slices.jld2"],
+        optional_outputs = [
+            "intro_atmosphere_convection_final.png",
+            "intro_atmosphere_convection.mp4",
+        ],
+        parameters = (Lx = 8_000, Lz = 4_000, Nx = 256, Nz = 128, stop_hours = 2, Q = 300),
+        critical = false,
+        description = "Intro: 2D Breeze atmosphere free convection with a surface heat flux and light wind stress.",
+    ))
+    push!(cases, TutorialCase(
+        day = 4, name = "Intro: 2D ocean free convection",
+        slug = "intro_ocean",
+        source = joinpath(DAY4_SRC, "06_intro_ocean_convection.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "06_intro_ocean_convection.jl"),
+        output_root = joinpath("output", "day4", "intro_ocean"),
+        required_outputs = [
+            "06_intro_ocean_convection_slices.jld2",
+            "06_intro_ocean_convection_profiles.jld2",
+        ],
+        optional_outputs = [
+            "intro_ocean_convection_final.png",
+            "intro_ocean_convection.mp4",
+        ],
+        parameters = (Lx = 512, Lz = 256, Nx = 256, Nz = 128, stop_hours = 4, Q = 200),
+        critical = false,
+        description = "Intro: 2D Oceananigans ocean free convection driven by surface cooling with light wind stress.",
+    ))
+    push!(cases, TutorialCase(
+        day = 4, name = "Intro: 2D coupled air–sea convection",
+        slug = "intro_coupled",
+        source = joinpath(DAY4_SRC, "07_intro_coupled_convection.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "07_intro_coupled_convection.jl"),
+        output_root = joinpath("output", "day4", "intro_coupled"),
+        required_outputs = [
+            "07_intro_coupled_convection_atmosphere.jld2",
+            "07_intro_coupled_convection_ocean.jld2",
+            "07_intro_coupled_convection_fluxes.jld2",
+        ],
+        optional_outputs = [
+            "intro_coupled_convection_final.png",
+            "intro_coupled_convection.mp4",
+        ],
+        parameters = (Lx = 4_000, Lz_a = 3_000, Lz_o = 100, Nx = 128, Nz_a = 96, Nz_o = 64, stop_hours = 2),
+        critical = false,
+        description = "Intro: 2D coupled EarthSystemModel — convection above and below one air–sea interface, fluxes computed by similarity theory.",
+    ))
+    push!(cases, TutorialCase(
+        day = 4, name = "A warm filament writes a cloud street",
+        slug = "warm_filament",
+        source = joinpath(DAY4_SRC, "08_coupled_warm_filament.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "08_coupled_warm_filament.jl"),
+        output_root = joinpath("output", "day4", "warm_filament"),
+        required_outputs = [
+            "08_coupled_warm_filament_atmosphere.jld2",
+            "08_coupled_warm_filament_ocean.jld2",
+            "08_coupled_warm_filament_fluxes.jld2",
+        ],
+        optional_outputs = [
+            "coupled_warm_filament_final.png",
+            "coupled_warm_filament.mp4",
+        ],
+        parameters = (Lx = 12_000, Ly = 6_000, Lz_a = 3_000, Lz_o = 120,
+                      Nx = 192, Ny = 96, Nz_a = 96, Nz_o = 48, stop_hours = 1),
+        critical = false,
+        description = "Flagship coupled LES: a warm SST filament organizes a marine cloud street overhead (3D Breeze atmosphere + nonhydrostatic ocean).",
+    ))
+    push!(cases, TutorialCase(
         day = 4, name = "Smoke case", slug = "smoke_case",
         source = joinpath(DAY4_SRC, "99_smoke_case.jl"),
         generated_script = joinpath(DAY4_SCRIPTS, "99_smoke_case.jl"),
