@@ -290,11 +290,12 @@ wall_time = Ref(time_ns())
 function progress(sim)
     ocean = sim.model.ocean
     sea_ice = sim.model.sea_ice
+    u, v, w = ocean.model.velocities
     T = ocean.model.tracers.T
     h = sea_ice.model.ice_thickness
-    msg = @sprintf("time: %s, iter: %d, extrema(T): (%.1f, %.1f) °C, max(h): %.2f m, wall: %s",
+    msg = @sprintf("time: %s, iter: %d, extrema(T, S): (%.1f, %.1f) °C (%.1f, %.1f) psu, max(|U|): (%.2e, %.2e, %.2e), max(h): %.2f m, wall: %s",
                    prettytime(sim), iteration(sim),
-                   minimum(T), maximum(T), maximum(h),
+                   extrema(T)..., extrema(S)..., maximum(abs, u), maximum(abs, v), maximum(abs, w), maximum(h),
                    prettytime(1e-9 * (time_ns() - wall_time[])))
     @info msg
     wall_time[] = time_ns()
