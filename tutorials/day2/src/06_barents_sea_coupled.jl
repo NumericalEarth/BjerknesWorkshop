@@ -33,7 +33,7 @@
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
-using Oceananigans.ImmersedBoundaries: immersed_peripheral_node
+using Oceananigans.ImmersedBoundaries: immersed_peripheral_node, immersed_inactive_node
 using Oceananigans.Units: Time
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
