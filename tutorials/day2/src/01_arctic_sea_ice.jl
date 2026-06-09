@@ -59,7 +59,7 @@ underlying_grid = TripolarGrid(arch;
                                halo = (5, 5, 1),
                                z)
 
-bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = 1)
+bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = Inf)
 
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height))
 

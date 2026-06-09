@@ -2,10 +2,10 @@
 #
 # *Teaching the model new physics from user space.*
 #
-# Every tutorial so far used physics the models already knew. This one does not: we
+# Most simulations use physics the models already know. This one does not: we
 # teach Oceananigans about an object it has never heard of — a rigid, buoyant,
-# *rotating* iceberg — using nothing but the public extension points you have already
-# met (`Forcing`, `Callback`, abstract operations). The point here is less
+# *rotating* iceberg — using nothing but the public extension points
+# (`Forcing`, `Callback`, abstract operations). The point here is less
 # the iceberg itself than the demonstration that a new piece of coupled physics —
 # a moving boundary with its own dynamics — consists in ~100 lines of ordinary Julia,
 # without touching the model source. And because we write those lines with the GPU
@@ -61,8 +61,8 @@
 #
 # ## Setup
 #
-# A 1.2 km × 300 m slice of quiescent, stratified fjord water. The model is the
-# `NonhydrostaticModel` of yesterday's lecture — at these scales the hydrostatic
+# A 1.2 km × 300 m slice of quiescent, stratified fjord water. The model is a
+# `NonhydrostaticModel` — at these scales the hydrostatic
 # approximation would be exactly wrong. The architecture is chosen once, here; the
 # float type comes from the grid, and every device-side constant below is converted
 # through it (Apple GPUs, for instance, only speak `Float32`):

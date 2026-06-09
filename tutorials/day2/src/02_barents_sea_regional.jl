@@ -224,10 +224,14 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
 @inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
-Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
-Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days, mask = sponge_mask, inpainting=100)
+# Tracers relax on the gentle 5-day timescale. The *velocities* need a much stronger edge nudge: the radiation pins the boundary-normal 
+# velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the 
+# near-boundary interior matched to the prescribed boundary and holds max|w| at the GLORYS-consistent floor.
+
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
+Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
@@ -246,7 +250,7 @@ ocean = ocean_simulation(grid;
                          momentum_advection = WENOVectorInvariant(; order=5, time_discretization), 
                          tracer_advection = WENO(; order=5, time_discretization, minimum_buffer_upwind_order=1),
                          closure = closure,
-                         forcing = (T = FT, S = FS),
+                         forcing = (T = FT, S = FS, u = Fu, v = Fv),
                          boundary_conditions = (u = u_obcs, v = v_obcs,
                                                 T = T_obcs, S = S_obcs,
                                                 U = U_obcs, V = V_obcs))
