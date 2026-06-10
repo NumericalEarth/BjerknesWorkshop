@@ -48,10 +48,10 @@ arch = CPU()
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
 const λ₁, λ₂ =  5, 60
-const φ₁, φ₂ = 63, 76
+const φ₁, φ₂ = 63, 78
 
-Nx = 12 * (λ₂ - λ₁)
-Ny = 12 * (φ₂ - φ₁)
+Nx = 8 * (λ₂ - λ₁)
+Ny = 8 * (φ₂ - φ₁)
 Nz = 40
 
 depth = 4000meters
