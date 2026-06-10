@@ -380,3 +380,19 @@ makedocs(
 )
 
 @info "Documentation built" build_dir = joinpath(DOCS_DIR, "build")
+
+# Strip base64 data-URI payloads from the search index. We embed figures/movies as
+# base64 in `@raw html` blocks (so Documenter doesn't mistake data URIs for file
+# paths), but Documenter then indexes those megabyte-scale strings into
+# `search_index.js` — pushing it past GitHub's 100 MB single-file limit on gh-pages.
+# Nobody searches base64, so dropping the payloads (keeping the surrounding text)
+# leaves search fully functional and shrinks the index by ~1000×.
+let search_index = joinpath(DOCS_DIR, "build", "search_index.js")
+    if isfile(search_index)
+        before = filesize(search_index)
+        text = read(search_index, String)
+        text = replace(text, r"data:(?:image/[a-z]+|video/mp4);base64,[A-Za-z0-9+/=]+" => "")
+        write(search_index, text)
+        @info "Stripped base64 from search index" MB_before = round(before/1e6; digits=1) MB_after = round(filesize(search_index)/1e6; digits=2)
+    end
+end
