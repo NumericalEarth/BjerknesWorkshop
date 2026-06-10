@@ -35,6 +35,7 @@ using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, Norm
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
 using Oceananigans.ImmersedBoundaries: immersed_peripheral_node, immersed_inactive_node
 using Oceananigans.Units: Time
+using Oceananigans.OutputReaders: update_field_time_series!
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
 
@@ -286,7 +287,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days)
+simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 50days)
 
 wall_time = Ref(time_ns())
 
@@ -307,6 +308,27 @@ function progress(sim)
 end
 
 add_callback!(simulation, progress, IterationInterval(10))
+
+# !!! warning "Driving the open-boundary data in time"
+#     The GLORYS `FieldTimeSeries` feeding the open boundaries are read inside *discrete* boundary
+#     functions (as `parameters`), and the Flather one (`ηᵉˣᵗ`) lives on the free surface. Oceananigans'
+#     automatic `FieldTimeSeries` advance only reaches *forcing* FTS and *bare-FTS* boundary conditions —
+#     not FTS hidden in discrete-function parameters, nor the free surface — so these windows never move
+#     and return garbage past the first daily snapshot, blowing the run up at ~1 day. We advance them
+#     explicitly each step. (Proper upstream fix: `extract_field_time_series` should also traverse
+#     boundary-condition discrete-function parameters, and `possible_field_time_series` should include
+#     the free surface.)
+external_boundary_data = (uᵉˣᵗ, vᵉˣᵗ, Tᵉˣᵗ, Sᵉˣᵗ, ηᵉˣᵗ)
+
+function update_boundary_data!(sim)
+    t⁺ = Time(sim.model.clock.time + sim.Δt)   # look-ahead so the window brackets the upcoming step
+    for fts in external_boundary_data
+        update_field_time_series!(fts, t⁺)
+    end
+    return nothing
+end
+
+add_callback!(simulation, update_boundary_data!, IterationInterval(1))
 
 # ## Output
 #
