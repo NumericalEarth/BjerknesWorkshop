@@ -36,28 +36,41 @@ using ClimaSeaIce.SeaIceThermodynamics: IceWaterThermalEquilibrium
 using ClimaSeaIce.SeaIceDynamics: SeaIceMomentumEquation, SemiImplicitStress, SplitExplicitSolver
 using ClimaSeaIce.Rheologies: ElastoViscoPlasticRheology
 using Dates, Printf, CUDA
+using Oceananigans.OrthogonalSphericalShellGrids: RotatedLatitudeLongitudeGrid
+
+# `regrid_bathymetry` crops the source bathymetry to the grid's geographic extent through
+# `x_domain`/`y_domain`, which Oceananigans defines only for lat–lon grids. A rotated grid stores the
+# *true geographic* node coordinates, so its bounding box is just their extrema (temporary local patch):
+import Oceananigans.Grids: x_domain, y_domain
+x_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.λᶠᶠᵃ))
+y_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.φᶠᶠᵃ))
 
 arch = CPU()   # CPU() works at reduced resolution
 
 # ## A grid for the Arctic cap
 #
 # A latitude–longitude grid degenerates at the geographic poles — the zonal cell width vanishes, and with
-# it the affordable time step — which is exactly the wrong behaviour for an Arctic-centered domain. The
-# `TripolarGrid` places its two artificial northern poles over land (Arctic Canada and Siberia), so the
-# real North Pole is an ordinary, well-resolved ocean point rather than a coordinate singularity. We cap
-# the grid at 55°N (`southernmost_latitude = 55`) to keep just the Arctic Ocean and its marginal seas, and
-# — since the slab ocean has no vertical structure — use a single vertical level, enough for the
-# bathymetry to mark land from ocean.
+# it the affordable time step — which is exactly the wrong behaviour for an Arctic-centered domain. We
+# sidestep the singularity with a `RotatedLatitudeLongitudeGrid`: an ordinary lat–lon patch whose pole has
+# been rotated onto the geographic *equator* (`north_pole = (0, 0)`). Positioned over rotated longitude
+# 180°, the patch lands as a cap **centered on the real North Pole**, which becomes an ordinary,
+# well-resolved ocean point rather than a coordinate singularity — the singular points are exiled to the
+# equator. A half-width of `δ = 35°` brings the cap edges down to ~55°N, enough for the Arctic Ocean and
+# its marginal seas. Crucially the grid carries the *true geographic* longitude and latitude of every node,
+# so the plotting later needs no regridding. Since the slab ocean has no vertical structure we use a single
+# vertical level, enough for the bathymetry to mark land from ocean.
 
 Nx, Ny = 180, 180
-
+δ = 35   # half-width of the cap, in rotated degrees
 z = (-10meters, 0)
 
-underlying_grid = TripolarGrid(arch;
-                               size = (Nx, Ny, 1),
-                               southernmost_latitude = 55,
-                               halo = (5, 5, 1),
-                               z)
+underlying_grid = RotatedLatitudeLongitudeGrid(arch;
+                                               size = (Nx, Ny, 1),
+                                               longitude = (180 - δ, 180 + δ),
+                                               latitude = (-δ, δ),
+                                               north_pole = (0, 0),
+                                               halo = (5, 5, 1),
+                                               z)
 
 bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = Inf)
 
@@ -182,52 +195,44 @@ run!(simulation)
 
 # ## An Arctic movie
 #
-# The tripolar grid is curvilinear — its indices are not longitude and latitude — so we first `interpolate!`
-# each snapshot onto a regular latitude–longitude grid covering the cap, then draw it on a GeoMakie
-# `GeoAxis` in a **polar-stereographic** projection (`+proj=stere +lat_0=90`), with coastlines for
-# orientation and the view clipped to north of 55°N:
+# Because the rotated grid carries the true longitude and latitude of every node, each snapshot is drawn
+# directly — no interpolation onto an intermediate grid. We read the node coordinates once and plot the
+# curvilinear fields on a GeoMakie `GeoAxis` in a polar-stereographic projection (`+proj=stere +lat_0=90`),
+# masking land to gray and overlaying coastlines for orientation:
 
 using CairoMakie
 using GeoMakie
-using Oceananigans.Fields: interpolate!
 
 hi = FieldTimeSeries("arctic_sea_ice.jld2", "h"; backend = OnDisk())
 ℵi = FieldTimeSeries("arctic_sea_ice.jld2", "ℵ"; backend = OnDisk())
 
-latlon_grid = LatitudeLongitudeGrid(CPU();
-                                    size = (360, 70, 1),
-                                    longitude = (-180, 180),
-                                    latitude = (50, 90),
-                                    z = (-10, 0))
-
-h_latlon = Field{Center, Center, Nothing}(latlon_grid)
-ℵ_latlon = Field{Center, Center, Nothing}(latlon_grid)
-
-λ = λnodes(latlon_grid, Center())
-φ = φnodes(latlon_grid, Center())
+λ = Array(λnodes(grid, Center(), Center(), Center()))   # 2D geographic longitude of every node
+φ = Array(φnodes(grid, Center(), Center(), Center()))   # 2D geographic latitude
+wet = Array(interior(grid.immersed_boundary.bottom_height, :, :, 1)) .< 0
 
 times = hi.times
 n = Observable(length(times))
+title = @lift "Arctic sea ice — day " * string(round(Int, times[$n] / days))
 
-title = @lift "Arctic sea ice — day " * string(round(Int, times[$n] / day))
+# Mask land to NaN so it draws in `nan_color` rather than as zero-ice ocean:
+masked(field) = (data = Array(interior(field, :, :, 1)); data[.!wet] .= NaN; data)
+hₙ = @lift masked(hi[$n])
+ℵₙ = @lift masked(ℵi[$n])
 
-hₙ = @lift (interpolate!(h_latlon, hi[$n]); interior(h_latlon, :, :, 1))
-ℵₙ = @lift (interpolate!(ℵ_latlon, ℵi[$n]); interior(ℵ_latlon, :, :, 1))
+projection = "+proj=stere +lat_0=90 +lat_ts=70"
 
-projection = "+proj=stere +lat_0=90 +lon_0=0"
-
-fig = Figure(size = (1100, 640))
+fig = Figure(size = (1000, 560))
 fig[0, :] = Label(fig, title, fontsize = 22, tellwidth = false)
 
-ax_h = GeoAxis(fig[1, 1]; dest = projection, title = "thickness [m]")
-ylims!(ax_h, 55, 90)
+ax_h = GeoAxis(fig[1, 1]; dest = projection, title = "ice thickness [m]")
+ylims!(ax_h, 50, 90)
 sf_h = surface!(ax_h, λ, φ, hₙ; colormap = Reverse(:blues), colorrange = (0, 4),
                 nan_color = :gray20, shading = NoShading)
 lines!(ax_h, GeoMakie.coastlines(); color = :black, linewidth = 0.5)
 Colorbar(fig[1, 2], sf_h)
 
-ax_ℵ = GeoAxis(fig[1, 3]; dest = projection, title = "concentration")
-ylims!(ax_ℵ, 55, 90)
+ax_ℵ = GeoAxis(fig[1, 3]; dest = projection, title = "ice concentration")
+ylims!(ax_ℵ, 50, 90)
 sf_ℵ = surface!(ax_ℵ, λ, φ, ℵₙ; colormap = :ice, colorrange = (0, 1),
                 nan_color = :gray20, shading = NoShading)
 lines!(ax_ℵ, GeoMakie.coastlines(); color = :black, linewidth = 0.5)
