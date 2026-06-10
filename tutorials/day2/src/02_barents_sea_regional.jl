@@ -171,7 +171,7 @@ S_obcs = FieldBoundaryConditions(
     !immersed_peripheral_node(i, j, k, grid, ℓx, ℓy, ℓz) & !immersed_inactive_node(i, j, k, grid, ℓx, ℓy, ℓz)
 
 @inline function west_U_obc(j, k, grid, clock, fields, p)
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(1, j, k, grid, Face(), Center(), Center())
@@ -182,7 +182,7 @@ end
 
 @inline function east_U_obc(j, k, grid, clock, fields, p)
     i = grid.Nx+1
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(i, j, k, grid, Face(), Center(), Center())
@@ -193,7 +193,7 @@ end
 
 @inline function north_V_obc(i, k, grid, clock, fields, p)
     j = grid.Ny+1
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     V = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(i, j, k, grid, Face(), Center(), Center())
