@@ -35,7 +35,6 @@ using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, Norm
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
 using Oceananigans.ImmersedBoundaries: immersed_peripheral_node, immersed_inactive_node
 using Oceananigans.Units: Time
-using Oceananigans.OutputReaders: update_field_time_series!
 using Dates, CUDA, Printf
 using CopernicusMarine   # enables the GLORYS download extension
 
@@ -118,11 +117,11 @@ dates   = DateTime(1993, 1, 1) : Day(1) : DateTime(1993, 2, 20)
 dataset = GLORYSDaily()
 region  = BoundingBox(longitude=(0, 80), latitude=(55, 85))
 
-Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100)
-Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100)
-uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100)
-vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100)
-ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100)
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
 nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
@@ -219,11 +218,8 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # toward the same GLORYS12 data with `DatasetRestoring` — a 5-day timescale at the edge, fading to nothing
 # within a couple of degrees:
 
-# (The south rim is mostly Norwegian coast and keeps its wall, but its open southwest corner — Norwegian Sea —
-# relies entirely on the sponge, so it stays in the mask.)
-
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
-@inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
+@inline sponge_mask(λ, φ, z, t) = max(rim(λ, λ₁, 2), rim(λ, λ₂, 2), rim(φ, φ₂, 1))
 
 # Tracers relax on the gentle 5-day timescale. The *velocities* need a much stronger edge nudge: the radiation pins the boundary-normal 
 # velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the 
@@ -243,7 +239,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
 # eddies can do by themselves:
 
-closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e9))
+closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
 time_discretization = Oceananigans.TimeSteppers.AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
 
 ocean = ocean_simulation(grid;
@@ -287,7 +283,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 50days)
+simulation = Simulation(coupled_model; Δt = 10minutes, stop_time = 50days)
 
 wall_time = Ref(time_ns())
 
@@ -309,39 +305,18 @@ end
 
 add_callback!(simulation, progress, IterationInterval(10))
 
-# !!! warning "Driving the open-boundary data in time"
-#     The GLORYS `FieldTimeSeries` feeding the open boundaries are read inside *discrete* boundary
-#     functions (as `parameters`), and the Flather one (`ηᵉˣᵗ`) lives on the free surface. Oceananigans'
-#     automatic `FieldTimeSeries` advance only reaches *forcing* FTS and *bare-FTS* boundary conditions —
-#     not FTS hidden in discrete-function parameters, nor the free surface — so these windows never move
-#     and return garbage past the first daily snapshot, blowing the run up at ~1 day. We advance them
-#     explicitly each step. (Proper upstream fix: `extract_field_time_series` should also traverse
-#     boundary-condition discrete-function parameters, and `possible_field_time_series` should include
-#     the free surface.)
-external_boundary_data = (uᵉˣᵗ, vᵉˣᵗ, Tᵉˣᵗ, Sᵉˣᵗ, ηᵉˣᵗ)
-
-function update_boundary_data!(sim)
-    t⁺ = Time(sim.model.clock.time + sim.Δt)   # look-ahead so the window brackets the upcoming step
-    for fts in external_boundary_data
-        update_field_time_series!(fts, t⁺)
-    end
-    return nothing
-end
-
-add_callback!(simulation, update_boundary_data!, IterationInterval(1))
-
 # ## Output
 #
 # Daily surface fields from both components:
 
 u, v, w = ocean.model.velocities
+h = sea_ice.model.ice_thickness
+ℵ = sea_ice.model.ice_concentration
 𝒱 = @at((Center, Center, Center), sqrt(u^2 + v^2))
-ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities, (; 𝒱))
+he = h * ℵ
+ocean_outputs = merge(ocean.model.tracers, (; 𝒱))
 
-sea_ice_outputs = (h = sea_ice.model.ice_thickness,
-                   ℵ = sea_ice.model.ice_concentration,
-                   u = sea_ice.model.velocities.u,
-                   v = sea_ice.model.velocities.v)
+sea_ice_outputs = (; he)
 
 ocean.output_writers[:surface] = JLD2Writer(ocean.model, ocean_outputs;
                                             filename = "barents_ocean_surface.jld2",
@@ -364,9 +339,9 @@ run!(simulation)
 # story in one frame:
 
 To = FieldTimeSeries("barents_ocean_surface.jld2",   "T")
+So = FieldTimeSeries("barents_ocean_surface.jld2",   "S")
 Uo = FieldTimeSeries("barents_ocean_surface.jld2",   "𝒱")
-hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "h")
-ℵi = FieldTimeSeries("barents_sea_ice_surface.jld2", "ℵ")
+hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "he")
 
 times = To.times
 
@@ -376,43 +351,29 @@ n = Observable(length(times))
 
 title = @lift "Barents Sea — day " * string(round(Int, times[$n] / days))
 
-Tₙ = @lift begin
-    T = interior(To, :, :, 1, $n)
-    T[land_mask] .= NaN
-    T
-end
+Tₙ = @lift(To[$n])
+Sₙ = @lift(So[$n])
+Uₙ = @lift(Uo[$n])
+hₙ = @lift(hi[$n])
 
-Uₙ = @lift begin
-    U = interior(Uo, :, :, 1, $n)
-    U[land_mask] .= NaN
-    U
-end
-
-
-iceₙ = @lift begin
-    hℵ = interior(hi, :, :, 1, $n) .* interior(ℵi, :, :, 1, $n)
-    hℵ[land_mask] .= NaN
-    hℵ[hℵ .< 0.05] .= NaN
-    hℵ
-end
-
-λ = range(λ₁, λ₂, Nx)
-φ = range(φ₁, φ₂, Ny)
-
-fig = Figure(size = (1200, 450))
+fig = Figure(size = (1200, 650))
 fig[0, 1:4] = Label(fig, title, fontsize = 20, tellwidth = false)
 
-ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
-hm_T = heatmap!(ax, λ, φ, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
+ax = Axis(fig[1, 1], ylabel = "latitude [°N]")
+hm_T = heatmap!(ax, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
 ax = Axis(fig[1, 3])
-hm_h = heatmap!(ax, λ, φ, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
-ax = Axis(fig[2, 1])
-hm_U = heatmap!(ax, λ, φ, Uₙ, colormap = Reverse(:solar), colorrange = (0, 0.5))
+hm_S = heatmap!(ax, Sₙ, colormap = :haline, colorrange = (32.5, 36.5))
+ax = Axis(fig[2, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
+hm_U = heatmap!(ax, Uₙ, colormap = Reverse(:solar), colorrange = (0, 0.5))
+ax = Axis(fig[2, 3], xlabel = "longitude [°E]")
+hm_h = heatmap!(ax, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
 Colorbar(fig[1, 2], hm_T, label = "SST [°C]")
-Colorbar(fig[1, 4], hm_h, label = "ice volume per area [m]")
-Colorbar(fig[2, 2], hm_h, label = "Surface speed [ms⁻¹]")
+Colorbar(fig[1, 4], hm_S, label = "SSS [psu]")
+Colorbar(fig[2, 2], hm_U, label = "Surface speed [ms⁻¹]")
+Colorbar(fig[2, 4], hm_h, label = "ice volume per area [m]")
 
 CairoMakie.record(fig, "barents_sea.mp4", 1:length(times), framerate = 8) do i
+    @info "drawing $i"
     n[] = i
 end
 nothing #hide
