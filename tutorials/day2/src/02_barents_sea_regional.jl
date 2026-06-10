@@ -283,7 +283,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 10minutes, stop_time = 50days)
+simulation = Simulation(coupled_model; Δt = 10minutes, stop_time = 40days)
 
 wall_time = Ref(time_ns())
 
@@ -344,9 +344,6 @@ Uo = FieldTimeSeries("barents_ocean_surface.jld2",   "𝒱")
 hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "he")
 
 times = To.times
-
-land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
-
 n = Observable(length(times))
 
 title = @lift "Barents Sea — day " * string(round(Int, times[$n] / days))
