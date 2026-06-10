@@ -22,6 +22,14 @@
 - **Morning (09:30–12:30):** Biogeochemistry (BGC)
 - **Afternoon (13:30–15:30):** Open discussion
 
+## Tutorials & website
+
+The LES tutorials (Thursday = `tutorials/day4/`) are built into a website served
+at <https://numericalearth.github.io/BjerknesWorkshop/>.
+
+To generate the docs, run cases, publish to GitHub Pages, or regenerate just part
+of the site, see the operator guide: [`docs/WORKFLOW.md`](docs/WORKFLOW.md).
+
 ## Related projects
 
 Part of [NumericalEarth](https://github.com/NumericalEarth):
