@@ -44,8 +44,8 @@ arch = GPU()   # CPU() works too — heroically — at reduced resolution
 # (Siberia and Canada), keeping every wet cell comfortably sized. The Arctic, dear to
 # this audience, is a first-class citizen rather than a coordinate singularity:
 
-Nx = 360
-Ny = 180
+Nx = 1440
+Ny = 720
 Nz = 50
 
 depth = 5000meters
@@ -81,9 +81,6 @@ grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
 # vertical mixing scheme:
 
 using Oceananigans.TurbulenceClosures: IsopycnalSkewSymmetricDiffusivity, AdvectiveFormulation
-
-eddy_closure = IsopycnalSkewSymmetricDiffusivity(κ_skew = 1e3, κ_symmetric = 1e3,
-                                                 skew_flux_formulation = AdvectiveFormulation())
 
 vertical_mixing = NumericalEarth.Oceans.default_ocean_closure()  # CATKE
 

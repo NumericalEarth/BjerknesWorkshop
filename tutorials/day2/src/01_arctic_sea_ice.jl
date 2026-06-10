@@ -269,6 +269,7 @@ fig[0, :] = Label(fig, title, fontsize = 22, tellwidth = false)
 # Each field is drawn per-cell with `surface!` — filled contours leave thin polygon artifacts on this
 # sheared curvilinear mesh. The gray land layer sits on top to hide the per-cell coastline, and the explicit
 # `limits` keep the global coastlines from blowing up the polar view:
+
 function surface_panel!(column, field, name; colorrange, colormap)
     ax = GeoAxis(fig[1, column]; dest = projection, limits = ((-180, 180), (50, 90)), title = name)
     sf = surface!(ax, λ, φ, field; colormap, colorrange, nan_color = :transparent, shading = NoShading)
