@@ -47,8 +47,8 @@ arch = CPU()
 # Barents deformation radius. The vertical grid concentrates 40 levels toward the surface over 4000 m, enough
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
-λ₁, λ₂ =  5, 60   
-φ₁, φ₂ = 63, 78   
+const λ₁, λ₂ =  5, 60
+const φ₁, φ₂ = 63, 78
 
 Nx = 8 * (λ₂ - λ₁)
 Ny = 8 * (φ₂ - φ₁)
@@ -66,11 +66,10 @@ underlying_grid = LatitudeLongitudeGrid(arch;
 
 bottom_height = regrid_bathymetry(underlying_grid;
                                   minimum_depth = 15,
-                                  interpolation_passes = 5,
+                                  interpolation_passes = 25,
                                   major_basins = 1)
 
-grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
-                            active_cells_map = true)
+grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height); active_cells_map = true)
 
 # The same `ImmersedBoundaryGrid` as an idealized sill — Novaya Zemlya and the Norwegian coast are just very
 # large sills. Let's look at the stage:
@@ -117,11 +116,11 @@ dates   = DateTime(1993, 1, 1) : Day(1) : DateTime(1993, 2, 20)
 dataset = GLORYSDaily()
 region  = BoundingBox(longitude=(0, 80), latitude=(55, 85))
 
-Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100)
-Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100)
-uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100)
-vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100)
-ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100)
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
+ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100, time_indices_in_memory=50)
 nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
@@ -172,7 +171,7 @@ S_obcs = FieldBoundaryConditions(
     !immersed_peripheral_node(i, j, k, grid, ℓx, ℓy, ℓz) & !immersed_inactive_node(i, j, k, grid, ℓx, ℓy, ℓz)
 
 @inline function west_U_obc(j, k, grid, clock, fields, p)
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(1, j, k, grid, Face(), Center(), Center())
@@ -183,7 +182,7 @@ end
 
 @inline function east_U_obc(j, k, grid, clock, fields, p)
     i = grid.Nx+1
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     U = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(i, j, k, grid, Face(), Center(), Center())
@@ -194,7 +193,7 @@ end
 
 @inline function north_V_obc(i, k, grid, clock, fields, p)
     j = grid.Ny+1
-    t = isnothing(clock) ? 0 : Time(clock.time)
+    t = Time(clock.time)
     V = zero(eltype(grid))
     @inbounds for k in 1:grid.Nz
         wet = wetcell(i, j, k, grid, Face(), Center(), Center())
@@ -218,20 +217,17 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # toward the same GLORYS12 data with `DatasetRestoring` — a 5-day timescale at the edge, fading to nothing
 # within a couple of degrees:
 
-# (The south rim is mostly Norwegian coast and keeps its wall, but its open southwest corner — Norwegian Sea —
-# relies entirely on the sponge, so it stays in the mask.)
-
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
-@inline sponge_mask(λ, φ, z, t) = max(rim(λ, 5, 2), rim(λ, 60, 2), rim(φ, 67, 0.5), rim(φ, 80, 0.5))
+@inline sponge_mask(λ, φ, z, t) = max(rim(λ, λ₁, 2), rim(λ, λ₂, 2), rim(φ, φ₂, 1))
 
 # Tracers relax on the gentle 5-day timescale. The *velocities* need a much stronger edge nudge: the radiation pins the boundary-normal 
 # velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the 
 # near-boundary interior matched to the prescribed boundary and holds max|w| at the GLORYS-consistent floor.
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
 Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
@@ -242,7 +238,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate
 # we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
 # eddies can do by themselves:
 
-closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e9))
+closure = (NumericalEarth.Oceans.default_ocean_closure(), HorizontalScalarBiharmonicDiffusivity(ν = 1e10))
 time_discretization = Oceananigans.TimeSteppers.AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
 
 ocean = ocean_simulation(grid;
@@ -282,11 +278,12 @@ set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset
 
 atmosphere    = JRA55PrescribedAtmosphere(arch)
 radiation     = JRA55PrescribedRadiation(arch)
-coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
+land          = JRA55PrescribedLand(arch)
+coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
-simulation = Simulation(coupled_model; Δt = 1minutes, stop_time = 60days)
+simulation = Simulation(coupled_model; Δt = 10minutes, stop_time = 40days)
 
 wall_time = Ref(time_ns())
 
@@ -313,13 +310,13 @@ add_callback!(simulation, progress, IterationInterval(10))
 # Daily surface fields from both components:
 
 u, v, w = ocean.model.velocities
+h = sea_ice.model.ice_thickness
+ℵ = sea_ice.model.ice_concentration
 𝒱 = @at((Center, Center, Center), sqrt(u^2 + v^2))
-ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities, (; 𝒱))
+he = h * ℵ
+ocean_outputs = merge(ocean.model.tracers, (; 𝒱))
 
-sea_ice_outputs = (h = sea_ice.model.ice_thickness,
-                   ℵ = sea_ice.model.ice_concentration,
-                   u = sea_ice.model.velocities.u,
-                   v = sea_ice.model.velocities.v)
+sea_ice_outputs = (; he)
 
 ocean.output_writers[:surface] = JLD2Writer(ocean.model, ocean_outputs;
                                             filename = "barents_ocean_surface.jld2",
@@ -342,55 +339,38 @@ run!(simulation)
 # story in one frame:
 
 To = FieldTimeSeries("barents_ocean_surface.jld2",   "T")
+So = FieldTimeSeries("barents_ocean_surface.jld2",   "S")
 Uo = FieldTimeSeries("barents_ocean_surface.jld2",   "𝒱")
-hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "h")
-ℵi = FieldTimeSeries("barents_sea_ice_surface.jld2", "ℵ")
+hi = FieldTimeSeries("barents_sea_ice_surface.jld2", "he")
 
 times = To.times
-
-land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
-
 n = Observable(length(times))
 
 title = @lift "Barents Sea — day " * string(round(Int, times[$n] / days))
 
-Tₙ = @lift begin
-    T = interior(To, :, :, 1, $n)
-    T[land_mask] .= NaN
-    T
-end
+Tₙ = @lift(To[$n])
+Sₙ = @lift(So[$n])
+Uₙ = @lift(Uo[$n])
+hₙ = @lift(hi[$n])
 
-Uₙ = @lift begin
-    U = interior(Uo, :, :, 1, $n)
-    U[land_mask] .= NaN
-    U
-end
-
-
-iceₙ = @lift begin
-    hℵ = interior(hi, :, :, 1, $n) .* interior(ℵi, :, :, 1, $n)
-    hℵ[land_mask] .= NaN
-    hℵ[hℵ .< 0.05] .= NaN
-    hℵ
-end
-
-λ = range(λ₁, λ₂, Nx)
-φ = range(φ₁, φ₂, Ny)
-
-fig = Figure(size = (1200, 450))
+fig = Figure(size = (1200, 650))
 fig[0, 1:4] = Label(fig, title, fontsize = 20, tellwidth = false)
 
-ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
-hm_T = heatmap!(ax, λ, φ, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
+ax = Axis(fig[1, 1], ylabel = "latitude [°N]")
+hm_T = heatmap!(ax, Tₙ, colormap = :thermal, colorrange = (-2, 8), nan_color = :gray80)
 ax = Axis(fig[1, 3])
-hm_h = heatmap!(ax, λ, φ, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
-ax = Axis(fig[2, 1])
-hm_U = heatmap!(ax, λ, φ, Uₙ, colormap = Reverse(:solar), colorrange = (0, 0.5))
+hm_S = heatmap!(ax, Sₙ, colormap = :haline, colorrange = (32.5, 36.5))
+ax = Axis(fig[2, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
+hm_U = heatmap!(ax, Uₙ, colormap = Reverse(:solar), colorrange = (0, 0.5))
+ax = Axis(fig[2, 3], xlabel = "longitude [°E]")
+hm_h = heatmap!(ax, iceₙ, colormap = Reverse(:blues), colorrange = (0, 3))
 Colorbar(fig[1, 2], hm_T, label = "SST [°C]")
-Colorbar(fig[1, 4], hm_h, label = "ice volume per area [m]")
-Colorbar(fig[2, 2], hm_h, label = "Surface speed [ms⁻¹]")
+Colorbar(fig[1, 4], hm_S, label = "SSS [psu]")
+Colorbar(fig[2, 2], hm_U, label = "Surface speed [ms⁻¹]")
+Colorbar(fig[2, 4], hm_h, label = "ice volume per area [m]")
 
 CairoMakie.record(fig, "barents_sea.mp4", 1:length(times), framerate = 8) do i
+    @info "drawing $i"
     n[] = i
 end
 nothing #hide

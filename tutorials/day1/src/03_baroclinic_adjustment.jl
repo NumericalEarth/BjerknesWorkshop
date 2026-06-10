@@ -1,0 +1,250 @@
+# # Mesoscale eddies: baroclinic instability in a channel
+#
+# *Mesoscale turbulence from an unstable front.*
+#
+# The ocean's kinetic energy lives, for the most part, in mesoscale eddies — the
+# 10–100 km vortices that fill every satellite altimetry map, stir tracers along
+# isopycnals, and carry a substantial part of the poleward heat transport in the Nordic
+# Seas. Their energy source is the available potential energy stored in tilted
+# isopycnals, released through **baroclinic instability**. In coarse climate models this
+# release must be parameterized (Gent and McWilliams, 1990 — the `κ_skew` knob
+# of coarse global configurations); here instead we *simulate* it, in the cleanest possible setting: the
+# spin-down of a re-entrant channel initialized with an unstable front, a configuration
+# known as *baroclinic adjustment*.
+#
+# Besides the physics, this tutorial introduces a few new pieces of Oceananigans
+# machinery: adaptive time stepping, custom boundary conditions built from plain Julia
+# functions, sliced and reduced (time-series) output, and three-dimensional
+# visualization of the output.
+#
+# ## Grid
+#
+# A zonally re-entrant channel, 1000 km × 1000 km × 1 km, on a beta plane centered at
+# 70°N — the latitude of the Lofoten basin, the most eddy-rich corner of the Nordic
+# Seas:
+
+using Oceananigans
+using Oceananigans.Units
+using Printf
+using Random
+
+Random.seed!(1234)
+
+Lx = 1000kilometers
+Ly = 1000kilometers
+Lz = 1kilometers
+
+Nx, Ny, Nz = 96, 96, 16
+
+grid = RectilinearGrid(size = (Nx, Ny, Nz),
+                       x = (0, Lx),
+                       y = (-Ly/2, Ly/2),
+                       z = (-Lz, 0),
+                       topology = (Periodic, Bounded, Bounded))
+
+# At ~10 km horizontal resolution we are *eddy-permitting*: the deformation radius of
+# the front we are about to build is ``L_d = N H / f \approx 23`` km, so the fastest
+# growing mode (≈ 4 L_d ≈ 90 km) is comfortably resolved even if the individual
+# deformation-scale filaments are not.
+#
+# ## A custom boundary condition
+#
+# So far every boundary has been the default (free-slip, insulating). Implementing a new
+# boundary condition in Oceananigans consists in wrapping a plain Julia function with the
+# kind of condition we want — here a *flux* condition representing a quadratic bottom
+# drag,
+#
+# ```math
+# \boldsymbol{\tau}_{bottom} = - C_d \, |\mathbf{u}| \, \mathbf{u},
+# ```
+#
+# the standard closure for the momentum lost to unresolved bottom boundary layers, and
+# the mechanism that will eventually arrest the eddies we are about to grow. The drag
+# law needs the local velocities, which we request through `field_dependencies` — the
+# model passes them to the function, interpolated to the boundary point:
+
+Cd = 3e-3 # the time-honored dimensionless drag coefficient
+
+@inline u_drag(x, y, t, u, v, p) = -p.Cd * sqrt(u^2 + v^2) * u
+@inline v_drag(x, y, t, u, v, p) = -p.Cd * sqrt(u^2 + v^2) * v
+
+u_bottom_bc = FluxBoundaryCondition(u_drag, field_dependencies = (:u, :v), parameters = (; Cd))
+v_bottom_bc = FluxBoundaryCondition(v_drag, field_dependencies = (:u, :v), parameters = (; Cd))
+
+u_bcs = FieldBoundaryConditions(bottom = u_bottom_bc)
+v_bcs = FieldBoundaryConditions(bottom = v_bottom_bc)
+nothing #hide
+
+# Two conventions worth internalizing. First, a boundary *flux* of ``u`` is a flux of
+# ``u``-momentum directed along the outward normal, so a flux with the *same* sign as
+# `u` at the bottom removes momentum — hence the minus sign. Second, the function
+# signature is `(position..., time, field_dependencies..., parameters)`: the same
+# zero-overhead pattern as the `Forcing` of the previous tutorial, compiled straight
+# into the GPU kernels. Custom `ValueBoundaryCondition` (Dirichlet) and
+# `GradientBoundaryCondition` (Neumann) work identically.
+#
+# ## Model
+#
+# The same `HydrostaticFreeSurfaceModel` as the internal-tide tutorial, plus the drag:
+
+model = HydrostaticFreeSurfaceModel(grid;
+                                    coriolis = BetaPlane(latitude = 70),
+                                    buoyancy = BuoyancyTracer(),
+                                    tracers = :b,
+                                    momentum_advection = WENO(),
+                                    tracer_advection = WENO(),
+                                    boundary_conditions = (u = u_bcs, v = v_bcs))
+
+# Note what we did *not* specify: any explicit viscosity or diffusivity. WENO advection
+# is implicitly diffusive exactly where the flow develops grid-scale variance, which for
+# eddy-permitting experiments of this kind is a defensible (and common) choice of
+# closure.
+#
+# ## An unstable initial condition
+#
+# A front of width 100 km in the middle of the channel: buoyancy jumps by ``\Delta b``
+# across it, on top of uniform stratification ``N^2``, with a pinch of noise to seed the
+# instability. The associated thermal-wind shear is what the eddies will feed on:
+
+N² = 1e-5  # s⁻², vertical buoyancy gradient
+M² = 1e-7  # s⁻², horizontal buoyancy gradient across the front
+
+Δy = 100kilometers
+Δb = Δy * M²
+
+ramp(y, Δy) = min(max(0, y / Δy + 1/2), 1)
+
+bᵢ(x, y, z) = N² * z + Δb * ramp(y, Δy) + 1e-2 * Δb * randn()
+
+set!(model, b = bᵢ)
+
+# ## Simulation with adaptive time stepping
+#
+# Eddying flows accelerate as the instability grows, and a time step chosen for the
+# quiet beginning would be wasteful (or unstable) later. The `TimeStepWizard` adapts
+# ``\Delta t`` to track a target advective CFL number; `conjure_time_step_wizard!`
+# attaches it to the simulation as a callback:
+
+simulation = Simulation(model; Δt = 20minutes, stop_time = 30days)
+
+conjure_time_step_wizard!(simulation, IterationInterval(20), cfl = 0.2, max_Δt = 20minutes)
+
+wall_clock = Ref(time_ns())
+
+function progress(sim)
+    elapsed = 1e-9 * (time_ns() - wall_clock[])
+    msg = @sprintf("[%05.2f%%] iteration: %d, time: %s, wall time: %s, max|u|: %.2f m s⁻¹, next Δt: %s",
+                   100 * time(sim) / sim.stop_time, iteration(sim), prettytime(sim),
+                   prettytime(elapsed), maximum(abs, sim.model.velocities.u),
+                   prettytime(sim.Δt))
+    wall_clock[] = time_ns()
+    @info msg
+    return nothing
+end
+
+add_callback!(simulation, progress, IterationInterval(100))
+
+# ## Output: slices and a time series
+#
+# For the movie we save surface slices only — at scale, saving full 3D fields at movie
+# cadence is how one fills a file system before lunch. The `indices` keyword restricts a
+# writer to a slice; a second writer collects a domain-integrated time series, the eddy
+# kinetic energy, computed lazily from an abstract operation:
+
+u, v, w = model.velocities
+b = model.tracers.b
+
+ζ = ∂x(v) - ∂y(u)
+
+kinetic_energy = Average((u^2 + v^2) / 2)
+
+filename = "baroclinic_instability"
+
+simulation.output_writers[:surface] = JLD2Writer(model, (; ζ, b);
+                                                 filename = filename * "_surface.jld2",
+                                                 indices = (:, :, grid.Nz),
+                                                 schedule = TimeInterval(12hours),
+                                                 overwrite_existing = true)
+
+simulation.output_writers[:energy] = JLD2Writer(model, (; KE = kinetic_energy);
+                                                filename = filename * "_energy.jld2",
+                                                schedule = TimeInterval(6hours),
+                                                overwrite_existing = true)
+
+run!(simulation)
+
+# ## The growth of the instability
+#
+# The kinetic energy tells the story in one curve. The early ringing is the geostrophic
+# adjustment of the not-quite-balanced initial front, oscillating at the inertial period
+# ``2\pi/f \approx 13`` hours; then comes the exponential growth of the instability —
+# a straight line on the log axis, with a slope to compare against the Eady growth rate
+# ``\sigma \sim 0.3 \, M^2/N`` of your favorite textbook — and finally the nonlinear
+# equilibration into a sea of eddies, arrested by our bottom drag. (We skip the first
+# sample: the flow starts from rest and ``\log 0`` ruins everybody's axis.)
+
+using CairoMakie
+
+KE_timeseries = FieldTimeSeries(filename * "_energy.jld2", "KE")
+
+t = KE_timeseries.times
+KE = [KE_timeseries[i][1, 1, 1] for i in eachindex(t)]
+
+fig = Figure(size = (600, 350))
+ax = Axis(fig[1, 1], xlabel = "time [days]", ylabel = "mean kinetic energy [m² s⁻²]", yscale = log10)
+lines!(ax, t[2:end] ./ day, KE[2:end], linewidth = 3)
+save("baroclinic_instability_energy.png", fig)
+nothing #hide
+
+# ![](baroclinic_instability_energy.png)
+#
+# ## The eddy field
+#
+# And the movie everyone came for: surface relative vorticity, normalized by ``f`` (so
+# the color scale reads as a Rossby number), next to surface buoyancy as the front rolls
+# up:
+
+ζ_timeseries = FieldTimeSeries(filename * "_surface.jld2", "ζ")
+b_timeseries = FieldTimeSeries(filename * "_surface.jld2", "b")
+
+times = ζ_timeseries.times
+
+xζ, yζ, _ = nodes(ζ_timeseries[1])
+xb, yb, _ = nodes(b_timeseries[1])
+
+f₀ = model.coriolis.f₀
+
+n = Observable(1)
+
+title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / day)
+
+Roₙ = @lift interior(ζ_timeseries[$n], :, :, 1) ./ f₀
+bₙ  = @lift interior(b_timeseries[$n], :, :, 1)
+
+fig = Figure(size = (1000, 520))
+fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
+
+ax_ζ = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
+            title = "surface vorticity ζ/f", aspect = 1)
+hm_ζ = heatmap!(ax_ζ, xζ ./ 1e3, yζ ./ 1e3, Roₙ, colorrange = (-0.4, 0.4), colormap = :balance)
+Colorbar(fig[2, 2], hm_ζ)
+
+ax_b = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
+            title = "surface buoyancy", aspect = 1)
+hm_b = heatmap!(ax_b, xb ./ 1e3, yb ./ 1e3, bₙ, colormap = :deep)
+Colorbar(fig[2, 4], hm_b, label = "m s⁻²")
+
+CairoMakie.record(fig, "baroclinic_instability.mp4", 1:length(times), framerate = 8) do i
+    n[] = i
+end
+nothing #hide
+
+# ![](baroclinic_instability.mp4)
+#
+# It is possible to notice the asymmetry between cyclones and anticyclones, the
+# filamentation at the eddy edges (sharper with higher resolution — try it),
+# and the meridional spreading of the front as the eddies flatten the isopycnals: the
+# eddies are performing, explicitly, the very flux that the Gent–McWilliams
+# parameterization mimics in coarse global configurations — and that a realistic regional ocean–sea ice
+# simulation would resolve live.
+#
