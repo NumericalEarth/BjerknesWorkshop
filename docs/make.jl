@@ -97,6 +97,43 @@ function strip_local_images(content::AbstractString)
     return String(take!(out))
 end
 
+# For day-2 (and any INLINE_ASSET_DAYS) the Literate source writes its own figures/movies in the script's
+# working directory and references them with `![](file)`. Rather than copy those files (whose relative
+# links are fragile under prettyurls), replace each reference with a base64 data-URI <video>/<img> in a
+# raw-HTML block — the same self-contained embedding the cached-artifact Results sections use. Returns a
+# postprocess closure bound to the script's working directory.
+function embed_local_assets(assetdir::AbstractString)
+    return function (content::AbstractString)
+        out = IOBuffer()
+        for line in eachline(IOBuffer(content); keep = true)
+            m = match(r"^!\[[^\]]*\]\(([^)]+)\)\s*$", rstrip(line))
+            if m === nothing || startswith(m.captures[1], "http")
+                print(out, line)
+                continue
+            end
+            ref = m.captures[1]
+            asset = joinpath(assetdir, ref)
+            if !isfile(asset)
+                @warn "inline asset not found; leaving reference as-is" ref asset
+                print(out, line)
+                continue
+            end
+            ext = lowercase(splitext(ref)[2])
+            data = base64encode(read(asset))
+            if ext in (".mp4", ".webm", ".ogg")
+                mime = ext == ".mp4" ? "video/mp4" : ext == ".webm" ? "video/webm" : "video/ogg"
+                print(out, "```@raw html\n<video controls width=\"100%\" src=\"data:", mime,
+                      ";base64,", data, "\"></video>\n```\n")
+            else
+                mime = ext in (".jpg", ".jpeg") ? "image/jpeg" : ext == ".gif" ? "image/gif" : "image/png"
+                print(out, "```@raw html\n<img style=\"max-width:100%;height:auto\" src=\"data:", mime,
+                      ";base64,", data, "\">\n```\n")
+            end
+        end
+        return String(take!(out))
+    end
+end
+
 # ============================================================================
 # Results section appended to each day-N page (safe, cached-only embedding).
 # ============================================================================
@@ -263,7 +300,6 @@ function append_results_section!(page_md::AbstractString, slug::AbstractString)
     return nothing
 end
 
-
 # ============================================================================
 # Render the Literate sources for the selected days.
 # ============================================================================
@@ -278,12 +314,33 @@ function _slug_for_source(source_file::AbstractString)
     return nothing
 end
 
+# Days whose tutorial pages embed their own figures/movies inline: the Literate source writes them in its
+# working directory (tutorials/dayN/) and references them with `![](file)`. These bypass the
+# cached-artifact Results section; the references are base64-embedded at render time. A source is skipped
+# until every asset it references exists, so a page only publishes once its movie has been produced.
+const INLINE_ASSET_DAYS = (2,)
+
+function _inline_assets_ready(source::AbstractString, assetdir::AbstractString)
+    for m in eachmatch(r"!\[[^\]]*\]\(([^)]+)\)", read(source, String))
+        ref = m.captures[1]
+        startswith(ref, "http") && continue
+        isfile(joinpath(assetdir, ref)) || return (false, ref)
+    end
+    return (true, "")
+end
+
 # Day-N page titles (the Literate `# # Title` first line becomes the page H1).
 function render_day(day::Int)
     srcdir = joinpath(REPO_ROOT, "tutorials", "day$day", "src")
     outdir = joinpath(SRC_DIR, "day$day")
     isdir(srcdir) || return String[]
+    rm(outdir; force = true, recursive = true)   # drop stale pages from earlier structures
     mkpath(outdir)
+
+    inline = day in INLINE_ASSET_DAYS
+    assetdir = joinpath(REPO_ROOT, "tutorials", "day$day")
+    postprocess = inline ? embed_local_assets(assetdir) ∘ demote_example_blocks :
+                           strip_local_images ∘ demote_example_blocks
 
     pages = String[]
     files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)))
@@ -294,17 +351,28 @@ function render_day(day::Int)
         startswith(f, "03a_") && continue
 
         source = joinpath(srcdir, f)
+
+        if inline
+            ready, missing_ref = _inline_assets_ready(source, assetdir)
+            if !ready
+                @info "Skipping $f until its inline asset exists" missing_ref
+                continue
+            end
+        end
+
         Literate.markdown(source, outdir;
             execute = false,
             credit = false,
             flavor = Literate.DocumenterFlavor(),
-            postprocess = strip_local_images ∘ demote_example_blocks)
+            postprocess = postprocess)
 
         mdname = replace(f, r"\.jl$" => ".md")
         mdpath = joinpath(outdir, mdname)
 
-        slug = _slug_for_source(f)
-        slug === nothing || append_results_section!(mdpath, slug)
+        if !inline
+            slug = _slug_for_source(f)
+            slug === nothing || append_results_section!(mdpath, slug)
+        end
 
         push!(pages, joinpath("day$day", mdname))
     end
