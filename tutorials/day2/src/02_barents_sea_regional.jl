@@ -47,8 +47,8 @@ arch = CPU()
 # Barents deformation radius. The vertical grid concentrates 40 levels toward the surface over 4000 m, enough
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
-λ₁, λ₂ =  5, 60   
-φ₁, φ₂ = 63, 78   
+const λ₁, λ₂ =  5, 60
+const φ₁, φ₂ = 63, 78
 
 Nx = 8 * (λ₂ - λ₁)
 Ny = 8 * (φ₂ - φ₁)
@@ -279,7 +279,8 @@ set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset
 
 atmosphere    = JRA55PrescribedAtmosphere(arch)
 radiation     = JRA55PrescribedRadiation(arch)
-coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, radiation)
+land          = JRA55PrescribedLand(arch)
+coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 # Two months, from mid-winter into the spring freeze-up maximum:
 
