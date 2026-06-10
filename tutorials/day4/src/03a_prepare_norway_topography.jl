@@ -74,11 +74,16 @@ const artifact_path = joinpath(datadir, "norway_lofoten_100m_topography.jld2")
 # ## Terrain smoothing target
 #
 # The LES cannot resolve arbitrarily steep slopes; we smooth raw topography to a
-# maximum resolved slope of ≈0.3–0.5 over a smoothing length of 300–500 m, and
-# taper the outer 12 km to flat so the periodic rim is a clean numerical buffer.
+# tractable maximum resolved slope and taper the outer 12 km to flat so the periodic
+# rim is a clean numerical buffer. Real DEMs (Kartverket) are *much* steeper than the
+# synthetic fallback — Lofoten has near-vertical cliffs — so we smooth to 800 m
+# (≈8 grid cells) to keep the terrain-following coordinate well-conditioned for the
+# 100 m LES. (At 400 m the real DTM left a max resolved slope ≈1.3, too steep for a
+# stable long run.) The synthetic terrain is already gentle, so the heavier smoothing
+# is harmless there.
 
 const max_slope = 0.4
-const smoothing_length = 400meters
+const smoothing_length = 800meters
 
 # ## Real-DEM pipeline (documented; runs on a dev machine with GDAL)
 #
@@ -225,9 +230,15 @@ end
 land_mask  = Float64.(h_raw .> 0)
 ocean_mask = 1 .- land_mask
 
-# Smooth, clamp ocean to zero height, then taper the rim to flat.
-h_smooth = gaussian_smooth(max.(h_raw, 0.0), x, y; smoothing_length)
-h_smooth .*= land_mask   # ocean topography is exactly zero
+# Clamp ocean to zero height *first*, then smooth, then taper the rim to flat.
+# Order matters: masking (sharp 0 over ocean) BEFORE smoothing lets the Gaussian
+# round the coastline cliffs — Lofoten mountains rise straight from the sea, so a
+# sharp land mask applied *after* smoothing would re-introduce near-vertical 0→peak
+# steps (and heavier height-smoothing then bleeds more inland height toward the
+# coast, making the step *worse*). Smoothing the already-masked field instead
+# spreads each coastal cliff over ≈smoothing_length, bounding the resolved slope.
+h_masked = max.(h_raw, 0.0) .* land_mask
+h_smooth = gaussian_smooth(h_masked, x, y; smoothing_length)
 
 taper_mask = [edge_taper(x[i], y[j], Lx, Ly; taper_width) for i in 1:Nx, j in 1:Ny]
 h = h_smooth .* taper_mask
