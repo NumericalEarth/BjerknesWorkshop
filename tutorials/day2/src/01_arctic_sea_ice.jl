@@ -10,12 +10,12 @@
 # salinity stays fixed and it carries no currents — so the prognostic action is in the ice and the SST it
 # floats on. The atmosphere is the JRA55-do
 # reanalysis. This is the cheapest realistic configuration that still produces a genuine Arctic seasonal
-# cycle: ice thickening through winter, the marginal ice zone retreating in summer, leads opening under
-# the wind.
+# cycle: starting from the late-winter maximum, the marginal ice zone retreating through spring and
+# summer, with leads opening under the wind.
 #
 # !!! warning "Hardware and data requirements"
-#     This is a GPU tutorial. The first run downloads the EN4 (or ECCO) hydrography for the ocean state and
-#     the JRA55-do reanalysis for the atmosphere (a few GB, cached for every later run). On the workshop
+#     This is a GPU tutorial. The first run downloads EN4 hydrography for the ocean state, ECCO for the initial
+#     ice, and the JRA55-do reanalysis for the atmosphere (a few GB, cached for every later run). On the workshop
 #     cluster the cache is pre-staged. On a laptop you can read along, or shrink the grid and run a short
 #     CPU segment with some patience.
 #
@@ -45,7 +45,7 @@ import Oceananigans.Grids: x_domain, y_domain
 x_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.λᶠᶠᵃ))
 y_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.φᶠᶠᵃ))
 
-arch = CPU()   # CPU() works at reduced resolution
+arch = GPU()   # CPU() also works, at reduced resolution
 
 # ## A grid for the Arctic cap
 #
@@ -127,9 +127,10 @@ dynamics = SeaIceMomentumEquation(grid;
                                   rheology = ElastoViscoPlasticRheology(),
                                   solver = SplitExplicitSolver(grid; substeps = 120))
 
-sea_ice = sea_ice_simulation(grid; Δt = 5minutes,
+sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
                              advection = WENO(order = 7),
                              dynamics,
+                             timestepper = :ForwardEuler,
                              bottom_heat_boundary_condition)
 
 # We start the ice from the ECCO state estimate for the same date — a realistic January–February pack —
@@ -156,7 +157,7 @@ radiation  = JRA55PrescribedRadiation(arch)
 
 arctic = OceanSeaIceModel(ocean, sea_ice; atmosphere, radiation)
 
-simulation = Simulation(arctic; Δt = 5minutes, stop_time = 270days)
+simulation = Simulation(arctic; Δt = 15minutes, stop_time = 180days)
 
 wall_time = Ref(time_ns())
 
