@@ -14,18 +14,24 @@
 #
 # holding `(; x, y, h_raw, h, land_mask, ocean_mask, taper_mask, source_metadata)`.
 #
-# ## Two modes
+# ## Three modes
 #
-# 1. **Real DEM** (`TOPO_SOURCE=dem`): the documented pipeline below — download or
-#    locate DEM tiles, reproject to local UTM, crop, resample to 100 m, smooth,
-#    build a land/ocean mask, zero ocean topography, taper the rim. This requires
-#    `ArchGDAL`/`Rasters` and network access and is meant to run on a dev machine.
-# 2. **Synthetic** (`TOPO_SOURCE=synthetic`, the default here): a Lofoten-flavored
+# 1. **Kartverket** (`TOPO_SOURCE=kartverket`): real Lofoten terrain from the
+#    Norwegian Mapping Authority national DTM, fetched by Web Coverage Service
+#    through the workshop's custom NumericalEarth dataset (`src/KartverketDEM.jl`).
+#    The DTM is served in UTM 33N (metres) and returned as NetCDF (read by
+#    `NCDatasets`) — **no GDAL/PROJ needed**, just network access. This is the
+#    recommended real-terrain path; see `KartverketDEM` for how it extends
+#    NumericalEarth's metadata system with a projected, windowed dataset.
+# 2. **Generic DEM** (`TOPO_SOURCE=dem`): the documented GLO-30/ASTER pipeline
+#    below — download tiles, reproject to local UTM, crop, resample. This requires
+#    `ArchGDAL`/`Rasters` and is left as a stub for a dev machine.
+# 3. **Synthetic** (`TOPO_SOURCE=synthetic`, the default): a Lofoten-flavored
 #    idealized terrain — steep coastal massifs, fjord incisions, islands, and a
 #    land/sea split — produced with no external dependencies. This makes the whole
-#    Thursday workflow runnable today; swap in the real DEM artifact when ready.
+#    Thursday workflow runnable with zero data access.
 #
-# Both modes write the *same* artifact schema, so `03_...` does not care which was
+# All modes write the *same* artifact schema, so `03_...` does not care which was
 # used.
 
 using Oceananigans.Units
@@ -35,6 +41,9 @@ using Random
 
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
+
+## The workshop's custom Kartverket DTM dataset (extends NumericalEarth metadata).
+include(joinpath(@__DIR__, "..", "..", "..", "src", "KartverketDEM.jl"))
 
 Random.seed!(68_13)   # center_lat, center_lon mnemonic
 
@@ -89,6 +98,24 @@ function prepare_from_dem(x, y)
             5. Return the raw height array h_raw[i, j] on the (x, y) grid.
           Then the shared smoothing / mask / taper steps below produce the artifact.
           """)
+end
+
+# ## Real Kartverket DTM (via the custom NumericalEarth dataset)
+#
+# Build a `Metadatum` for a metric window centered on the domain (`halfwidth = Lx/2`)
+# at the case resolution, fetch the DTM via WCS, and sample its height function onto
+# the case `(x, y)` grid (box-centred metres). Kartverket returns ocean as 0, so the
+# shared `h_raw .> 0` land mask below works directly. No reprojection — the DTM is
+# already in the UTM 33N metric frame the LES grid uses.
+
+function prepare_from_kartverket(x, y)
+    @info "Fetching Kartverket DTM via WCS and sampling onto the case grid…" center_lat center_lon
+    metadatum = KartverketDEM.kartverket_metadatum(; center_lat, center_lon,
+                                                   halfwidth = Float64(Lx / 2),
+                                                   resolution = Float64(Δ))
+    h_fun = KartverketDEM.kartverket_height_function(metadatum)   # box-centred metric coords
+    Nx, Ny = length(x), length(y)
+    return Float64[h_fun(x[i], y[j]) for i in 1:Nx, j in 1:Ny]
 end
 
 # ## Synthetic Lofoten-flavored terrain (dependency-free fallback)
@@ -176,7 +203,14 @@ function gaussian_smooth(h, x, y; smoothing_length)
 end
 
 # Build the raw height field.
-h_raw = if TOPO_SOURCE === :dem
+h_raw = if TOPO_SOURCE === :kartverket
+    try
+        prepare_from_kartverket(x, y)
+    catch err
+        @warn "Kartverket path failed; falling back to synthetic terrain." exception = err
+        synthetic_lofoten(x, y)
+    end
+elseif TOPO_SOURCE === :dem
     try
         prepare_from_dem(x, y)
     catch err
