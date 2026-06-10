@@ -20,7 +20,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 # We dev the local Breeze checkout, which is on the terrain-following-substepping
 # branch (the "PR #712 equivalent" the Norway case depends on). Breeze in turn pulls
-# a compatible Oceananigans (0.109.x) from the registry — do NOT also dev the local
+# a compatible Oceananigans (0.110.x) from the registry — do NOT also dev the local
 # Oceananigans.jl checkout, which is an older debug branch and would conflict.
 [sources]
 Breeze = {path = "../Breeze.jl"}
@@ -33,6 +33,6 @@ CairoMakie = "0.15.8"
 JLD2 = "0.6"
 Literate = "2.21"
 NCDatasets = "0.14"
-Oceananigans = "0.109.1"
+Oceananigans = "0.110"
 SeawaterPolynomials = "0.3.10"
 julia = "1.10"
