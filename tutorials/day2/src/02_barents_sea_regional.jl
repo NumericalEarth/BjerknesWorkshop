@@ -48,10 +48,10 @@ arch = CPU()
 # to hold the Norwegian Sea basin in the southwest corner; the Barents shelf itself sits at 200–400 m:
 
 const λ₁, λ₂ =  5, 60
-const φ₁, φ₂ = 63, 78
+const φ₁, φ₂ = 63, 76
 
-Nx = 8 * (λ₂ - λ₁)
-Ny = 8 * (φ₂ - φ₁)
+Nx = 12 * (λ₂ - λ₁)
+Ny = 12 * (φ₂ - φ₁)
 Nz = 40
 
 depth = 4000meters
@@ -66,11 +66,10 @@ underlying_grid = LatitudeLongitudeGrid(arch;
 
 bottom_height = regrid_bathymetry(underlying_grid;
                                   minimum_depth = 15,
-                                  interpolation_passes = 5,
+                                  interpolation_passes = 25,
                                   major_basins = 1)
 
-grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
-                            active_cells_map = true)
+grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height); active_cells_map = true)
 
 # The same `ImmersedBoundaryGrid` as an idealized sill — Novaya Zemlya and the Norwegian coast are just very
 # large sills. Let's look at the stage:
@@ -225,10 +224,10 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the 
 # near-boundary interior matched to the prescribed boundary and holds max|w| at the GLORYS-consistent floor.
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/1days,  mask = sponge_mask, inpainting=100)
-Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/1hours, mask = sponge_mask, inpainting=100)
-Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/1hours, mask = sponge_mask, inpainting=100)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/1days,  mask = sponge_mask, inpainting=100)
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
+Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
