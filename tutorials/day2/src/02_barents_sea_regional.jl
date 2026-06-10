@@ -225,10 +225,10 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the 
 # near-boundary interior matched to the prescribed boundary and holds max|w| at the GLORYS-consistent floor.
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
-Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
-Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/5days,      mask = sponge_mask, inpainting=100)
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/1days,  mask = sponge_mask, inpainting=100)
+Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/1hours, mask = sponge_mask, inpainting=100)
+Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/1hours, mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/1days,  mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
