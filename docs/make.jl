@@ -150,6 +150,26 @@ const _RESULTS_SPEC = Dict(
         figures = ["norway_final_w_slice.png"],
         movies = ["norway_100m_prescribed_fluxes.mp4"],
     ),
+    "intro_atmosphere" => (
+        title = "Intro: 2D atmospheric free convection",
+        figures = ["intro_atmosphere_convection_final.png"],
+        movies = ["intro_atmosphere_convection.mp4"],
+    ),
+    "intro_ocean" => (
+        title = "Intro: 2D ocean free convection",
+        figures = ["intro_ocean_convection_final.png"],
+        movies = ["intro_ocean_convection.mp4"],
+    ),
+    "intro_coupled" => (
+        title = "Intro: 2D coupled air–sea convection",
+        figures = ["intro_coupled_convection_final.png"],
+        movies = ["intro_coupled_convection.mp4"],
+    ),
+    "warm_filament" => (
+        title = "A warm filament writes a cloud street",
+        figures = ["coupled_warm_filament_final.png"],
+        movies = ["coupled_warm_filament.mp4"],
+    ),
     "smoke_case" => (
         title = "Smoke case",
         figures = ["summary.png"],

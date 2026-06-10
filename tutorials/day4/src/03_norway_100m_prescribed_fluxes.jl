@@ -110,28 +110,29 @@ land_fun = bilinear(land_data, xt, yt)
 
 # ## Grid and terrain-following vertical coordinate
 #
-# 100 km × 100 km × 12 km at the **100 m production resolution**:
-# 1000 × 1000 × 160 ≈ 160 million cells. This resolves the O(1–3 km) fjord gaps with
-# ≥4–6 cells across, so the gap jets, windward flow splitting, and lee eddies are
-# sharp rather than blurred.
+# 100 km × 100 km × 12 km at ~200 m resolution: 512 × 512 × 128 ≈ 34 million cells.
+# This still resolves the O(1–3 km) fjord gaps with several cells across, so the gap
+# jets, windward flow splitting, and lee eddies are present. We run at half the 100 m
+# "production" resolution but for a long **90 min** of simulated time, because the
+# terrain wakes and lee-vortex shedding take tens of minutes to develop — a longer,
+# slightly coarser run shows far more flow evolution than a short ultra-fine one.
 #
-# !!! note "Runs on one H100 in ≈ 30 minutes"
-#     At 160 M cells this uses ≈ 14 GiB and completes 10 min of simulated time in
-#     ≈ 29 min wall on one H100 (model construction ≈ 46 s). This is only practical
-#     because the terrain reference-state (Exner) build was moved from a per-cell
-#     scalar host loop to a GPU column kernel in Breeze — without that fix,
-#     constructing the model at this size took *hours*. For a quick teaching run,
-#     coarsen to e.g. `Nx = Ny = 256, Nz = 64` (≈ 4 M cells, a few minutes), at the
-#     cost of blurring the narrowest fjord jets and lowering the effective `M`.
+# !!! note "Performance"
+#     The full 100 m production grid (1000×1000×160 ≈ 160 M cells) also runs on one
+#     H100 (≈ 14 GiB; ~6.5 s model build) — practical only because the terrain
+#     reference-state (Exner) build was moved from a per-cell scalar host loop to a
+#     GPU column kernel in Breeze (without that fix it took *hours*). Set
+#     `Nx = Ny = 1000, Nz = 160` for a production rendering; coarsen to 256×256×64
+#     for a quick teaching run.
 
 const Lx = 100kilometers
 const Ly = 100kilometers
 const Lz = 12kilometers
 
-## 100 m production grid (≈160M cells, ~30 min on one H100). Coarsen for a quick run.
-const Nx = 1000
-const Ny = 1000
-const Nz = 160
+## ~200 m grid run long (34M cells). Production: 1000×1000×160; quick: 256×256×64.
+const Nx = 512
+const Ny = 512
+const Nz = 128
 
 function stretched_z_faces(Lz, Nz; stretching = 1.1)
     σ(k) = (k - 1) / Nz
@@ -318,7 +319,7 @@ checkpoint("update_state! done")
 #     converged-statistics experiment. (10 min also respects the performance caveat
 #     above — see the grid section.)
 
-simulation = Simulation(model; Δt = 1.0, stop_time = 10minutes)
+simulation = Simulation(model; Δt = 1.0, stop_time = 90minutes)
 conjure_time_step_wizard!(simulation, cfl = 0.5, max_Δt = 10.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 

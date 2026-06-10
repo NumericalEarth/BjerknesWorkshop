@@ -57,6 +57,7 @@
 # taken — watch this for stronger winds or longer runs.
 
 using Breeze
+using Breeze: BulkDrag, BulkSensibleHeatFlux, BulkVaporFlux, PolynomialCoefficient, FilteredSurfaceVelocities
 using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
@@ -77,26 +78,25 @@ nothing #hide
 
 # ## Domain and grid
 #
-# A 40 km × 12 km × 3 km domain at 62.5 m horizontal resolution with a stretched
-# vertical (≈12 m near the surface, coarsening aloft): 640 × 192 × 128 ≈ 15.7
-# million cells.
+# A 40 km × 12 km × 3 km domain at 50 m horizontal resolution (≈12 m near the
+# surface, coarsening aloft): 800 × 240 × 96 ≈ 18 million cells. We run at half the
+# 25 m "production" resolution but for a long **3 hours** of simulated time: the
+# convective plume needs ~10 turnovers to reach a quasi-steady downwind structure
+# and the boundary layer to deepen, so a longer, coarser run shows far more than a
+# short ultra-fine one. Refine to 1600×480×192 @ 25 m for a production rendering.
 #
-# !!! note "Marginal LES — a plume-permitting teaching run"
-#     At Δx = 62.5 m only ≈ 16 cells span the 1 km lead and the near-surface
-#     energy-containing eddies (tens of meters) are barely resolved. Published
-#     lead LES uses 1–25 m grids (Glendening 1994; Esau 2007; Gryschka et al.
-#     2023). Treat this as a *plume-permitting* run that develops a recognizable,
-#     citable lead plume on one H100 in ≈ 15 min — **do not claim quantitative
-#     flux convergence**. For a quantitative comparison, refine to 10–25 m
-#     horizontally over a smaller domain.
+# !!! note "Resolution"
+#     At Δx = 50 m about 20 cells span the 1 km lead — plume-permitting (the
+#     published lead-LES range is 1–25 m; Glendening 1994; Esau 2007; Gryschka et
+#     al. 2023). Treat the plume structure as qualitative; refine for flux convergence.
 
 const Lx = 40kilometers   # across-lead / mean wind
 const Ly = 12kilometers   # along-lead
 const Lz = 3kilometers    # vertical
 
-const Nx = 640
-const Ny = 192
-const Nz = 128
+const Nx = 800
+const Ny = 240
+const Nz = 96
 
 # A smooth exponential vertical stretch: fine near the surface where the plume is
 # generated, coarsening toward the top.
@@ -164,120 +164,76 @@ nothing #hide
 
 # ## The lead: boundary heterogeneity as a smooth mask
 #
-# A single top-hat mask `χ(x)` — open water inside a band of width `Wˡᵉᵃᵈ`,
-# ice outside, with a smooth `δˡᵉᵃᵈ` transition — defines the geometry of *every*
-# surface flux.
+# A single top-hat mask `χ(x)` — open water inside a band of width `Wˡᵉᵃᵈ`, ice
+# outside, with a smooth `δˡᵉᵃᵈ` transition — defines the geometry. Here it sets the
+# *surface temperature* (warm water over the lead, cold ice outside); the bulk
+# formulae below then turn that contrast into heat, moisture and momentum fluxes.
 #
-# **Lead width.** Real leads span meters to several kilometers. The penetration
-# and vigor scale with width (Glendening 1994; Zulauf & Krueger 2003: ≈ 180/220/
-# 300 m penetration for 200/400/800 m leads, +≈ 1 m s⁻¹ peak updraft per width
-# doubling). Leads narrower than ≈ 4 km force a *single* merged plume onto the
-# lead axis; wider leads (4–10 km) develop edge plumes plus interior convective
-# cells (Esau 2007). We use the 1 km canonical width: narrow (0.1–0.5 km),
-# moderate (1–2 km), and wide (4–10 km) are the regimes you can sweep.
+# **Lead width.** Real leads span meters to several kilometers. Penetration and
+# vigor scale with width (Glendening 1994; Zulauf & Krueger 2003: ≈ 180/220/300 m
+# penetration for 200/400/800 m leads, +≈ 1 m s⁻¹ peak updraft per width doubling).
+# Leads narrower than ≈ 4 km force a *single* merged plume onto the lead axis; wider
+# leads (4–10 km) develop edge plumes plus interior convective cells (Esau 2007). We
+# use the 1 km canonical width — narrow (0.1–0.5), moderate (1–2), wide (4–10 km)
+# are the regimes you can sweep.
 #
-# **Lead sensible heat flux.** We default to `Qʰ_lead = 200 W m⁻²`, a
-# representative lead-averaged winter value; the strong-but-credible upper case is
-# 300 W m⁻² and the lower end ≈ 100 W m⁻². Tetzlaff et al. (2015) measured
-# near-surface sensible fluxes of 15–180 W m⁻²; LES/2D lead studies (Glendening
-# 1994; Zulauf & Krueger 2003; Esau 2007; Gryschka et al. 2023) impose/diagnose
-# several-hundred W m⁻² over the open-water patch for ice–water ΔT of 20–40 K.
-# Because this dry run omits the (comparable, in reality) latent heat flux, even
-# 200 W m⁻² of *pure* sensible heating is vigorous enough for a clear 15-min plume.
-#
-# **Ice sensible heat flux.** We set `Qʰ_ice = 0`, a clean idealization that makes
-# the lead the only heat source and keeps the contrast unambiguous. The real
-# stable ABL over thick ice has a weak *downward* sensible flux of a few to
-# ≈ 20 W m⁻² (i.e. ≈ −10 W m⁻²); zero is not literally observed but sharpens the
-# pedagogy.
+# The resulting lead-averaged sensible flux (now *diagnosed*, not prescribed) lands
+# near 100–300 W m⁻² for this ≈ 26 K air–sea contrast — consistent with Tetzlaff et
+# al. (2015) aircraft data (15–180 W m⁻² near-surface) and lead LES/2D studies
+# (Glendening 1994; Zulauf & Krueger 2003; Esau 2007; Gryschka et al. 2023), with a
+# comparable latent flux from the open water.
 
 const Wˡᵉᵃᵈ = 1kilometer    # narrow 0.1–0.5, moderate 1–2, wide 4–10 km
 const δˡᵉᵃᵈ = 100meters
 
-const Qʰ_ice  = FT(0)      # W m⁻², sensible heat flux (real ice ≈ −10; 0 idealizes)
-const Qʰ_lead = FT(200)    # W m⁻², lead-averaged (range 100–300; 300 = strong case)
-const τx_ice  = FT(0.01)   # N m⁻², surface stress magnitude
-const τx_lead = FT(0.05)
-
-# **Latent heat / moisture flux.** Over a winter lead the latent heat flux is
-# comparable to the sensible flux (Tetzlaff et al. 2015). We prescribe a lead
-# evaporation rate `E_lead = 1e-4 kg m⁻² s⁻¹`, i.e. a latent heat flux
-# `Lᵥ·E ≈ 2.5e6 × 1e-4 ≈ 250 W m⁻²` — comparable to the 200 W m⁻² sensible flux.
-# The ice surface supplies no moisture (`E_ice = 0`).
-const E_ice   = FT(0)      # kg m⁻² s⁻¹, moisture (water-vapor) flux
-const E_lead  = FT(3e-4)   # strong lead evaporation (≈ 750 W m⁻² latent): the
-                           # latent-dominated "sea smoke" regime that saturates the
-                           # cold near-surface air and forms fog.
-
-# ### Sensible heat flux on ρθ
+# ### Boundary heterogeneity as a *surface state*, not a prescribed flux
 #
-# A kinematic heat flux `w′θ′ = Qʰ / (ρ cₚ)` corresponds to a flux of the
-# prognostic `ρθ` equal to `Qʰ / cₚ`. A positive (upward) flux warms the
-# atmosphere above.
-
-@inline function ρθ_flux(x, y, t, p)
-    χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
-    Qʰ = p.Q_ice + χ * (p.Q_lead - p.Q_ice)
-    return Qʰ / p.cₚ
-end
-
-ρθ_flux_parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, Q_ice = Qʰ_ice, Q_lead = Qʰ_lead, cₚ)
-ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρθ_flux; parameters = ρθ_flux_parameters))
-
-# ### Moisture flux on ρqᵉ
+# Instead of prescribing the fluxes, we prescribe the **surface temperature** — cold
+# ice outside the lead, near-freezing open water over it — and let Breeze compute the
+# turbulent fluxes from bulk aerodynamic formulae,
 #
-# `E` is already a mass flux (kg m⁻² s⁻¹), exactly the flux of the moisture
-# prognostic `ρqᵉ`. A positive (upward) flux moistens the air above (matching
-# `bomex.jl`, where a positive `w′qᵗ′` moistens).
-
-@inline function ρqᵉ_flux(x, y, t, p)
-    χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
-    return p.E_ice + χ * (p.E_lead - p.E_ice)
-end
-
-ρqᵉ_flux_parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, E_ice, E_lead)
-ρqᵉ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρqᵉ_flux; parameters = ρqᵉ_flux_parameters))
-
-# ### Momentum flux (drag)
+# ```math
+# J_φ = -C_φ\,|ΔU|\,(φ_a - φ_0), \qquad |ΔU| = \sqrt{(u-u_0)^2 + (v-v_0)^2 + U_g^2}
+# ```
 #
-# We prescribe the stress through a spatially varying friction velocity, `τ = ρ u★²`,
-# so here the open water drags the flow more than the ice. Writing it as a drag —
-# proportional to and opposing the local velocity — makes the sign automatic.
-# With ρ ≈ 1.3 kg m⁻³, `τx_lead = 0.05` and `τx_ice = 0.01 N m⁻²` give friction
-# velocities u★ ≈ 0.20 and 0.09 m s⁻¹.
+# for momentum (`Cᴰ`), sensible heat (`Cᵀ`) and moisture (`Cᵛ`). This is more physical
+# than a fixed flux — the lead's exchange responds to the evolving wind and stability —
+# and is the same machinery coupled air–sea runs use. The ≈ 26 K air–sea temperature
+# difference (ice-chilled air over near-freezing water) drives the plume.
+const T_ice   = FT(245)     # K, cold ice/snow surface (≈ -28 °C)
+const T_water = FT(271.35)  # K, open water near the seawater freezing point (≈ -1.8 °C)
+
+# Surface temperature as a 2-D field: the lead is the warm top-hat.
+Tˢ = Field{Center, Center, Nothing}(grid)
+set!(Tˢ, (x, y) -> T_ice + top_hat(x; center = 0, width = Wˡᵉᵃᵈ, edge = δˡᵉᵃᵈ) * (T_water - T_ice))
+
+# Wind- and stability-dependent exchange coefficients (Large & Yeager 2009) via a
+# polynomial bulk coefficient; `gustiness` floors |ΔU| so calm air still exchanges.
+const Uᵍ = FT(0.5)          # m s⁻¹ gustiness
+coefficient = PolynomialCoefficient(roughness_length = 1.5e-4)
+
+# ### The filtered surface state — and how it changes the flux
 #
-# !!! note "Lead-vs-ice drag ratio is an idealization"
-#     A smooth open-water bulk estimate gives τ ≈ ρ C_DN U² ≈ 0.13 N m⁻² at 8 m s⁻¹,
-#     so `τx_lead = 0.05` is on the low side — a defensible *smooth-young-ice* lead.
-#     More importantly, the chosen `τx_lead > τx_ice` is **not universal**:
-#     ridged/snow-covered pack ice and floe edges (form drag) are often
-#     aerodynamically *rougher* than smooth open water, so in reality `τx_ice` can
-#     exceed `τx_lead`. The qualitative point — heterogeneous surface drag — holds
-#     either way.
-#
-# !!! note "Sign convention (verified)"
-#     A bottom flux is *added* to the tendency in Breeze
-#     (`BoundaryConditions/compute_flux_bcs.jl`), so a positive `ρθ` flux warms the
-#     air (matching `bomex.jl` where `w′θ′ = +8e-3` heats) and a *negative* `ρu`
-#     flux removes momentum — exactly the drag form used in `bomex.jl` and
-#     `neutral_atmospheric_boundary_layer.jl`. The signs here are correct.
+# At LES resolution the *instantaneous* near-surface wind carries the full turbulent
+# fluctuation spectrum. Feeding it straight into the quadratic bulk formula aliases
+# those fluctuations into the mean flux and makes the surface exchange
+# resolution-dependent — a spurious `u★`–`u′` correlation (Nishizawa & Kitamura 2018;
+# Shin, Yang & Howland 2025). We instead drive the bulk fluxes with a **temporally
+# filtered** surface velocity — an exponential filter `ū ← (ū + ϵ u)/(1 + ϵ)`,
+# `ϵ = Δt/τ`, with `τ = 10 min` — which tracks the evolving mean wind while smoothing
+# the fastest eddies. The flux is then computed from `ū`, not the instantaneous `u`:
+# a small change that markedly cleans up the surface-layer flux statistics and removes
+# their grid dependence. Pass `filtered_velocities = nothing` to recover the raw
+# instantaneous-flux behavior and compare.
+filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minutes)
 
-@inline function ρu_drag(x, y, t, ρu, ρv, p)
-    χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
-    u★² = p.u★²_ice + χ * (p.u★²_lead - p.u★²_ice)
-    return - p.ρ₀ * u★² * ρu / max(sqrt(ρu^2 + ρv^2), p.ϵ)
-end
-
-@inline function ρv_drag(x, y, t, ρu, ρv, p)
-    χ = top_hat(x; center = 0, width = p.W, edge = p.δ)
-    u★² = p.u★²_ice + χ * (p.u★²_lead - p.u★²_ice)
-    return - p.ρ₀ * u★² * ρv / max(sqrt(ρu^2 + ρv^2), p.ϵ)
-end
-
-drag_parameters = (; W = Wˡᵉᵃᵈ, δ = δˡᵉᵃᵈ, ρ₀,
-                     u★²_ice = τx_ice / ρ₀, u★²_lead = τx_lead / ρ₀, ϵ = FT(1e-6))
-ρu_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρu_drag; field_dependencies = (:ρu, :ρv), parameters = drag_parameters))
-ρv_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρv_drag; field_dependencies = (:ρu, :ρv), parameters = drag_parameters))
+# Bulk momentum (drag), sensible-heat and moisture fluxes — all sharing the filter and
+# the lead surface temperature. Sensible heat is a potential-temperature (`ρθ`) density
+# flux; moisture a `ρqᵉ` flux; drag acts on `ρu`/`ρv`.
+ρu_bcs  = FieldBoundaryConditions(bottom = BulkDrag(; coefficient, gustiness = Uᵍ, surface_temperature = Tˢ, filtered_velocities))
+ρv_bcs  = FieldBoundaryConditions(bottom = BulkDrag(; coefficient, gustiness = Uᵍ, surface_temperature = Tˢ, filtered_velocities))
+ρθ_bcs  = FieldBoundaryConditions(bottom = BulkSensibleHeatFlux(; coefficient, gustiness = Uᵍ, surface_temperature = Tˢ, filtered_velocities))
+ρqᵉ_bcs = FieldBoundaryConditions(bottom = BulkVaporFlux(; coefficient, gustiness = Uᵍ, surface_temperature = Tˢ, filtered_velocities))
 
 # ## Sponge layer and large-scale forcing
 #
@@ -378,7 +334,7 @@ set!(model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 # plume develops through several convective turnovers (zᵢ/w⋆ ≈ 3–8 min). The first
 # ≈ 10–15 min are spin-up; diagnose fluxes and profiles from the latter part.
 
-simulation = Simulation(model; Δt = 0.5, stop_time = 40minutes)
+simulation = Simulation(model; Δt = 0.5, stop_time = 3hours)
 conjure_time_step_wizard!(simulation, cfl = 0.7, max_Δt = 5.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 
@@ -407,8 +363,7 @@ qˡ = model.microphysical_fields.qˡ   # cloud-liquid (fog) specific humidity
 
 χ_field = Field{Center, Center, Nothing}(grid)
 set!(χ_field, (x, y) -> top_hat(x; center = 0, width = Wˡᵉᵃᵈ, edge = δˡᵉᵃᵈ))
-Qʰ_field = Field{Center, Center, Nothing}(grid)
-set!(Qʰ_field, (x, y) -> Qʰ_ice + top_hat(x; center = 0, width = Wˡᵉᵃᵈ, edge = δˡᵉᵃᵈ) * (Qʰ_lead - Qʰ_ice))
+
 
 jmid = Ny ÷ 2 + 1
 k_surface = 2
@@ -428,7 +383,7 @@ slice_outputs = (
 along_lead = NamedTuple(name => Average(@at((Center, Center, Center), base_3d[name]), dims = 2)
                         for name in keys(base_3d))
 
-simulation.output_writers[:statics] = JLD2Writer(model, (; χ = χ_field, Qʰ = Qʰ_field);
+simulation.output_writers[:statics] = JLD2Writer(model, (; χ = χ_field, Tˢ = Tˢ);
     filename = output_name(config, "statics"), schedule = IterationInterval(typemax(Int)),
     overwrite_existing = true)
 
