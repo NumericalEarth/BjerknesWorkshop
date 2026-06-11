@@ -278,6 +278,30 @@ function _slug_for_source(source_file::AbstractString)
     return nothing
 end
 
+# Pedagogical page order per day (by filename stem). The filenames were numbered
+# in authoring order, not teaching order — the intro convection trio (05–07) was
+# added after the advanced cases (01–03), so a plain filename sort buries "A first
+# taste of convection" mid-list. List the intended order here; files not listed
+# sort after, alphabetically. Other days fall back to filename order.
+const _PAGE_ORDER = Dict(
+    4 => ["05_intro_atmosphere_convection",          # first taste: 2D atmosphere
+          "06_intro_ocean_convection",               #              2D ocean
+          "07_intro_coupled_convection",             #              2D coupled
+          "01_atmospheric_turbulence_over_a_sea_ice_lead",
+          "02_ocean_turbulence_below_a_lead_with_surface_waves",
+          "08_coupled_warm_filament",                # flagship coupled
+          "03_norway_100m_prescribed_fluxes",        # flagship terrain
+          "04_gallery_and_discussion",
+          "99_smoke_case"],
+)
+
+function _page_rank(day::Int, f::AbstractString)
+    order = get(_PAGE_ORDER, day, String[])
+    stem = replace(f, r"\.jl$" => "")
+    i = findfirst(==(stem), order)
+    return i === nothing ? (length(order) + 1, stem) : (i, "")
+end
+
 # Day-N page titles (the Literate `# # Title` first line becomes the page H1).
 function render_day(day::Int)
     srcdir = joinpath(REPO_ROOT, "tutorials", "day$day", "src")
@@ -286,7 +310,7 @@ function render_day(day::Int)
     mkpath(outdir)
 
     pages = String[]
-    files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)))
+    files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)); by = f -> _page_rank(day, f))
     for f in files
         # Skip the shared infrastructure include (00_common) and the topo prep
         # helper (03a) — they are includes / data prep, not standalone pages.
