@@ -60,10 +60,13 @@ underlying_grid = TripolarGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 4), z)
 # `major_basins = 2` keeps the two largest connected ocean basins and fills lakes and
 # disconnected seas:
 
+# Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
+download_keywords = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+
 bottom_height = regrid_bathymetry(underlying_grid;
                                   minimum_depth = 10,
                                   interpolation_passes = 10,
-                                  major_basins = 2)
+                                  major_basins = 2, download_keywords...)
 
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
                             active_cells_map = true)
@@ -116,7 +119,7 @@ sea_ice = sea_ice_simulation(grid, ocean; advection = tracer_advection)
 
 date = DateTime(1993, 1, 1)
 ecco_variables = (:temperature, :salinity, :sea_ice_thickness, :sea_ice_concentration)
-ecco_set = MetadataSet(ecco_variables; dataset = ECCO4Monthly(), date)
+ecco_set = MetadataSet(ecco_variables; dataset = ECCO4Monthly(), date, download_keywords...)
 
 set!(ocean.model,   ecco_set)   # picks up temperature and salinity
 set!(sea_ice.model, ecco_set)   # picks up thickness and concentration
@@ -129,11 +132,11 @@ set!(sea_ice.model, ecco_set)   # picks up thickness and concentration
 # still computed interactively from similarity theory, using the evolving SST and ice
 # surface temperature:
 
-land       = JRA55PrescribedLand(arch)
-atmosphere = JRA55PrescribedAtmosphere(arch)
+land       = JRA55PrescribedLand(arch; download_keywords...)
+atmosphere = JRA55PrescribedAtmosphere(arch; download_keywords...)
 
 ocean_surface = SurfaceRadiationProperties(albedo = LatitudeDependentAlbedo())
-radiation     = JRA55PrescribedRadiation(arch; ocean_surface)
+radiation     = JRA55PrescribedRadiation(arch; ocean_surface, download_keywords...)
 
 # ## The coupled model
 #
