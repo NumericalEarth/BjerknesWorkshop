@@ -67,9 +67,10 @@ underlying_grid = RotatedLatitudeLongitudeGrid(arch;
 
 # Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
 
-download_keywords = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
 
-bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, download_keywords...)
+bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
+bottom_height = regrid_bathymetry(underlying_grid, bathymetry; minimum_depth = 15)
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height))
 
 # ## The slab ocean
@@ -92,7 +93,7 @@ ocean = SlabOcean(grid; depth = 50)
 
 date = DateTime(1993, 2, 1)   # late-winter Arctic, near the seasonal ice maximum
 
-set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date, download_keywords...))
+set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date, dir_kw...))
 
 # ## The sea-ice model
 #
@@ -133,7 +134,7 @@ sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
 # rather than from open water, so the simulation begins near the seasonal maximum and we watch it melt back
 # through the spring and summer:
 
-ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date, download_keywords...)
+ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date, dir_kw...)
 set!(sea_ice.model, ecco_ice)
 
 # ## The prescribed atmosphere
@@ -142,8 +143,8 @@ set!(sea_ice.model, ecco_ice)
 # downwelling radiation. The turbulent fluxes that actually cool the ice are computed interactively from
 # similarity theory, using the evolving ice-surface temperature:
 
-atmosphere = JRA55PrescribedAtmosphere(arch; download_keywords...)
-radiation  = JRA55PrescribedRadiation(arch; download_keywords...)
+atmosphere = JRA55PrescribedAtmosphere(arch; dir_kw...)
+radiation  = JRA55PrescribedRadiation(arch; dir_kw...)
 
 # ## The coupled model
 #
