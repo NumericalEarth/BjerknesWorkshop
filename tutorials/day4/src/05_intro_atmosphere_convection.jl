@@ -19,20 +19,20 @@
 # by buoyancy from below, not by mechanical shear. It is what fills the sky with
 # fair-weather cumulus on a sunny afternoon.
 #
-# ## The convective velocity scale w⋆
+# ## The convective velocity scale w★
 #
 # How fast do the thermals rise? [Deardorff (1970)](https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2)
 # showed that the natural velocity scale for buoyancy-driven turbulence in a
-# boundary layer of depth `zᵢ` is the **convective velocity scale**
+# boundary layer of depth `hᵢ` is the **convective velocity scale**
 #
 # ```math
-# w_⋆ = \left( \frac{g}{θ_0}\, \overline{w'θ'}_\mathrm{sfc}\, z_i \right)^{1/3}
+# w_\star = \left( \frac{g}{θ_0}\, \overline{w'θ'}_\mathrm{sfc}\, h_i \right)^{1/3}
 # ```
 #
 # where `(w′θ′)_sfc` is the surface kinematic heat flux. For our `Qʰ = 300 W m⁻²`
 # (kinematic flux ≈ 0.25 K m s⁻¹ for `θ₀ = 290 K`), and a boundary layer that
-# deepens to `zᵢ ≈ 1 km`, `w⋆ ≈ 2 m s⁻¹`. Updrafts of order `w⋆` and turnover
-# times `zᵢ/w⋆ ≈ 8 min` are what you should expect to see in the movie.
+# deepens to `hᵢ ≈ 1 km`, `w★ ≈ 2 m s⁻¹`. Updrafts of order `w★` and turnover
+# times `hᵢ/w★ ≈ 8 min` are what you should expect to see in the movie.
 #
 # ## A little wind shears the thermals
 #
@@ -149,7 +149,7 @@ model = AtmosphereModel(grid; dynamics, advection, closure,
 # We start from a weakly **stably stratified** atmosphere, `θ(z) = θ₀ + Γ z` with
 # `Γ = 0.003 K m⁻¹`. Stable stratification is the resistance the surface heating
 # must overcome: thermals rise until they reach air as warm as themselves, which
-# is what sets the boundary-layer depth and ultimately `w⋆`. We seed turbulence
+# is what sets the boundary-layer depth and ultimately `w★`. We seed turbulence
 # with small random `θ` perturbations in the lowest ≈ 300 m, and set the wind to
 # the uniform `U₀`.
 
@@ -168,8 +168,8 @@ set!(model, θ = θᵢ, u = U₀)
 #
 # Adaptive time stepping at CFL 0.7, integrated for 2 hours — long enough for the
 # convective boundary layer to spin up and deepen through several turnovers
-# (`zᵢ/w⋆ ≈ 8 min`). A NaN check guards against blow-up, and a progress callback
-# prints the maximum vertical velocity, which should grow toward ≈ `w⋆`.
+# (`hᵢ/w★ ≈ 8 min`). A NaN check guards against blow-up, and a progress callback
+# prints the maximum vertical velocity, which should grow toward ≈ `w★`.
 
 simulation = Simulation(model; Δt = 0.5, stop_time = 2hours)
 conjure_time_step_wizard!(simulation, cfl = 0.7, max_Δt = 5.0)
@@ -218,7 +218,7 @@ nothing #hide
 # - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for
 #   the unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213.
 #   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> —
-#   defines `w⋆`, the convective velocity scale used here and throughout the
+#   defines `w★`, the convective velocity scale used here and throughout the
 #   atmosphere cases.
 #
 # !!! note "Why 2D?"

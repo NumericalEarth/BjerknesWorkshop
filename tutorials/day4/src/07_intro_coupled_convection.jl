@@ -250,7 +250,7 @@ nothing #hide
 # - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for the
 #   unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213.
 #   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> — the
-#   convective velocity scale `w⋆` for the buoyancy-driven thermals on both sides.
+#   convective velocity scale `w★` for the buoyancy-driven thermals on both sides.
 #
 # !!! note "Why 2D, and why a thin ocean?"
 #     This example is two-dimensional (`Flat` in `y`) and uses a shallow 100 m ocean

@@ -134,10 +134,10 @@ cₚ = constants.dry_air.heat_capacity
 nothing #hide
 
 # A capping inversion stabilizes the boundary layer so the lead plume has
-# something to work against: neutral below `zᵢ`, then a strong jump, then a weak
+# something to work against: neutral below `hᵢ`, then a strong jump, then a weak
 # free-tropospheric lapse rate. The inversion is the *antagonist* of the plume.
 #
-# We place the inversion base at `zᵢ ≈ 300 m`, the canonical depth used in the
+# We place the inversion base at `hᵢ ≈ 300 m`, the canonical depth used in the
 # lead-parametrization literature (Michaelis et al. 2020 use idealized
 # lead-perpendicular near-neutral inflow capped by a strong inversion at
 # ≈ 250–350 m). At this depth the cap is an *active, visible* control on the plume
@@ -146,19 +146,19 @@ nothing #hide
 # neutral layer and the cap is barely engaged.)
 #
 # The inversion strength `Δθᵢ = 6 K` over a ≈ 100 m layer gives an interfacial
-# buoyancy frequency N ≈ 0.04–0.06 s⁻¹, strong enough to arrest a w⋆ ≈ 1–1.7 m s⁻¹
+# buoyancy frequency N ≈ 0.04–0.06 s⁻¹, strong enough to arrest a w★ ≈ 1–1.7 m s⁻¹
 # plume near the inversion base — the observed capped, laterally spreading
 # behavior. Winter Arctic capping inversions are genuinely this strong (several K
 # over tens to ≈ 100 m); 4–10 K is the realistic range. The free-tropospheric
 # lapse rate `Γᵗᵒᵖ = 4 K km⁻¹` is a standard polar-winter value (3–5 K km⁻¹) and
 # supports the gravity waves the plume radiates into the stable layer.
 
-zᵢ = 300        # m, inversion base (lead-study canonical 250–350 m)
+hᵢ = 300        # m, inversion base (lead-study canonical 250–350 m)
 Δθᵢ = 6         # K, inversion strength (realistic range 4–10 K)
 δᵢ = 100        # m, inversion thickness
 Γᵗᵒᵖ = 0.004    # K/m, free-tropospheric lapse rate (polar winter 3–5 K/km)
 
-θᵣ(z) = θ₀ + Δθᵢ * smooth_step(z - zᵢ, δᵢ) + Γᵗᵒᵖ * max(z - zᵢ, zero(z))
+θᵣ(z) = θ₀ + Δθᵢ * smooth_step(z - hᵢ, δᵢ) + Γᵗᵒᵖ * max(z - hᵢ, zero(z))
 nothing #hide
 
 # ## The lead: boundary heterogeneity as a smooth mask
@@ -245,25 +245,25 @@ filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minut
 # (1970) convective velocity built on the lead buoyancy flux and the ABL depth,
 #
 # ```text
-# w⋆ = ( (g/θ₀) · (w′θ′)_sfc · zᵢ )^(1/3)
+# w★ = ( (g/θ₀) · (w′θ′)_sfc · hᵢ )^(1/3)
 # ```
 #
 # With the lead kinematic heat flux ≈ 0.15 K m s⁻¹ (Qʰ = 200 W m⁻²), θ₀ = 260 K
-# and a capped depth zᵢ ≈ 300 m, w⋆ ≈ 1.1 m s⁻¹ (≈ 1.2–1.7 m s⁻¹ for
-# Qʰ = 200–300 W m⁻² and zᵢ = 300–600 m), so updrafts of order 1 m s⁻¹ and
-# turnover times zᵢ/w⋆ ≈ 3–8 min are expected — which is why a 40-min integration
+# and a capped depth hᵢ ≈ 300 m, w★ ≈ 1.1 m s⁻¹ (≈ 1.2–1.7 m s⁻¹ for
+# Qʰ = 200–300 W m⁻² and hᵢ = 300–600 m), so updrafts of order 1 m s⁻¹ and
+# turnover times hᵢ/w★ ≈ 3–8 min are expected — which is why a 40-min integration
 # captures several convective turnovers (the first ≈ 10–15 min are spin-up;
 # compute statistics from the latter part of the run).
 #
 # **Why the wind matters.** The mean wind advects each thermal a horizontal
-# distance U₀ · (zᵢ/w⋆) ≈ 1–3 km while it rises, giving the plume its downwind lean
+# distance U₀ · (hᵢ/w★) ≈ 1–3 km while it rises, giving the plume its downwind lean
 # and its long downwind warm/fog tail (Zulauf & Krueger 2003 see ice cloud 50+ km
 # downwind). Across-lead winds in lead studies are a few to ≈ 10 m s⁻¹; at
 # `U₀ = 8 m s⁻¹` the plume leans strongly downwind — the realistic, instructive
 # regime. Low wind (2–3 m s⁻¹) gives an upright, near-symmetric plume; above
 # ≈ 10 m s⁻¹ the shear flattens the plume into a near-surface internal boundary
 # layer and suppresses penetration. Whether organization appears as a single
-# tilted plume or as longitudinal convective rolls depends on the wind-to-w⋆ ratio
+# tilted plume or as longitudinal convective rolls depends on the wind-to-w★ ratio
 # and the over-water fetch: a 1 km lead at 8 m s⁻¹ sits firmly in the single-plume
 # regime; roll structures need the much longer over-water fetch of a marine
 # cold-air outbreak. Note that with f = 1.4×10⁻⁴ s⁻¹, Ekman turning will develop
@@ -323,14 +323,14 @@ qᵗ₀ = 1.1e-3 # kg/kg, near-saturated sub-inversion background (≈ 80 % RH
 uᵢ(x, y, z) =  U₀  + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
 θᵢ(x, y, z) = θᵣ(z) + δθ * ϵ() * (z < zδ)
-qᵢ(x, y, z) = qᵗ₀ * (z < zᵢ)
+qᵢ(x, y, z) = qᵗ₀ * (z < hᵢ)
 
 set!(model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 
 # ## Simulation
 #
 # Adaptive time-stepping at CFL 0.7, run for 40 minutes of simulated time so the
-# plume develops through several convective turnovers (zᵢ/w⋆ ≈ 3–8 min). The first
+# plume develops through several convective turnovers (hᵢ/w★ ≈ 3–8 min). The first
 # ≈ 10–15 min are spin-up; diagnose fluxes and profiles from the latter part.
 
 simulation = Simulation(model; Δt = 0.5, stop_time = 3hours)
@@ -419,7 +419,7 @@ nothing #hide
 #   Influence of Lead Width on the Turbulent Flow Over Sea Ice Leads. *JGR
 #   Atmospheres*, 125, e2019JD031996. <https://doi.org/10.1029/2019JD031996> —
 #   idealized lead-perpendicular inflow capped by a strong inversion at ≈ 250–350 m;
-#   nonlocal lead-width-dependent w⋆ framework. Basis for zᵢ ≈ 300 m.
+#   nonlocal lead-width-dependent w★ framework. Basis for hᵢ ≈ 300 m.
 # - **Michaelis, J., Lüpkes, C. (2021).** Modelling and parametrization of the
 #   convective flow over leads in sea ice and comparison with airborne
 #   observations. *Q. J. R. Meteorol. Soc.*, 147, 914–943.
@@ -446,7 +446,7 @@ nothing #hide
 # - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for
 #   the unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213.
 #   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> —
-#   defines w⋆, the convective velocity scale used throughout.
+#   defines w★, the convective velocity scale used throughout.
 #
 # !!! note "Microphysics caveat (warm-phase vs. ice fog)"
 #     This run includes a latent heat flux and warm-phase (liquid-only) saturation

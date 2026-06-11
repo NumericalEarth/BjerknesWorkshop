@@ -138,8 +138,8 @@ atmosphere = atmosphere_simulation(atmos_grid;
 
 U₀    = 5       # m s⁻¹ mean wind, along x (the cloud-street axis)
 θ_bl  = 288     # K, well-mixed boundary-layer potential temperature (= reference)
-zᵢ    = 1000    # m, initial inversion height (boundary-layer top)
-Δθᵢ   = 6       # K, capping-inversion strength (θ jump at zᵢ)
+hᵢ    = 1000    # m, initial inversion height (boundary-layer top)
+Δθᵢ   = 6       # K, capping-inversion strength (θ jump at hᵢ)
 Γθ    = 4e-3    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
 qᵗ_bl = 9e-3    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
 qᵗ_ft = 2e-3    # kg/kg, dry free troposphere above the inversion
@@ -149,12 +149,12 @@ zδ    = 600     # m, perturbation seeding depth
 
 ϵ() = rand() - 0.5
 
-## A well-mixed, moist boundary layer capped by an inversion at zᵢ, with a stable,
+## A well-mixed, moist boundary layer capped by an inversion at hᵢ, with a stable,
 ## dry free troposphere above. The warm filament heats and moistens this layer; thermals
 ## rise to their lifting condensation level (a few hundred metres up), saturate into
-## cloud, and are capped near zᵢ — organizing into wind-aligned cloud streets.
-θᵢ(x, y, z) = (z < zᵢ ? θ_bl : θ_bl + Δθᵢ + Γθ * (z - zᵢ)) + δθ * ϵ() * (z < zδ)
-qᵢ(x, y, z) = z < zᵢ ? qᵗ_bl : qᵗ_ft
+## cloud, and are capped near hᵢ — organizing into wind-aligned cloud streets.
+θᵢ(x, y, z) = (z < hᵢ ? θ_bl : θ_bl + Δθᵢ + Γθ * (z - hᵢ)) + δθ * ϵ() * (z < zδ)
+qᵢ(x, y, z) = z < hᵢ ? qᵗ_bl : qᵗ_ft
 uᵢ(x, y, z) = U₀ + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
 
