@@ -38,13 +38,6 @@ using ClimaSeaIce.Rheologies: ElastoViscoPlasticRheology
 using Dates, Printf, CUDA
 using Oceananigans.OrthogonalSphericalShellGrids: RotatedLatitudeLongitudeGrid
 
-# `regrid_bathymetry` crops the source bathymetry to the grid's geographic extent through
-# `x_domain`/`y_domain`, which Oceananigans defines only for lat–lon grids. A rotated grid stores the
-# *true geographic* node coordinates, so its bounding box is just their extrema (temporary local patch):
-import Oceananigans.Grids: x_domain, y_domain
-x_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.λᶠᶠᵃ))
-y_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.φᶠᶠᵃ))
-
 arch = GPU()   # CPU() also works, at reduced resolution
 
 # ## A grid for the Arctic cap
@@ -61,7 +54,7 @@ arch = GPU()   # CPU() also works, at reduced resolution
 # vertical level, enough for the bathymetry to mark land from ocean.
 
 Nx, Ny = 180, 180
-δ = 35   # half-width of the cap, in rotated degrees
+δ = 25   # half-width of the cap, in rotated degrees
 z = (-10meters, 0)
 
 underlying_grid = RotatedLatitudeLongitudeGrid(arch;
@@ -72,8 +65,7 @@ underlying_grid = RotatedLatitudeLongitudeGrid(arch;
                                                halo = (5, 5, 1),
                                                z)
 
-bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = Inf)
-
+bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15)
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height))
 
 # ## The slab ocean
@@ -125,7 +117,7 @@ dynamics = SeaIceMomentumEquation(grid;
                                   top_momentum_stress = atmosphere_ice_stress,
                                   bottom_momentum_stress = ocean_ice_stress,
                                   rheology = ElastoViscoPlasticRheology(),
-                                  solver = SplitExplicitSolver(grid; substeps = 120))
+                                  solver = SplitExplicitSolver(grid; substeps = 100))
 
 sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
                              advection = WENO(order = 7),
@@ -257,6 +249,7 @@ drift = @lift begin
     speed = @. ifelse(ice, hypot(uc, vc), NaN)
     (; east, north, speed)
 end
+
 speedₙ = @lift $drift.speed
 arrow_east  = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.east[i, j]  / s : NaN) for (i, j) in anchors]
 arrow_north = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.north[i, j] / s : NaN) for (i, j) in anchors]
