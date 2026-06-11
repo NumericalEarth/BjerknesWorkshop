@@ -36,11 +36,11 @@
 # visible **lead fog / steam plume** that is the open water's signature — a thin
 # cloud that rises with the thermals and advects downwind over the ice. (Real lead
 # fog is largely ice crystals; the warm-phase scheme produces the supercooled-liquid
-# analogue — see the microphysics caveat in the References.) We pick a single 1 km
-# lead — the canonical width that yields one clean plume and
-# matches the historical 1 km lead-parametrization baseline (Michaelis et al.
-# 2020) — and size the run to develop a recognizable plume on one H100 in roughly
-# fifteen minutes.
+# analogue — see the microphysics caveat in the References.) We pick a single 3 km
+# lead — wide enough that the air spends long enough over the open water to build a
+# tall, vigorous plume (penetration and updraft strength grow with lead width;
+# Glendening 1994, Zulauf & Krueger 2003), yet still below the ≈ 4 km threshold above
+# which the plume splits into edge plumes and interior cells, so we get one clean plume.
 #
 # Coordinate orientation:
 #
@@ -51,8 +51,8 @@
 # ```
 #
 # Periodic horizontal boundaries represent an infinite periodic array of leads
-# separated by the domain width. With U₀ = 8 m s⁻¹ over 40 min the air travels
-# ≈ 19 km, comfortably less than the 40 km across-lead domain, so the downwind
+# separated by the domain width. With U₀ = 3 m s⁻¹ over the multi-hour run the air
+# travels ≈ 32 km, less than the 40 km across-lead domain, so the downwind
 # plume does not wrap around and contaminate the upwind ice before statistics are
 # taken — watch this for stronger winds or longer runs.
 
@@ -182,7 +182,7 @@ nothing #hide
 # (Glendening 1994; Zulauf & Krueger 2003; Esau 2007; Gryschka et al. 2023), with a
 # comparable latent flux from the open water.
 
-Wˡᵉᵃᵈ = 1kilometer    # narrow 0.1–0.5, moderate 1–2, wide 4–10 km
+Wˡᵉᵃᵈ = 3kilometers   # narrow 0.1–0.5, moderate 1–2, wide 4–10 km (3 km → one robust, deep plume)
 δˡᵉᵃᵈ = 100meters
 
 # ### Boundary heterogeneity as a *surface state*, not a prescribed flux
@@ -258,19 +258,20 @@ filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minut
 # **Why the wind matters.** The mean wind advects each thermal a horizontal
 # distance U₀ · (hᵢ/w★) ≈ 1–3 km while it rises, giving the plume its downwind lean
 # and its long downwind warm/fog tail (Zulauf & Krueger 2003 see ice cloud 50+ km
-# downwind). Across-lead winds in lead studies are a few to ≈ 10 m s⁻¹; at
-# `U₀ = 8 m s⁻¹` the plume leans strongly downwind — the realistic, instructive
-# regime. Low wind (2–3 m s⁻¹) gives an upright, near-symmetric plume; above
+# downwind). Across-lead winds in lead studies are a few to ≈ 10 m s⁻¹; we use a low
+# `U₀ = 3 m s⁻¹` so the plume stays tall and nearly upright (gently leaning) — the
+# clearest view of the plume and its fog. At 8–10 m s⁻¹ the plume leans strongly
+# downwind; low wind (2–3 m s⁻¹) gives an upright, near-symmetric plume; above
 # ≈ 10 m s⁻¹ the shear flattens the plume into a near-surface internal boundary
 # layer and suppresses penetration. Whether organization appears as a single
 # tilted plume or as longitudinal convective rolls depends on the wind-to-w★ ratio
-# and the over-water fetch: a 1 km lead at 8 m s⁻¹ sits firmly in the single-plume
+# and the over-water fetch: a 3 km lead at 3 m s⁻¹ sits firmly in the single-plume
 # regime; roll structures need the much longer over-water fetch of a marine
 # cold-air outbreak. Note that with f = 1.4×10⁻⁴ s⁻¹, Ekman turning will develop
 # an along-lead (v) component over the run — the wind is only purely across-lead
 # initially.
 
-U₀ = 8   # m s⁻¹ mean wind across the lead (range 3–10; low wind ⇒ upright plume)
+U₀ = 3   # m s⁻¹ mean wind across the lead (low wind ⇒ a taller, more upright, clearly visible plume)
 coriolis = FPlane(f = 1.4e-4)
 geostrophic = geostrophic_forcings(U₀, 0)
 
@@ -387,7 +388,7 @@ simulation.output_writers[:statics] = JLD2Writer(model, (; χ = χ_field, Tˢ = 
     overwrite_existing = true)
 
 simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
-    filename = "lead_atmosphere_slices.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
+    filename = "lead_atmosphere_slices.jld2", schedule = TimeInterval(1minute), overwrite_existing = true)
 
 simulation.output_writers[:profiles] = JLD2Writer(model, along_lead;
     filename = "lead_atmosphere_profiles.jld2", schedule = TimeInterval(30seconds), overwrite_existing = true)

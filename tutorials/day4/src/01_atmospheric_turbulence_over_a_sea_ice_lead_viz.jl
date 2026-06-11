@@ -47,8 +47,8 @@ axw = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w (m s⁻¹
 axθ = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "θ (K)")
 axq = Axis(fig[3, 1], xlabel = "x (km)", ylabel = "z (km)", title = "cloud liquid qˡ (g kg⁻¹) — the lead fog")
 
-wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
-qlmax = max(1e-4, maximum(interior(qˡ_xz[Nt])) * 1e3)
+wlim = max(1e-3, maximum(abs, w_xz))
+qlmax = max(1e-4, maximum(qˡ_xz) * 1e3)
 hmw = heatmap!(axw, xkm, zkm, wn, colormap = :balance, colorrange = (-wlim, wlim))
 hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
 hmq = heatmap!(axq, xkm, zkm, qln, colormap = :dense, colorrange = (0, qlmax))
