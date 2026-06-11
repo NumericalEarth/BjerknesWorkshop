@@ -47,6 +47,14 @@ function render_one(vizfile, outdir, artifacts_dir)
     staged_common = joinpath(outdir, "00_common.jl")
     cp(joinpath(dirname(vizfile), "00_common.jl"), staged_common; force = true)
 
+    # The viz reads its simulation output by plain filename (e.g.
+    # `FieldTimeSeries("free_convection.jld2", …)`). Literate executes inside
+    # `cd(outdir)`, so stage the case's cached JLD2 there before rendering; the
+    # cleanup below removes them again so they are never committed.
+    for f in readdir(artifacts_dir)
+        endswith(f, ".jld2") && cp(joinpath(artifacts_dir, f), joinpath(outdir, f); force = true)
+    end
+
     withenv("CASE_OUTPUT_DIR" => artifacts_dir, "THURSDAY_REPO_ROOT" => REPO_ROOT) do
         Literate.markdown(vizfile, outdir; execute = true, credit = false,
                           flavor = Literate.DocumenterFlavor())

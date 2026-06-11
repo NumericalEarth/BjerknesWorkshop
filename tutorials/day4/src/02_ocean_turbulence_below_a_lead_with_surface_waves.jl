@@ -94,7 +94,7 @@ using .ThursdayLES
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
-const FT = Float32
+FT = Float32
 
 # ## Domain, grid, and fixed parameters
 #
@@ -106,38 +106,38 @@ const FT = Float32
 # far more evolution than a short ultra-fine one. Refine to 1000×500×256 @ 2 m for a
 # production rendering once the science is set.
 
-const Lx = 2kilometers   # across-lead
-const Ly = 1kilometer    # along-lead / wind / waves
-const Lz = 160meters     # depth
+Lx = 2kilometers   # across-lead
+Ly = 1kilometer    # along-lead / wind / waves
+Lz = 160meters     # depth
 
-const Nx = 512
-const Ny = 256
-const Nz = 128
+Nx = 512
+Ny = 256
+Nz = 128
 
-const refinement = 1.2   # higher → finer near surface
-const stretching = 8.0   # higher → faster coarsening at depth
+refinement = 1.2   # higher → finer near surface
+stretching = 8.0   # higher → faster coarsening at depth
 hᵏ(k) = (k - 1) / Nz
 ζ₀(k) = 1 + (hᵏ(k) - 1) / refinement
 Σ(k)  = (1 - exp(-stretching * hᵏ(k))) / (1 - exp(-stretching))
 z_faces(k) = Lz * (ζ₀(k) * Σ(k) - 1)
 
 # Buoyancy: temperature and salinity with the TEOS-10 equation of state.
-const ρₒ = FT(1026)   # kg m⁻³, reference surface density
+ρₒ = 1026   # kg m⁻³, reference surface density
 
 # The lead: the same top-hat mask as case 1 (narrower here), centered on the lead.
-const Wˡᵉᵃᵈ = 500meters
-const δˡᵉᵃᵈ = 50meters
+Wˡᵉᵃᵈ = 500meters
+δˡᵉᵃᵈ = 50meters
 
-const cᴾ = FT(3991)        # J K⁻¹ kg⁻¹, seawater heat capacity
-const Qᵀ_lead = FT(200)    # W m⁻², surface heat loss (cooling) over the lead.
+cᴾ = 3991        # J K⁻¹ kg⁻¹, seawater heat capacity
+Qᵀ_lead = 200    # W m⁻², surface heat loss (cooling) over the lead.
                            #   Conservative refreezing-lead heat loss, Skyllingstad & Denbo (2001).
-const Fˢ_lead = FT(2e-5)   # g kg⁻¹ m s⁻¹, brine-rejection salt input over the lead.
+Fˢ_lead = 2e-5   # g kg⁻¹ m s⁻¹, brine-rejection salt input over the lead.
                            #   Self-consistent with Qᵀ via the freezing rate (Skyllingstad & Denbo 2001).
-const τʸ_lead = FT(-1e-4)  # m² s⁻², along-lead kinematic wind stress over the lead.
+τʸ_lead = -1e-4  # m² s⁻², along-lead kinematic wind stress over the lead.
                            #   u★ ≈ √|τ| ≈ 0.010 m s⁻¹ (≈ 7–8 m s⁻¹ wind); keeps the
                            #   forcing Langmuir-dominated (low Laₜ, see banner below).
-const dTdz = FT(0.005)     # K m⁻¹, interior thermal stratification.
-const dSdz = FT(0.02)      # g kg⁻¹ m⁻¹, interior haline stratification (halocline).
+dTdz = 0.005     # K m⁻¹, interior thermal stratification.
+dSdz = 0.02      # g kg⁻¹ m⁻¹, interior haline stratification (halocline).
                            #   Near the freezing point buoyancy is dominated by salinity,
                            #   so a stable halocline below the fresh mixed layer sets the
                            #   restratification that the plumes and Langmuir cells work against.
@@ -160,18 +160,19 @@ const dSdz = FT(0.02)      # g kg⁻¹ m⁻¹, interior haline stratification (h
 # `vˢ(x, z)`: the Stokes shear `∂z vˢ` (the primary Langmuir driver) and the
 # across-lead gradient `∂x vˢ`. The deep-water monochromatic profile `e^{2kz}` is the
 # standard choice (a broadband Breivik et al. 2014 profile would sharpen the
-# near-surface shear). `const`s let the functions compile on the GPU.
+# near-surface shear). The drift functions read their parameters from `p`, so they
+# carry no captured globals into the GPU kernel.
 #
 # Fetch-limited lead waves are short, so we take a young-sea wavelength `λ = 20 m`
 # (`k ≈ 0.31 m⁻¹`, e-folding `1/(2k) ≈ 1.6 m`). The surface Stokes drift is set from
 # the target open-water turbulent Langmuir number `Laₜ = √(u★/Uˢ) ≈ 0.3` — the
 # wave-favorable regime for Arctic open water/MIZ (Tavri et al. 2026) — giving
 # `Uˢ_max ≈ u★ / Laₜ² ≈ 11 u★ ≈ 0.11 m s⁻¹` (steepness `ka ≈ 0.13`, amplitude ≈ 0.45 m).
-const wavelength = FT(20)                 # m, fetch-limited young lead waves
-const wavenumber = FT(2π) / wavelength    # m⁻¹  (k ≈ 0.31)
-const Uˢ_max     = FT(0.11)               # m s⁻¹ surface Stokes drift over open water (Laₜ ≈ 0.3)
-const Wʷᵃᵛᵉ      = Wˡᵉᵃᵈ                  # waves fill the open lead
-const δʷᵃᵛᵉ      = FT(40)                 # m, under-ice wave-attenuation length
+wavelength = 20                 # m, fetch-limited young lead waves
+wavenumber = 2π / wavelength    # m⁻¹  (k ≈ 0.31)
+Uˢ_max     = 0.11               # m s⁻¹ surface Stokes drift over open water (Laₜ ≈ 0.3)
+Wʷᵃᵛᵉ      = Wˡᵉᵃᵈ                  # waves fill the open lead
+δʷᵃᵛᵉ      = 40                 # m, under-ice wave-attenuation length
 
 # Smooth top-hat localization Uˢ(x)/Uˢ_max ∈ [0,1] and its x-derivative (analytic),
 # so the Stokes drift lives over the lead and decays under the ice.
@@ -188,7 +189,7 @@ end
 # The two nonzero Stokes-drift gradients of vˢ(x,z) = Uˢ_max·mask(x)·exp(2k z).
 @inline ∂z_vˢ(x, y, z, t, p) = _wave_mask(x, p)    * 2p.k * p.Uˢ * exp(2 * p.k * z)
 @inline ∂x_vˢ(x, y, z, t, p) = _wave_mask_dx(x, p) *        p.Uˢ * exp(2 * p.k * z)
-const stokes_parameters = (; Uˢ = Uˢ_max, k = wavenumber, W = Wʷᵃᵛᵉ, δ = δʷᵃᵛᵉ)
+stokes_parameters = (; Uˢ = Uˢ_max, k = wavenumber, W = Wʷᵃᵛᵉ, δ = δʷᵃᵛᵉ)
 
 # ### Surface flux functions
 #
@@ -226,7 +227,6 @@ end
 
 function run_ocean_case(waves::Bool)
     label = waves ? "waves" : "nowaves"
-    config = RunConfig(string("02_ocean_lead_", label))
     @info "=== Ocean below lead: $(label) ==="
 
     grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
@@ -258,11 +258,11 @@ function run_ocean_case(waves::Bool)
     ## Initial conditions: a shallow mixed layer over weak stratification, uniform
     ## salinity, and velocity noise scaled by the friction velocity.
     Random.seed!(2718)
-    initial_mixed_layer_depth = FT(20)   # shallow fresh mixed layer; deepen only with a longer swell
-    T_surface = FT(-1.7)                 # ≈ surface freezing point at S₀, so brine rejection is the
+    initial_mixed_layer_depth = 20   # shallow fresh mixed layer; deepen only with a longer swell
+    T_surface = -1.7                 # ≈ surface freezing point at S₀, so brine rejection is the
                                          #   active forcing (not mere cooling of warm water)
-    S₀ = FT(33)                          # g kg⁻¹, fresh near-surface salinity
-    Ξ(z) = randn(FT) * exp(z / 8)
+    S₀ = 33                          # g kg⁻¹, fresh near-surface salinity
+    Ξ(z) = randn() * exp(z / 8)
     Tᵢ(x, y, z) = T_surface + dTdz * min(z + initial_mixed_layer_depth, zero(z)) + 1e-3 * dTdz * Lz * Ξ(z)
     ## Mixed layer of uniform S₀ over a stable halocline (haline restratification).
     Sᵢ(x, y, z) = S₀ - dSdz * min(z + initial_mixed_layer_depth, zero(z))
@@ -330,19 +330,19 @@ function run_ocean_case(waves::Bool)
     )
 
     simulation.output_writers[:statics] = JLD2Writer(model, (; χ = χ_field);
-        filename = output_name(config, "statics"), schedule = IterationInterval(typemax(Int)),
+        filename = "ocean_lead_$(label)_statics.jld2", schedule = IterationInterval(typemax(Int)),
         overwrite_existing = true)
     simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
-        filename = slice_name(config), schedule = TimeInterval(15seconds), overwrite_existing = true)
+        filename = "ocean_lead_$(label)_slices.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
     simulation.output_writers[:profiles] = JLD2Writer(model, averages;
-        filename = output_name(config, "profiles"),
+        filename = "ocean_lead_$(label)_profiles.jld2",
         schedule = AveragedTimeInterval(30seconds, window = 30seconds), overwrite_existing = true)
     ## (No full-3D field output — slices and profiles drive the visualization.)
 
     write_once!(simulation.output_writers[:statics], model)
     run!(simulation)
 
-    @info "Ocean case complete" run_stamp(config)...
+    @info "Ocean case complete ($label)"
     return nothing
 end
 

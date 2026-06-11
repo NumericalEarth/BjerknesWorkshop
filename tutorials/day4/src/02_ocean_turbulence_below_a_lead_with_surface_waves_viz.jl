@@ -18,8 +18,7 @@ using .ThursdayLES
 # the animation. Both the no-waves control and the waves case go through it.
 
 function visualize_case(label)
-    config = RunConfig("02_ocean_lead_$(label)")
-    w_xz = FieldTimeSeries(slice_name(config), "w_xz")
+    w_xz = FieldTimeSeries("ocean_lead_$(label)_slices.jld2", "w_xz")
     times = w_xz.times
     Nt = length(times)
     println(label, ": loaded ", Nt, " frames, max|w| = ",
@@ -38,7 +37,7 @@ function visualize_case(label)
     hm = heatmap!(ax, xw, zw, wn, colormap = :balance, colorrange = (-wlim, wlim))
     Colorbar(fig[1, 2], hm)
 
-    record(fig, movie_name(config, "ocean_lead_$(label)"), 1:Nt; framerate = 12) do i
+    record(fig, "ocean_lead_$(label).mp4", 1:Nt; framerate = 12) do i
         n[] = i
     end
     return fig

@@ -59,12 +59,11 @@ using .ThursdayLES
 
 ## Per-phase wall-clock timing with a forced flush, for visibility into the
 ## (compile-dominated) startup of this large compressible terrain run.
-const _t0 = Ref(time_ns())
+_t0 = Ref(time_ns())
 checkpoint(msg) = (@info @sprintf("⏱ %-26s %8.1f s", msg, 1e-9 * (time_ns() - _t0[])); flush(stderr))
 
 Random.seed!(100)
 
-config = RunConfig("03_norway_100m")
 arch = choose_architecture()
 gpu_report()
 ## The coupled `EarthSystemModel` clock follows the atmosphere; we run the whole
@@ -79,7 +78,8 @@ nothing #hide
 # `land_mask` is 1 over land, 0 over water — we use its complement as the
 # **fjord/sea (wet) fraction**.
 
-const topo_path = joinpath("thursday", "data", "norway_lofoten_100m_topography.jld2")
+repo_root = get(ENV, "THURSDAY_REPO_ROOT", pwd())
+topo_path = joinpath(repo_root, "thursday", "data", "norway_lofoten_100m_topography.jld2")
 isfile(topo_path) || error("Missing topography artifact $topo_path — run 03a_prepare_norway_topography.jl first.")
 
 topo = load(topo_path)
@@ -117,18 +117,18 @@ land_fun = bilinear(land_data, xt, yt)
 # `TwoLevelDecay` relaxes the terrain-following surfaces back to flat with height so
 # the coordinate is smooth under the sponge.
 
-const Lx = 100kilometers
-const Ly = 100kilometers
-const Lz = 12kilometers
+Lx = 100kilometers
+Ly = 100kilometers
+Lz = 12kilometers
 
 ## ~200 m horizontal grid for a long run (≈34 M cells). Production: 1000×1000;
 ## quick teaching run: 256×256.
-const Nx = 512
-const Ny = 512
+Nx = 512
+Ny = 512
 
 z_faces = PiecewiseStretchedDiscretization(z  = [0, 3000, 6000, Int(Lz)],
                                            Δz = [120, 120, 400, 800])
-const Nz = length(z_faces) - 1
+Nz = length(z_faces) - 1
 
 z_coord = TerrainFollowingVerticalDiscretization(z_faces;
               formulation = TwoLevelDecay(large_scale_height = Lz / 2,
@@ -155,10 +155,10 @@ checkpoint("terrain materialized")
 # stratification `N²` sets `M = N h / U`; staying near `M ≈ 1.35` keeps enough flow
 # going *over* the ridges to launch waves while splitting the rest through the fjords.
 
-const θ₀ = FT(272)          # K, cold-airmass surface potential temperature (the inflow)
-const p₀ = FT(1e5)          # Pa
-const N² = FT(1.5e-4)       # s⁻², free-tropospheric stratification (N ≈ 0.0122 s⁻¹)
-const g  = FT(9.81)
+θ₀ = 272          # K, cold-airmass surface potential temperature (the inflow)
+p₀ = 1e5          # Pa
+N² = 1.5e-4       # s⁻², free-tropospheric stratification (N ≈ 0.0122 s⁻¹)
+g  = 9.81
 
 potential_temperature_profile(z) = θ₀ * exp(N² * z / g)
 
@@ -210,7 +210,7 @@ hydrology = VariablySaturatedHydrology(eltype(land_grid);
     deep_liquid_flux = NoDeepLiquidFlux(),
     runoff = InfiltrationCapacityRunoff(infiltration_capacity = 1e-3))
 
-const T_surface = FT(280)   # K, warm surface (sea / coast) under the cold airmass
+T_surface = 280   # K, warm surface (sea / coast) under the cold airmass
 energy = WaterCoupledEnergy(eltype(land_grid);
     dry_heat_capacity = 1480 * 1500 * 0.10, liquid_heat_capacity = 4186,
     reference_temperature = 273.15, deep_temperature = T_surface,
@@ -221,8 +221,8 @@ land = SlabLand(land_grid; hydrology, energy)
 
 ## Wet (near-saturated) over water, dry over land. Water storage Mˡᵃ⁺ = ρˡ ν D.
 Mˡᵃ⁺  = hydrology.porosity * hydrology.slab_depth * 1000
-M_wet = FT(0.95) * Mˡᵃ⁺
-M_dry = FT(0.02) * Mˡᵃ⁺
+M_wet = 0.95 * Mˡᵃ⁺
+M_dry = 0.02 * Mˡᵃ⁺
 ocean_fraction(x, y) = 1 - land_fun(x, y)          # 1 over fjords/sea, 0 over land
 M_init(x, y) = M_dry + (M_wet - M_dry) * ocean_fraction(x, y)
 
@@ -258,12 +258,12 @@ al_interface = atmosphere_land_interface(land_grid, atmosphere, land;
 # initialized in discrete hydrostatic balance, so we seed the density from the
 # dynamics' `terrain_reference_density`.
 
-const U₀  = FT(12)     # m s⁻¹ mean wind (westerly, onshore)
-const δθ  = FT(0.3)    # K, near-surface θ perturbation
-const zδ  = FT(500)
-const qᵗ₀ = FT(2e-3)   # kg/kg, modest cold-air humidity
+U₀  = 12     # m s⁻¹ mean wind (westerly, onshore)
+δθ  = 0.3    # K, near-surface θ perturbation
+zδ  = 500
+qᵗ₀ = 2e-3   # kg/kg, modest cold-air humidity
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 uᵢ(x, y, z) = U₀
 θᵢ(x, y, z) = potential_temperature_profile(z) + δθ * ϵ() * (z < zδ)
 qᵢ(x, y, z) = qᵗ₀
@@ -336,12 +336,12 @@ slice_outputs = (
 )
 
 simulation.output_writers[:statics] = JLD2Writer(atmosphere.model, (; h = h_field, water = water_field);
-    filename = output_name(config, "statics"), schedule = IterationInterval(typemax(Int)),
+    filename = "norway_statics.jld2", schedule = IterationInterval(typemax(Int)),
     overwrite_existing = true)
 simulation.output_writers[:slices] = JLD2Writer(atmosphere.model, slice_outputs;
-    filename = slice_name(config), schedule = TimeInterval(15seconds), overwrite_existing = true)
+    filename = "norway_slices.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
 simulation.output_writers[:land] = JLD2Writer(model, (; 𝒮 = land.saturation, T = land.temperature);
-    filename = output_name(config, "land"), schedule = TimeInterval(15seconds), overwrite_existing = true)
+    filename = "norway_land.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
 
 write_once!(simulation.output_writers[:statics], atmosphere.model)
 checkpoint("statics written; starting run!")
@@ -349,7 +349,7 @@ checkpoint("statics written; starting run!")
 # ## Go time
 run!(simulation)
 
-@info "Case 3 complete" run_stamp(config)...
+@info "Case 3 complete"
 
 # ## References
 #

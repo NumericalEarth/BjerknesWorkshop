@@ -69,7 +69,6 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-config = RunConfig("01_lead_atmosphere")
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
@@ -90,13 +89,13 @@ nothing #hide
 #     published lead-LES range is 1–25 m; Glendening 1994; Esau 2007; Gryschka et
 #     al. 2023). Treat the plume structure as qualitative; refine for flux convergence.
 
-const Lx = 40kilometers   # across-lead / mean wind
-const Ly = 12kilometers   # along-lead
-const Lz = 3kilometers    # vertical
+Lx = 40kilometers   # across-lead / mean wind
+Ly = 12kilometers   # along-lead
+Lz = 3kilometers    # vertical
 
-const Nx = 800
-const Ny = 240
-const Nz = 96
+Nx = 800
+Ny = 240
+Nz = 96
 
 # A smooth exponential vertical stretch: fine near the surface where the plume is
 # generated, coarsening toward the top.
@@ -120,8 +119,8 @@ grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
 # A cold Arctic boundary layer: surface potential temperature θ₀ = 260 K. We use
 # the anelastic formulation with a dry adiabatic reference state.
 
-const p₀ = FT(1e5)   # Pa
-const θ₀ = FT(260)   # K
+p₀ = 1e5   # Pa
+θ₀ = 260   # K
 
 constants = ThermodynamicConstants()
 reference_state = ReferenceState(grid, constants,
@@ -130,8 +129,8 @@ reference_state = ReferenceState(grid, constants,
 dynamics = AnelasticDynamics(reference_state)
 
 q₀ = Breeze.Thermodynamics.MoistureMassFractions{FT} |> zero
-const ρ₀ = Breeze.Thermodynamics.density(θ₀, p₀, q₀, constants)
-const cₚ = constants.dry_air.heat_capacity
+ρ₀ = Breeze.Thermodynamics.density(θ₀, p₀, q₀, constants)
+cₚ = constants.dry_air.heat_capacity
 nothing #hide
 
 # A capping inversion stabilizes the boundary layer so the lead plume has
@@ -154,10 +153,10 @@ nothing #hide
 # lapse rate `Γᵗᵒᵖ = 4 K km⁻¹` is a standard polar-winter value (3–5 K km⁻¹) and
 # supports the gravity waves the plume radiates into the stable layer.
 
-const zᵢ = FT(300)        # m, inversion base (lead-study canonical 250–350 m)
-const Δθᵢ = FT(6)         # K, inversion strength (realistic range 4–10 K)
-const δᵢ = FT(100)        # m, inversion thickness
-const Γᵗᵒᵖ = FT(0.004)    # K/m, free-tropospheric lapse rate (polar winter 3–5 K/km)
+zᵢ = 300        # m, inversion base (lead-study canonical 250–350 m)
+Δθᵢ = 6         # K, inversion strength (realistic range 4–10 K)
+δᵢ = 100        # m, inversion thickness
+Γᵗᵒᵖ = 0.004    # K/m, free-tropospheric lapse rate (polar winter 3–5 K/km)
 
 θᵣ(z) = θ₀ + Δθᵢ * smooth_step(z - zᵢ, δᵢ) + Γᵗᵒᵖ * max(z - zᵢ, zero(z))
 nothing #hide
@@ -183,8 +182,8 @@ nothing #hide
 # (Glendening 1994; Zulauf & Krueger 2003; Esau 2007; Gryschka et al. 2023), with a
 # comparable latent flux from the open water.
 
-const Wˡᵉᵃᵈ = 1kilometer    # narrow 0.1–0.5, moderate 1–2, wide 4–10 km
-const δˡᵉᵃᵈ = 100meters
+Wˡᵉᵃᵈ = 1kilometer    # narrow 0.1–0.5, moderate 1–2, wide 4–10 km
+δˡᵉᵃᵈ = 100meters
 
 # ### Boundary heterogeneity as a *surface state*, not a prescribed flux
 #
@@ -200,8 +199,8 @@ const δˡᵉᵃᵈ = 100meters
 # than a fixed flux — the lead's exchange responds to the evolving wind and stability —
 # and is the same machinery coupled air–sea runs use. The ≈ 26 K air–sea temperature
 # difference (ice-chilled air over near-freezing water) drives the plume.
-const T_ice   = FT(245)     # K, cold ice/snow surface (≈ -28 °C)
-const T_water = FT(271.35)  # K, open water near the seawater freezing point (≈ -1.8 °C)
+T_ice   = 245     # K, cold ice/snow surface (≈ -28 °C)
+T_water = 271.35  # K, open water near the seawater freezing point (≈ -1.8 °C)
 
 # Surface temperature as a 2-D field: the lead is the warm top-hat.
 Tˢ = Field{Center, Center, Nothing}(grid)
@@ -209,7 +208,7 @@ set!(Tˢ, (x, y) -> T_ice + top_hat(x; center = 0, width = Wˡᵉᵃᵈ, edge = 
 
 # Wind- and stability-dependent exchange coefficients (Large & Yeager 2009) via a
 # polynomial bulk coefficient; `gustiness` floors |ΔU| so calm air still exchanges.
-const Uᵍ = FT(0.5)          # m s⁻¹ gustiness
+Uᵍ = 0.5          # m s⁻¹ gustiness
 coefficient = PolynomialCoefficient(roughness_length = 1.5e-4)
 
 # ### The filtered surface state — and how it changes the flux
@@ -271,12 +270,12 @@ filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minut
 # an along-lead (v) component over the run — the wind is only purely across-lead
 # initially.
 
-const U₀ = FT(8)   # m s⁻¹ mean wind across the lead (range 3–10; low wind ⇒ upright plume)
+U₀ = 8   # m s⁻¹ mean wind across the lead (range 3–10; low wind ⇒ upright plume)
 coriolis = FPlane(f = 1.4e-4)
 geostrophic = geostrophic_forcings(U₀, 0)
 
-sponge_width = FT(400)
-sponge_rate = FT(0.01)
+sponge_width = 400
+sponge_rate = 0.01
 sponge_mask = GaussianMask{:z}(center = Lz, width = sponge_width)
 
 ρθᵣ = Field{Nothing, Nothing, Center}(grid)
@@ -313,14 +312,14 @@ model = AtmosphereModel(grid; dynamics, coriolis, advection, closure, microphysi
 # perturbations below `zδ` (within the neutral sub-inversion layer) to seed
 # turbulence.
 
-const δu = FT(0.1)   # m s⁻¹
-const δθ = FT(0.1)   # K
-const zδ = FT(300)   # m
-const qᵗ₀ = FT(1.1e-3) # kg/kg, near-saturated sub-inversion background (≈ 80 % RH
+δu = 0.1   # m s⁻¹
+δθ = 0.1   # K
+zδ = 300   # m
+qᵗ₀ = 1.1e-3 # kg/kg, near-saturated sub-inversion background (≈ 80 % RH
                        # at 260 K, where qˢᵃᵗ ≈ 1.4e-3); cold near-saturated air over
                        # the warm lead is the sea-smoke / steam-fog setup.
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 uᵢ(x, y, z) =  U₀  + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
 θᵢ(x, y, z) = θᵣ(z) + δθ * ϵ() * (z < zδ)
@@ -384,14 +383,14 @@ along_lead = NamedTuple(name => Average(@at((Center, Center, Center), base_3d[na
                         for name in keys(base_3d))
 
 simulation.output_writers[:statics] = JLD2Writer(model, (; χ = χ_field, Tˢ = Tˢ);
-    filename = output_name(config, "statics"), schedule = IterationInterval(typemax(Int)),
+    filename = "lead_atmosphere_statics.jld2", schedule = IterationInterval(typemax(Int)),
     overwrite_existing = true)
 
 simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
-    filename = slice_name(config), schedule = TimeInterval(15seconds), overwrite_existing = true)
+    filename = "lead_atmosphere_slices.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
 
 simulation.output_writers[:profiles] = JLD2Writer(model, along_lead;
-    filename = output_name(config, "profiles"), schedule = TimeInterval(30seconds), overwrite_existing = true)
+    filename = "lead_atmosphere_profiles.jld2", schedule = TimeInterval(30seconds), overwrite_existing = true)
 
 ## (No full-3D field output: the visualization and gallery use the slices and
 ## along-lead profiles. Add a sparse 3D writer here if you need volumetric data.)
@@ -401,7 +400,7 @@ write_once!(simulation.output_writers[:statics], model)
 # ## Go time
 run!(simulation)
 
-@info "Case 1 complete" run_stamp(config)...
+@info "Case 1 complete"
 nothing #hide
 
 # ## References

@@ -27,13 +27,8 @@ using Printf
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-const RUN_CLASS = Symbol(get(ENV, "RUN_CLASS", "production"))
-gallery_config = RunConfig("04_gallery"; run_class = RUN_CLASS)
-
-# Helper: load the last frame of a slice field if its file exists.
-function last_slice(case_name, field; run_class = RUN_CLASS)
-    cfg = RunConfig(case_name; run_class)
-    file = slice_name(cfg)
+# Helper: load the last frame of a slice field from a cached output file, if present.
+function last_slice(file, field)
     isfile(file) || return nothing
     try
         ts = FieldTimeSeries(file, field)
@@ -50,7 +45,7 @@ fig = Figure(size = (1300, 1100), fontsize = 14)
 Label(fig[0, 1:2], "Thursday: boundary heterogeneity writes turbulence into the fluid",
       fontsize = 20, tellwidth = false)
 
-p1 = last_slice("01_lead_atmosphere", "w_xz")
+p1 = last_slice("lead_atmosphere_slices.jld2", "w_xz")
 ax1 = Axis(fig[1, 1:2], title = "1. A crack in the ice — atmospheric w(x,z)",
            xlabel = "x (km)", ylabel = "z (km)")
 if !isnothing(p1)
@@ -71,8 +66,8 @@ end
 ax2a = Axis(fig[2, 1], title = "2a. Ocean below lead — NO waves, w(x,z)", xlabel = "x (m)", ylabel = "z (m)")
 ax2b = Axis(fig[2, 2], title = "2b. Ocean below lead — waves, w(x,z)", xlabel = "x (m)", ylabel = "z (m)")
 
-p2a = last_slice("02_ocean_lead_nowaves", "w_xz")
-p2b = last_slice("02_ocean_lead_waves", "w_xz")
+p2a = last_slice("ocean_lead_nowaves_slices.jld2", "w_xz")
+p2b = last_slice("ocean_lead_waves_slices.jld2", "w_xz")
 for (ax, p) in ((ax2a, p2a), (ax2b, p2b))
     if !isnothing(p)
         x, _, z = p.nodes
@@ -88,8 +83,8 @@ end
 
 ax3 = Axis(fig[3, 1:2], title = "3. Fjords as boundary conditions — near-surface wind",
            xlabel = "x (km)", ylabel = "y (km)", aspect = DataAspect())
-pu = last_slice("03_norway_100m", "u_xy")
-pv = last_slice("03_norway_100m", "v_xy")
+pu = last_slice("norway_slices.jld2", "u_xy")
+pv = last_slice("norway_slices.jld2", "v_xy")
 if !isnothing(pu) && !isnothing(pv)
     x, y, _ = pu.nodes
     speed = sqrt.(interior(pu.frame, :, :, 1).^2 .+ interior(pv.frame, :, :, 1).^2)
@@ -100,9 +95,8 @@ else
           align = (:center, :center), space = :relative)
 end
 
-gallery_fig = figure_name(gallery_config, "thursday_gallery")
-save(gallery_fig, fig)
-@info "Saved gallery figure" gallery_fig
+save("thursday_gallery.png", fig)
+@info "Saved gallery figure thursday_gallery.png"
 fig
 
 # ## Ocean waves-vs-no-waves vertical profiles
@@ -111,9 +105,7 @@ fig
 # velocity variance ⟨w²⟩(z), the clearest single signature of wave-organized
 # turbulence.
 
-function load_profile(case_name, field; run_class = RUN_CLASS)
-    cfg = RunConfig(case_name; run_class)
-    file = output_name(cfg, "profiles")
+function load_profile(file, field)
     isfile(file) || return nothing
     try
         return FieldTimeSeries(file, field)
@@ -123,8 +115,8 @@ function load_profile(case_name, field; run_class = RUN_CLASS)
     end
 end
 
-w²_nw = load_profile("02_ocean_lead_nowaves", "w²")
-w²_w  = load_profile("02_ocean_lead_waves", "w²")
+w²_nw = load_profile("ocean_lead_nowaves_profiles.jld2", "w²")
+w²_w  = load_profile("ocean_lead_waves_profiles.jld2", "w²")
 if !isnothing(w²_nw) || !isnothing(w²_w)
     fig2 = Figure(size = (500, 600))
     ax = Axis(fig2[1, 1], xlabel = "⟨w²⟩ (m² s⁻²)", ylabel = "z (m)", title = "Wave organization of TKE")
@@ -133,9 +125,8 @@ if !isnothing(w²_nw) || !isnothing(w²_w)
     if !isnothing(w²_nw); p, z = profile(w²_nw); lines!(ax, p, z, label = "no waves"); end
     if !isnothing(w²_w);  p, z = profile(w²_w);  lines!(ax, p, z, label = "waves");    end
     axislegend(ax, position = :rb)
-    profile_fig = figure_name(gallery_config, "ocean_waves_vs_nowaves_profiles")
-    save(profile_fig, fig2)
-    @info "Saved profile comparison" profile_fig
+    save("ocean_waves_vs_nowaves_profiles.png", fig2)
+    @info "Saved profile comparison ocean_waves_vs_nowaves_profiles.png"
 end
 
 @info "Gallery complete."

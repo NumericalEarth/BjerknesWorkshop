@@ -15,16 +15,15 @@ using JLD2
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-config = RunConfig("03_norway_100m")
 
 # Load the cached near-surface wind slices, the `w` transect, and the land surface
 # saturation, plus the static terrain/land-mask (reconstructed on the slice grid from
 # the cached topography artifact — the same bilinear interpolation the simulation used).
 
-u_xy = FieldTimeSeries(slice_name(config), "u_xy")
-v_xy = FieldTimeSeries(slice_name(config), "v_xy")
-w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-𝒮_ts = FieldTimeSeries(output_name(config, "land"), "𝒮")
+u_xy = FieldTimeSeries("norway_slices.jld2", "u_xy")
+v_xy = FieldTimeSeries("norway_slices.jld2", "v_xy")
+w_xz = FieldTimeSeries("norway_slices.jld2", "w_xz")
+𝒮_ts = FieldTimeSeries("norway_land.jld2", "𝒮")
 times = w_xz.times
 Nt = length(times)
 println("Loaded ", Nt, " frames spanning ", prettytime(times[1]), " – ", prettytime(times[end]))
@@ -89,16 +88,16 @@ ax_𝒮 = Axis(fig[2, 2], xlabel = "x (km)", ylabel = "y (km)", title = "surface
 hm𝒮 = heatmap!(ax_𝒮, xkm, ykm, 𝒮n, colormap = :dense, colorrange = (0, 1))
 Colorbar(fig[2, 3], hm𝒮)
 
-save(figure_name(config, "norway_final_w_slice"), fig)
+save("norway.png", fig)
 fig
 
 # ## Animation
 
-record(fig, movie_name(config, "norway_100m_prescribed_fluxes"), 1:Nt; framerate = 12) do i
+record(fig, "norway.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
 nothing #hide
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="norway_100m_prescribed_fluxes.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="norway.mp4" style="max-width:100%"></video>
 # ```

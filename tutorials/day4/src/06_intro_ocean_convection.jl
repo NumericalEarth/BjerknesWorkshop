@@ -53,11 +53,10 @@ using .ThursdayLES
 
 Random.seed!(2025)
 
-config = RunConfig("06_intro_ocean_convection")
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
-const FT = Float32
+FT = Float32
 nothing #hide
 
 # ## Domain and grid
@@ -68,11 +67,11 @@ nothing #hide
 # infinite homogeneous surface) and `z` is `Bounded`. A uniform vertical grid is
 # perfectly adequate for the intro; the lead-ocean case shows how to stretch it.
 
-const Lx = 512meters     # horizontal extent
-const Lz = 128meters     # depth
+Lx = 512meters     # horizontal extent
+Lz = 128meters     # depth
 
-const Nx = 256
-const Nz = 128
+Nx = 256
+Nz = 128
 
 grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
                        x = (0, Lx), z = (-Lz, 0),
@@ -88,7 +87,7 @@ memory_report(Nx, 1, Nz; FT, nfields = 5)
 # salinity `S` are carried as prognostic tracers; here only `T` is forced, and `S`
 # is uniform, so buoyancy is set by the temperature field.
 
-const ρₒ = FT(1026)   # kg m⁻³, reference surface density
+ρₒ = 1026   # kg m⁻³, reference surface density
 equation_of_state = TEOS10EquationOfState(reference_density = ρₒ)
 buoyancy = SeawaterBuoyancy(FT; equation_of_state)
 
@@ -108,10 +107,10 @@ buoyancy = SeawaterBuoyancy(FT; equation_of_state)
 # the initial stratification (below) and lets the mixed layer entrain into a
 # realistic stable interior as it deepens.
 
-const Q    = FT(200)    # W m⁻², surface heat loss (cooling)
-const cᴾ   = FT(3991)   # J K⁻¹ kg⁻¹, seawater heat capacity
-const Jᵀ   = Q / (ρₒ * cᴾ)   # K m s⁻¹, surface temperature flux (positive ⇒ cooling)
-const dTdz = FT(0.01)   # K m⁻¹, stable interior temperature gradient
+Q    = 200    # W m⁻², surface heat loss (cooling)
+cᴾ   = 3991   # J K⁻¹ kg⁻¹, seawater heat capacity
+Jᵀ   = Q / (ρₒ * cᴾ)   # K m s⁻¹, surface temperature flux (positive ⇒ cooling)
+dTdz = 0.01   # K m⁻¹, stable interior temperature gradient
 
 T_bcs = FieldBoundaryConditions(top = FluxBoundaryCondition(Jᵀ),
                                 bottom = GradientBoundaryCondition(dTdz))
@@ -124,7 +123,7 @@ T_bcs = FieldBoundaryConditions(top = FluxBoundaryCondition(Jᵀ),
 # and adds a sheared near-surface current — a small step toward the wind+convection
 # competition of the full lead-ocean case. Set `τx = 0` for pure free convection.
 
-const τx = FT(-2e-5)   # m² s⁻², surface wind stress on u
+τx = -2e-5   # m² s⁻², surface wind stress on u
 u_bcs = FieldBoundaryConditions(top = FluxBoundaryCondition(τx))
 
 # ## Model
@@ -147,11 +146,11 @@ model = NonhydrostaticModel(grid;
 # the surface) plus tiny random noise to seed the convective instability. Salinity
 # is uniform at 35 g kg⁻¹. The flow starts at rest.
 
-const T₀ = FT(20)     # °C, reference surface temperature
-const S₀ = FT(35)     # g kg⁻¹, uniform salinity
-const δT = FT(1e-4)   # K, initial noise amplitude
+T₀ = 20     # °C, reference surface temperature
+S₀ = 35     # g kg⁻¹, uniform salinity
+δT = 1e-4   # K, initial noise amplitude
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 Tᵢ(x, z) = T₀ + dTdz * z + δT * ϵ()
 
 set!(model, T = Tᵢ, S = S₀)
@@ -188,16 +187,16 @@ slice_outputs = (; w, T)
 profiles = (; w² = Average(w^2, dims = 1))
 
 simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
-    filename = slice_name(config), schedule = TimeInterval(1minute), overwrite_existing = true)
+    filename = "ocean_convection.jld2", schedule = TimeInterval(1minute), overwrite_existing = true)
 
 simulation.output_writers[:profiles] = JLD2Writer(model, profiles;
-    filename = output_name(config, "profiles"),
+    filename = "ocean_convection_profiles.jld2",
     schedule = TimeInterval(1minute), overwrite_existing = true)
 
 # ## Go time
 run!(simulation)
 
-@info "Intro ocean convection complete" run_stamp(config)...
+@info "Intro ocean convection complete"
 nothing #hide
 
 # ## References

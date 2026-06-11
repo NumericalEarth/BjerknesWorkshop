@@ -15,15 +15,10 @@ using Oceananigans.Units
 using CairoMakie
 using Printf
 
-include(joinpath(@__DIR__, "00_common.jl"))
-using .ThursdayLES
-
-config = RunConfig("05_intro_atmosphere_convection")
-
 # Load the cached vertical-velocity and potential-temperature slices.
 
-w_t = FieldTimeSeries(slice_name(config), "w")
-θ_t = FieldTimeSeries(slice_name(config), "θ")
+w_t = FieldTimeSeries("free_convection.jld2", "w")
+θ_t = FieldTimeSeries("free_convection.jld2", "θ")
 times = w_t.times
 Nt = length(times)
 
@@ -64,7 +59,7 @@ hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
 Colorbar(fig[1, 2], hmw)
 Colorbar(fig[2, 2], hmθ)
 
-save(figure_name(config, "intro_atmosphere_convection_final"), fig)
+save("free_convection.png", fig)
 fig
 
 # ## Animation
@@ -72,11 +67,11 @@ fig
 # Stepping the observable through every frame animates the spin-up of the convective
 # boundary layer.
 
-CairoMakie.record(fig, movie_name(config, "intro_atmosphere_convection"), 1:Nt; framerate = 12) do i
+CairoMakie.record(fig, "free_convection.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
 nothing #hide
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="intro_atmosphere_convection.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="free_convection.mp4" style="max-width:100%"></video>
 # ```

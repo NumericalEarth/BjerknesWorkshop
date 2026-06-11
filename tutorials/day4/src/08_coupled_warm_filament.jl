@@ -66,7 +66,6 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-config = RunConfig("08_coupled_warm_filament")
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float64  # coupled: ESM clock is Float64, component grids must match
@@ -88,15 +87,15 @@ nothing #hide
 # refine to e.g. 768 × 384 × 192 (atmosphere) / 768 × 384 × 96 (ocean) at
 # ≈ 15–30 m horizontal resolution.
 
-const Lx   = 12kilometers   # along-wind (cloud-street axis)
-const Ly   = 6kilometers    # cross-wind (across the filament)
-const Lz_a = 3kilometers    # atmosphere depth
-const Lz_o = 120meters      # ocean depth
+Lx   = 12kilometers   # along-wind (cloud-street axis)
+Ly   = 6kilometers    # cross-wind (across the filament)
+Lz_a = 3kilometers    # atmosphere depth
+Lz_o = 120meters      # ocean depth
 
-const Nx   = 192
-const Ny   = 96
-const Nz_a = 96             # atmosphere vertical cells
-const Nz_o = 48             # ocean vertical cells
+Nx   = 192
+Ny   = 96
+Nz_a = 96             # atmosphere vertical cells
+Nz_o = 48             # ocean vertical cells
 
 memory_report(Nx, Ny, Nz_a; FT, nfields = 8)
 
@@ -122,9 +121,9 @@ ocean_grid = RectilinearGrid(arch; size = (Nx, Ny, Nz_o), halo = (5, 5, 5),
 # `f = 1e-4 s⁻¹`.
 
 atmosphere = atmosphere_simulation(atmos_grid;
-                                   potential_temperature = FT(288),
+                                   potential_temperature = 288,
                                    closure = SmagorinskyLilly(),
-                                   coriolis = FPlane(f = FT(1e-4)))
+                                   coriolis = FPlane(f = 1e-4))
 
 # ### Initial atmospheric state
 #
@@ -137,18 +136,18 @@ atmosphere = atmosphere_simulation(atmos_grid;
 # `set!` acts on the wrapped `atmosphere.model`. `qᵗ` is the total-water mass fraction
 # (the moist prognostic variable).
 
-const U₀    = FT(5)       # m s⁻¹ mean wind, along x (the cloud-street axis)
-const θ_bl  = FT(288)     # K, well-mixed boundary-layer potential temperature (= reference)
-const zᵢ    = FT(1000)    # m, initial inversion height (boundary-layer top)
-const Δθᵢ   = FT(6)       # K, capping-inversion strength (θ jump at zᵢ)
-const Γθ    = FT(4e-3)    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
-const qᵗ_bl = FT(9e-3)    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
-const qᵗ_ft = FT(2e-3)    # kg/kg, dry free troposphere above the inversion
-const zδ    = FT(600)     # m, perturbation seeding depth
-const δθ    = FT(0.05)    # K, thermal perturbation amplitude
-const δu    = FT(0.05)    # m s⁻¹, velocity perturbation amplitude
+U₀    = 5       # m s⁻¹ mean wind, along x (the cloud-street axis)
+θ_bl  = 288     # K, well-mixed boundary-layer potential temperature (= reference)
+zᵢ    = 1000    # m, initial inversion height (boundary-layer top)
+Δθᵢ   = 6       # K, capping-inversion strength (θ jump at zᵢ)
+Γθ    = 4e-3    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
+qᵗ_bl = 9e-3    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
+qᵗ_ft = 2e-3    # kg/kg, dry free troposphere above the inversion
+zδ    = 600     # m, perturbation seeding depth
+δθ    = 0.05    # K, thermal perturbation amplitude
+δu    = 0.05    # m s⁻¹, velocity perturbation amplitude
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 
 ## A well-mixed, moist boundary layer capped by an inversion at zᵢ, with a stable,
 ## dry free troposphere above. The warm filament heats and moistens this layer; thermals
@@ -170,7 +169,7 @@ set!(atmosphere.model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 # fluxes by hand. We add a mid-latitude `FPlane` so the ocean response feels rotation.
 
 ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
-                         coriolis = FPlane(f = FT(1e-4)))
+                         coriolis = FPlane(f = 1e-4))
 
 # ### Initialize the WARM SST FILAMENT — the ocean's living boundary
 #
@@ -201,21 +200,21 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 #     pressure — and returns a *negative* interface humidity, which drives a runaway
 #     spurious-condensation instability. Keep the ocean in °C.
 
-const T_cold = FT(17)       # °C, background SST (mid-latitude)
-const ΔT     = FT(3)        # K = °C, filament warm anomaly
-const σ      = FT(1000)     # m, filament half-width scale (≈ 2 km full width)
-const h      = FT(40)       # m, initial ocean mixed-layer depth
-const N²     = FT(1e-4)     # s⁻², interior stratification (buoyancy frequency²)
-const S₀     = FT(35)       # g/kg, uniform salinity
+T_cold = 17       # °C, background SST (mid-latitude)
+ΔT     = 3        # K = °C, filament warm anomaly
+σ      = 1000     # m, filament half-width scale (≈ 2 km full width)
+h      = 40       # m, initial ocean mixed-layer depth
+N²     = 1e-4     # s⁻², interior stratification (buoyancy frequency²)
+S₀     = 35       # g/kg, uniform salinity
 
 ## Convert an interior buoyancy frequency to a temperature lapse rate via a constant
 ## thermal expansion coefficient α ≈ 2e-4 K⁻¹ and g ≈ 9.81 m s⁻²: dT/dz = N²/(g α).
-const α_T    = FT(2e-4)     # K⁻¹, thermal expansion (for the initial T profile only)
-const g_oce  = FT(9.81)     # m s⁻²
-const dTdz   = N² / (g_oce * α_T)   # K/m, interior temperature gradient
+α_T    = 2e-4     # K⁻¹, thermal expansion (for the initial T profile only)
+g_oce  = 9.81     # m s⁻²
+dTdz   = N² / (g_oce * α_T)   # K/m, interior temperature gradient
 
-const y_c    = FT(Ly / 2)   # filament center in y
-const δT_o   = FT(0.01)     # K, ocean mixed-layer perturbation amplitude
+y_c    = Ly / 2   # filament center in y
+δT_o   = 0.01     # K, ocean mixed-layer perturbation amplitude
 
 ## Warm filament at the surface, mixed to depth h, stratified below.
 function Tᵢ(x, y, z)
@@ -224,7 +223,7 @@ function Tᵢ(x, y, z)
     ## Below the mixed layer (z < -h) decay toward a stratified interior.
     stratified = mixed + dTdz * (z + h)   # z + h ≤ 0 below the mixed layer
     T = z > -h ? mixed : stratified
-    return T + δT_o * (rand(FT) - FT(0.5)) * (z > -h)
+    return T + δT_o * (rand() - 0.5) * (z > -h)
 end
 
 set!(ocean.model, T = Tᵢ, S = S₀)
@@ -332,21 +331,21 @@ Q_latent   = ao_fluxes.latent_heat
 flux_outputs = (; Q_sensible, Q_latent)
 
 simulation.output_writers[:atmosphere] = JLD2Writer(atmosphere.model, atmos_outputs;
-    filename = output_name(config, "atmosphere"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_atmosphere.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:ocean] = JLD2Writer(ocean.model, ocean_outputs;
-    filename = output_name(config, "ocean"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_ocean.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:fluxes] = JLD2Writer(atmosphere.model, flux_outputs;
-    filename = output_name(config, "fluxes"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_fluxes.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 # ## Go time
 run!(simulation)
 
-@info "Case 08 complete" run_stamp(config)...
+@info "Case 08 complete"
 nothing #hide
 
 # ## References

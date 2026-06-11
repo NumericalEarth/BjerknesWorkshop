@@ -13,7 +13,6 @@ using Statistics
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-config = RunConfig("08_coupled_warm_filament")
 
 # ## Visualization
 #
@@ -33,9 +32,9 @@ config = RunConfig("08_coupled_warm_filament")
 using CairoMakie
 _safelim(x, fallback) = (m = maximum(abs, x); isfinite(m) && m > 0 ? m : fallback)
 
-atmos_file = output_name(config, "atmosphere")
-ocean_file = output_name(config, "ocean")
-flux_file  = output_name(config, "fluxes")
+atmos_file = "warm_filament_atmosphere.jld2"
+ocean_file = "warm_filament_ocean.jld2"
+flux_file  = "warm_filament_fluxes.jld2"
 
 qˡxy = FieldTimeSeries(atmos_file, "qˡ_xy")
 wxy  = FieldTimeSeries(atmos_file, "w_xy")
@@ -118,7 +117,7 @@ if Qfields
     Colorbar(fig[2, 4], hmF)
 end
 
-save(figure_name(config, "coupled_warm_filament_final"), fig)
+save("warm_filament.png", fig)
 
 # ## Final state
 #
@@ -127,13 +126,13 @@ fig
 # ## Animation
 #
 
-record(fig, movie_name(config, "coupled_warm_filament"), 1:Nt; framerate = 12) do i
+record(fig, "warm_filament.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
-@info "Wrote movie" movie_name(config, "coupled_warm_filament")
+@info "Wrote movie" "warm_filament.mp4"
 
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="coupled_warm_filament.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="warm_filament.mp4" style="max-width:100%"></video>
 # ```
 

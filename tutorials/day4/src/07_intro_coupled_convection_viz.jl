@@ -13,7 +13,6 @@ using Statistics
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-config = RunConfig("07_intro_coupled_convection")
 
 # ## Visualization
 #
@@ -26,8 +25,8 @@ config = RunConfig("07_intro_coupled_convection")
 
 using CairoMakie
 
-atmos_file = output_name(config, "atmosphere")
-ocean_file = output_name(config, "ocean")
+atmos_file = "coupled_convection_atmosphere.jld2"
+ocean_file = "coupled_convection_ocean.jld2"
 
 wa_t = FieldTimeSeries(atmos_file, "w_a")
 wo_t = FieldTimeSeries(ocean_file, "w_o")
@@ -61,7 +60,7 @@ hmo = heatmap!(axo, xo_km, zo, won, colormap = :balance, colorrange = (-wo_lim, 
 Colorbar(fig[1, 2], hma)
 Colorbar(fig[2, 2], hmo)
 
-save(figure_name(config, "intro_coupled_convection_final"), fig)
+save("coupled_convection.png", fig)
 
 # ## Final state
 #
@@ -70,13 +69,13 @@ fig
 # ## Animation
 #
 
-record(fig, movie_name(config, "intro_coupled_convection"), 1:Nt; framerate = 12) do i
+record(fig, "coupled_convection.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
-@info "Wrote movie" movie_name(config, "intro_coupled_convection")
+@info "Wrote movie" "coupled_convection.mp4"
 
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="intro_coupled_convection.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="coupled_convection.mp4" style="max-width:100%"></video>
 # ```
 

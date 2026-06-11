@@ -61,11 +61,9 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-config = RunConfig("05_intro_atmosphere_convection")
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
-FT = Float32
 nothing #hide
 
 # ## Domain and grid
@@ -74,13 +72,13 @@ nothing #hide
 # `Periodic` in `x` (an infinite repeating slice), `Flat` in `y` (no `y`-dependence
 # — this is what makes it 2D), and `Bounded` in `z`.
 
-const Lx = 6kilometers
-const Lz = 2kilometers
+Lx = 6kilometers
+Lz = 2kilometers
 
-const Nx = 256
-const Nz = 128
+Nx = 256
+Nz = 128
 
-memory_report(Nx, 1, Nz; FT, nfields = 5)
+memory_report(Nx, 1, Nz; nfields = 5)
 
 grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
                        x = (0, Lx), z = (0, Lz),
@@ -92,8 +90,8 @@ grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
 # stratification — the standard choice for boundary-layer LES. We anchor it on a
 # surface pressure of 1000 hPa and a reference potential temperature of 290 K.
 
-const p₀ = FT(1e5)   # Pa
-const θ₀ = FT(290)   # K
+p₀ = 1e5   # Pa
+θ₀ = 290   # K
 
 constants = ThermodynamicConstants()
 reference_state = ReferenceState(grid, constants,
@@ -101,9 +99,7 @@ reference_state = ReferenceState(grid, constants,
                                  potential_temperature = θ₀)
 dynamics = AnelasticDynamics(reference_state)
 
-q₀ = Breeze.Thermodynamics.MoistureMassFractions{FT} |> zero
-const ρ₀ = Breeze.Thermodynamics.density(θ₀, p₀, q₀, constants)
-const cₚ = constants.dry_air.heat_capacity
+cₚ = constants.dry_air.heat_capacity
 nothing #hide
 
 # ## Surface heating: the engine of convection
@@ -116,8 +112,8 @@ nothing #hide
 # `Qʰ = 300 W m⁻²` is a strong but realistic midday land-surface sensible heat
 # flux, vigorous enough to spin up convection within minutes.
 
-const Qʰ = FT(300)   # W m⁻², surface sensible heat flux
-ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(FT(Qʰ / cₚ)))
+Qʰ = 300   # W m⁻², surface sensible heat flux
+ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(Qʰ / cₚ))
 
 # ## A bit of wind stress
 #
@@ -126,14 +122,14 @@ const Qʰ = FT(300)   # W m⁻², surface sensible heat flux
 # the neutral-ABL and lead examples use. In 2D (`Flat` in `y`) only the `ρu`
 # momentum component exists, so we only need a drag on `ρu`.
 
-const U₀ = FT(2)     # m s⁻¹, light mean wind
-const u★ = FT(0.2)   # m s⁻¹, friction velocity
+U₀ = 2     # m s⁻¹, light mean wind
+u★ = 0.2   # m s⁻¹, friction velocity
 
 # A small CONSTANT surface stress — the simplest, GPU-trivial "bit of wind stress."
 # (A velocity-dependent bulk drag, as in the lead case 01, is the richer option, but
 # a continuous-function momentum BC tripped a GPU codegen path here; a constant stress
 # is the clean choice for the intro.) τˣ < 0 removes +x momentum, i.e. drags the wind.
-const τˣ = FT(-0.02)   # N m⁻² (Pa), surface drag on ρu
+τˣ = -0.02   # N m⁻² (Pa), surface drag on ρu
 ρu_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(τˣ))
 
 # ## Model
@@ -157,13 +153,13 @@ model = AtmosphereModel(grid; dynamics, advection, closure,
 # with small random `θ` perturbations in the lowest ≈ 300 m, and set the wind to
 # the uniform `U₀`.
 
-const Γ = FT(0.003)   # K m⁻¹, background lapse rate (stable)
-const δθ = FT(0.1)    # K, perturbation amplitude
-const zδ = FT(300)    # m, perturbation depth
+Γ = 0.003   # K m⁻¹, background lapse rate (stable)
+δθ = 0.1    # K, perturbation amplitude
+zδ = 300    # m, perturbation depth
 
 θᵣ(z) = θ₀ + Γ * z
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 θᵢ(x, z) = θᵣ(z) + δθ * ϵ() * (z < zδ)
 
 set!(model, θ = θᵢ, u = U₀)
@@ -202,7 +198,7 @@ w = model.velocities.w
 outputs = (; w, θ)
 
 simulation.output_writers[:slices] = JLD2Writer(model, outputs;
-    filename = slice_name(config), schedule = TimeInterval(30seconds), overwrite_existing = true)
+    filename = "free_convection.jld2", schedule = TimeInterval(30seconds), overwrite_existing = true)
 
 # ## Go time
 #
@@ -214,7 +210,7 @@ simulation.output_writers[:slices] = JLD2Writer(model, outputs;
 
 run!(simulation)
 
-@info "Intro convection complete" run_stamp(config)...
+@info "Intro convection complete"
 nothing #hide
 
 # ## References

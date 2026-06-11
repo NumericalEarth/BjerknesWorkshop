@@ -67,7 +67,6 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-config = RunConfig("07_intro_coupled_convection")
 arch = choose_architecture()
 gpu_report()
 Oceananigans.defaults.FloatType = Float64  # coupled: ESM clock is Float64, component grids must match
@@ -82,13 +81,13 @@ nothing #hide
 # one-to-one across the interface. Both are `Periodic` in `x`, `Flat` in `y`
 # (this is what makes the demo 2D), and `Bounded` in `z`.
 
-const Lx   = 4kilometers    # shared horizontal extent
-const Lz_a = 3kilometers    # atmosphere depth
-const Lz_o = 100meters      # ocean depth
+Lx   = 4kilometers    # shared horizontal extent
+Lz_a = 3kilometers    # atmosphere depth
+Lz_o = 100meters      # ocean depth
 
-const Nx   = 128
-const Nz_a = 96             # atmosphere vertical cells
-const Nz_o = 64             # ocean vertical cells
+Nx   = 128
+Nz_a = 96             # atmosphere vertical cells
+Nz_o = 64             # ocean vertical cells
 
 memory_report(Nx, 1, Nz_a; FT, nfields = 6)
 
@@ -114,7 +113,7 @@ ocean_grid = RectilinearGrid(arch; size = (Nx, Nz_o), halo = (5, 5),
 # bulk formulae have a nonzero wind to work with, and the thermals lean).
 
 atmosphere = atmosphere_simulation(atmos_grid;
-                                   potential_temperature = FT(290),
+                                   potential_temperature = 290,
                                    closure = SmagorinskyLilly())
 
 ## Initialize the atmosphere at its reference potential-temperature profile with a
@@ -149,7 +148,7 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic)
 
 ## A warm, salty, initially quiescent ocean. `ocean_simulation` returns a
 ## `Simulation`, so `set!` targets `ocean.model`.
-set!(ocean.model, T = FT(20), S = FT(35))
+set!(ocean.model, T = 20, S = 35)
 
 # ## Couple them
 #
@@ -222,21 +221,21 @@ Q_sensible = model.interfaces.atmosphere_ocean_interface.fluxes.sensible_heat
 flux_outputs = (; Q_sensible)
 
 simulation.output_writers[:atmosphere] = JLD2Writer(atmosphere.model, atmos_outputs;
-    filename = output_name(config, "atmosphere"), schedule = TimeInterval(30seconds),
+    filename = "coupled_convection_atmosphere.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:ocean] = JLD2Writer(ocean.model, ocean_outputs;
-    filename = output_name(config, "ocean"), schedule = TimeInterval(30seconds),
+    filename = "coupled_convection_ocean.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:fluxes] = JLD2Writer(atmosphere.model, flux_outputs;
-    filename = output_name(config, "fluxes"), schedule = TimeInterval(30seconds),
+    filename = "coupled_convection_fluxes.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 # ## Go time
 run!(simulation)
 
-@info "Intro coupled convection complete" run_stamp(config)...
+@info "Intro coupled convection complete"
 nothing #hide
 
 # ## References

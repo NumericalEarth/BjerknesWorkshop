@@ -13,7 +13,6 @@ using Statistics
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-config = RunConfig("01_lead_atmosphere")
 
 # ## Visualization
 #
@@ -25,9 +24,9 @@ config = RunConfig("01_lead_atmosphere")
 
 using CairoMakie
 
-w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-θ_xz = FieldTimeSeries(slice_name(config), "θ_xz")
-qˡ_xz = FieldTimeSeries(slice_name(config), "qˡ_xz")
+w_xz = FieldTimeSeries("lead_atmosphere_slices.jld2", "w_xz")
+θ_xz = FieldTimeSeries("lead_atmosphere_slices.jld2", "θ_xz")
+qˡ_xz = FieldTimeSeries("lead_atmosphere_slices.jld2", "qˡ_xz")
 times = w_xz.times
 Nt = length(times)
 println("Loaded ", Nt, " frames spanning ", prettytime(times[1]), " – ", prettytime(times[end]))
@@ -57,7 +56,7 @@ Colorbar(fig[1, 2], hmw)
 Colorbar(fig[2, 2], hmθ)
 Colorbar(fig[3, 2], hmq)
 
-save(figure_name(config, "atmosphere_lead_final_slice"), fig)
+save("lead_atmosphere.png", fig)
 
 # ## Final state
 #
@@ -66,13 +65,13 @@ fig
 # ## Animation
 #
 
-record(fig, movie_name(config, "lead_atmosphere_plume"), 1:Nt; framerate = 12) do i
+record(fig, "lead_atmosphere.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
-@info "Wrote movie" movie_name(config, "lead_atmosphere_plume")
+@info "Wrote movie" "lead_atmosphere.mp4"
 
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="lead_atmosphere_plume.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="lead_atmosphere.mp4" style="max-width:100%"></video>
 # ```
 

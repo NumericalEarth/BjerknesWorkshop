@@ -13,7 +13,6 @@ using Statistics
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-config = RunConfig("06_intro_ocean_convection")
 
 # ## Visualization
 #
@@ -22,8 +21,8 @@ config = RunConfig("06_intro_ocean_convection")
 # they carry down and the mixed layer deepening over time. We build a movie and a
 # final-frame figure.
 
-w_ts = FieldTimeSeries(slice_name(config), "w")
-T_ts = FieldTimeSeries(slice_name(config), "T")
+w_ts = FieldTimeSeries("ocean_convection.jld2", "w")
+T_ts = FieldTimeSeries("ocean_convection.jld2", "T")
 times = w_ts.times
 Nt = length(times)
 println("Loaded ", Nt, " frames spanning ", prettytime(times[1]), " – ", prettytime(times[end]))
@@ -49,7 +48,7 @@ hmT = heatmap!(axT, xw, zw, Tn, colormap = :thermal, colorrange = Tlims)
 Colorbar(fig[1, 2], hmw)
 Colorbar(fig[2, 2], hmT)
 
-save(figure_name(config, "intro_ocean_convection_final"), fig)
+save("ocean_convection.png", fig)
 
 # ## Final state
 #
@@ -58,13 +57,13 @@ fig
 # ## Animation
 #
 
-record(fig, movie_name(config, "intro_ocean_convection"), 1:Nt; framerate = 12) do i
+record(fig, "ocean_convection.mp4", 1:Nt; framerate = 12) do i
     n[] = i
 end
-@info "Wrote movie" movie_name(config, "intro_ocean_convection")
+@info "Wrote movie" "ocean_convection.mp4"
 
 
 # ```@raw html
-# <video autoplay loop muted playsinline controls src="intro_ocean_convection.mp4" style="max-width:100%"></video>
+# <video autoplay loop muted playsinline controls src="ocean_convection.mp4" style="max-width:100%"></video>
 # ```
 

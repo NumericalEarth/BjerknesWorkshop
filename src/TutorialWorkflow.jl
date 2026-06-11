@@ -481,14 +481,11 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "01_atmospheric_turbulence_over_a_sea_ice_lead.jl"),
         output_root = joinpath("output", "day4", "lead_atmosphere"),
         required_outputs = [
-            "01_lead_atmosphere_statics.jld2",
-            "01_lead_atmosphere_slices.jld2",
-            "01_lead_atmosphere_profiles.jld2",
+            "lead_atmosphere_statics.jld2",
+            "lead_atmosphere_slices.jld2",
+            "lead_atmosphere_profiles.jld2",
         ],
-        optional_outputs = [
-            "atmosphere_lead_final_slice.png",
-            "lead_atmosphere_plume.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 40_000, Ly = 12_000, Lz = 3_000, Nx = 640, Ny = 192, Nz = 128,
                       stop_minutes = 40, U0 = 8, Q_lead = 300),
         critical = true,
@@ -501,19 +498,14 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "02_ocean_turbulence_below_a_lead_with_surface_waves.jl"),
         output_root = joinpath("output", "day4", "lead_ocean_waves"),
         required_outputs = [
-            "02_ocean_lead_nowaves_statics.jld2",
-            "02_ocean_lead_nowaves_slices.jld2",
-            "02_ocean_lead_nowaves_profiles.jld2",
-            "02_ocean_lead_waves_statics.jld2",
-            "02_ocean_lead_waves_slices.jld2",
-            "02_ocean_lead_waves_profiles.jld2",
+            "ocean_lead_nowaves_statics.jld2",
+            "ocean_lead_nowaves_slices.jld2",
+            "ocean_lead_nowaves_profiles.jld2",
+            "ocean_lead_waves_statics.jld2",
+            "ocean_lead_waves_slices.jld2",
+            "ocean_lead_waves_profiles.jld2",
         ],
-        optional_outputs = [
-            "ocean_lead_nowaves_final_slice.png",
-            "ocean_lead_waves_final_slice.png",
-            "ocean_lead_nowaves.mp4",
-            "ocean_lead_waves.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 2_000, Ly = 1_000, Lz = 160, Nx = 320, Ny = 160, Nz = 128,
                       stop_minutes = 30, wavelength = 60, wave_amplitude = 0.8),
         critical = true,
@@ -526,13 +518,11 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "03_norway_100m_prescribed_fluxes.jl"),
         output_root = joinpath("output", "day4", "norway_100m"),
         required_outputs = [
-            "03_norway_100m_statics.jld2",
-            "03_norway_100m_slices.jld2",
+            "norway_statics.jld2",
+            "norway_slices.jld2",
+            "norway_land.jld2",
         ],
-        optional_outputs = [
-            "norway_final_w_slice.png",
-            "norway_100m_prescribed_fluxes.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 100_000, Ly = 100_000, Lz = 12_000, Nx = 256, Ny = 256, Nz = 64,
                       stop_minutes = 15, U0 = 10),
         critical = false,
@@ -544,11 +534,8 @@ function case_registry(root::AbstractString = pwd())
         source = joinpath(DAY4_SRC, "05_intro_atmosphere_convection.jl"),
         generated_script = joinpath(DAY4_SCRIPTS, "05_intro_atmosphere_convection.jl"),
         output_root = joinpath("output", "day4", "intro_atmosphere"),
-        required_outputs = ["05_intro_atmosphere_convection_slices.jld2"],
-        optional_outputs = [
-            "intro_atmosphere_convection_final.png",
-            "intro_atmosphere_convection.mp4",
-        ],
+        required_outputs = ["free_convection.jld2"],
+        workdir = :artifacts,
         parameters = (Lx = 8_000, Lz = 4_000, Nx = 256, Nz = 128, stop_hours = 2, Q = 300),
         critical = false,
         description = "Intro: 2D Breeze atmosphere free convection with a surface heat flux and light wind stress.",
@@ -560,13 +547,10 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "06_intro_ocean_convection.jl"),
         output_root = joinpath("output", "day4", "intro_ocean"),
         required_outputs = [
-            "06_intro_ocean_convection_slices.jld2",
-            "06_intro_ocean_convection_profiles.jld2",
+            "ocean_convection.jld2",
+            "ocean_convection_profiles.jld2",
         ],
-        optional_outputs = [
-            "intro_ocean_convection_final.png",
-            "intro_ocean_convection.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 512, Lz = 256, Nx = 256, Nz = 128, stop_hours = 4, Q = 200),
         critical = false,
         description = "Intro: 2D Oceananigans ocean free convection driven by surface cooling with light wind stress.",
@@ -578,14 +562,11 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "07_intro_coupled_convection.jl"),
         output_root = joinpath("output", "day4", "intro_coupled"),
         required_outputs = [
-            "07_intro_coupled_convection_atmosphere.jld2",
-            "07_intro_coupled_convection_ocean.jld2",
-            "07_intro_coupled_convection_fluxes.jld2",
+            "coupled_convection_atmosphere.jld2",
+            "coupled_convection_ocean.jld2",
+            "coupled_convection_fluxes.jld2",
         ],
-        optional_outputs = [
-            "intro_coupled_convection_final.png",
-            "intro_coupled_convection.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 4_000, Lz_a = 3_000, Lz_o = 100, Nx = 128, Nz_a = 96, Nz_o = 64, stop_hours = 2),
         critical = false,
         description = "Intro: 2D coupled EarthSystemModel — convection above and below one air–sea interface, fluxes computed by similarity theory.",
@@ -597,14 +578,11 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "08_coupled_warm_filament.jl"),
         output_root = joinpath("output", "day4", "warm_filament"),
         required_outputs = [
-            "08_coupled_warm_filament_atmosphere.jld2",
-            "08_coupled_warm_filament_ocean.jld2",
-            "08_coupled_warm_filament_fluxes.jld2",
+            "warm_filament_atmosphere.jld2",
+            "warm_filament_ocean.jld2",
+            "warm_filament_fluxes.jld2",
         ],
-        optional_outputs = [
-            "coupled_warm_filament_final.png",
-            "coupled_warm_filament.mp4",
-        ],
+        workdir = :artifacts,
         parameters = (Lx = 12_000, Ly = 6_000, Lz_a = 3_000, Lz_o = 120,
                       Nx = 192, Ny = 96, Nz_a = 96, Nz_o = 48, stop_hours = 1),
         critical = false,
@@ -959,6 +937,9 @@ function run_case_resilient!(case::TutorialCase; root::AbstractString = pwd())
         env["CASE_OUTPUT_DIR"] = artifacts
         env["RUN_CLASS"] = run_class
         env["DOCS_PHASE"] = "run"
+        # Cases run from their artifacts dir (workdir = :artifacts), so repo-relative
+        # input data (e.g. the cached Norway topography) is located via this root.
+        env["THURSDAY_REPO_ROOT"] = root
         project = case_project(case, root)
         subprocess_dir = case.workdir === :artifacts ? artifacts : root
         cmd = `$(Base.julia_cmd()) --project=$(project) $(script)`
