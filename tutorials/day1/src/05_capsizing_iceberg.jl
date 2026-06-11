@@ -139,9 +139,17 @@ iceberg = Iceberg(0, zc_equilibrium, deg2rad(2), 0, 0, 0)
 state = on_architecture(arch, FT[iceberg.xc, iceberg.zc, iceberg.θ,
                                  iceberg.U,  iceberg.W,  iceberg.Ω])
 
-# The mask: rotate into the berg frame, then take a smoothed box indicator. The
-# function depends only on its scalar arguments — no global state, no structs — which
-# makes it equally at home in a GPU kernel, a broadcast, or a REPL test:
+# The mask: rotate into the berg frame ``(\xi, \eta)`` — the lab coordinates rotated by ``-\theta`` about
+# the center — and take a smoothed box indicator, a product of two soft steps:
+#
+# ```math
+# \chi = \sigma\!\left(\frac{W/2 - |\xi|}{\lambda}\right)\,\sigma\!\left(\frac{H/2 - |\eta|}{\lambda}\right),
+# \qquad \sigma(s) = \tfrac{1}{2}\,(1 + \tanh s),
+# ```
+#
+# with ``W`` the width, ``H`` the height, and ``\lambda`` a smoothing length of a couple of grid cells. The
+# function depends only on its scalar arguments — no global state, no structs — which makes it equally at
+# home in a GPU kernel, a broadcast, or a REPL test:
 
 λ = 2 * (Lx / Nx)   # mask smoothing width [m]
 
@@ -199,17 +207,49 @@ set!(model, b = (x, z) -> N² * z)
 
 # ## The rigid-body dynamics
 #
-# Now the berg's side of the bargain, advanced by a `Callback` every iteration:
+# Now the berg's side of the bargain, advanced by a `Callback` every iteration. The berg is a rigid body
+# with three degrees of freedom — its center ``(x_c, z_c)`` and tilt ``\theta`` — obeying Newton–Euler,
 #
-# 1. **Fluid reaction.** The penalization exerts ``-\rho_o \chi (\mathbf{u} -
-#    \mathbf{u}_{berg})/\tau`` per unit volume on the fluid; the berg receives the
-#    opposite. We integrate it (and its torque) over the grid.
-# 2. **Buoyancy and weight.** Material points tile the berg; those below the waterline
-#    contribute ``\rho_o g \, dA`` of lift. The first moment of the submerged area gives
-#    the buoyancy torque — the term whose sign makes tall bergs capsize.
-# 3. **Symplectic Euler.** Velocities first, then positions with the new velocities —
-#    the cheapest integrator that does not spuriously pump energy into the bobbing and
-#    rolling oscillations. Then the new state is mirrored to the device.
+# ```math
+# m\,\dot{U} = F_x, \qquad m\,\dot{W} = F_z, \qquad I\,\dot{\Omega} = T, \qquad
+# \dot{x}_c = U, \qquad \dot{z}_c = W, \qquad \dot{\theta} = \Omega,
+# ```
+#
+# with the mass and moment of inertia of the rectangular cross-section (per unit length)
+#
+# ```math
+# m = \rho_i\,W H, \qquad I = \tfrac{1}{12}\,m\,(W^2 + H^2).
+# ```
+#
+# Writing ``(\tilde x, \tilde z) = (x - x_c,\, z - z_c)``, the force ``(F_x, F_z)`` and torque ``T`` gather
+# three contributions, evaluated every iteration:
+#
+# 1. **Fluid reaction.** The penalization exerts ``-\rho_o \chi (\mathbf{u} - \mathbf{u}_{berg})/\tau``
+#    per unit volume on the fluid; the berg feels the reaction, integrated over its area:
+#
+#    ```math
+#    \mathbf{F}^{\mathrm{fluid}} = \frac{\rho_o}{\tau} \int \chi\,(\mathbf{u} - \mathbf{u}_{berg})\,dA,
+#    \qquad
+#    T^{\mathrm{fluid}} = \frac{\rho_o}{\tau} \int \chi
+#        \left[\tilde x\,(w - w_{berg}) - \tilde z\,(u - u_{berg})\right] dA.
+#    ```
+# 2. **Buoyancy and weight.** Material points tile the berg; those below the waterline (area
+#    ``A_{\mathrm{sub}}``) carry Archimedes' lift, the whole slab carries its weight, and the first moment
+#    of the submerged area is the torque whose sign makes tall bergs capsize:
+#
+#    ```math
+#    F_z^{\mathrm{buoy}} = g\,(\rho_o A_{\mathrm{sub}} - \rho_i W H), \qquad
+#    T^{\mathrm{buoy}} = \rho_o\,g \int_{A_{\mathrm{sub}}} \tilde x \, dA.
+#    ```
+# 3. **Symplectic Euler.** Advance the velocities, then the positions with those *new* velocities — the
+#    cheapest integrator that does not spuriously pump energy into the bobbing and rolling:
+#
+#    ```math
+#    U^{n+1} = U^n + \Delta t\,F_x/m, \quad \Omega^{n+1} = \Omega^n + \Delta t\,T/I, \quad \ldots, \qquad
+#    x_c^{n+1} = x_c^n + \Delta t\,U^{n+1}, \quad \theta^{n+1} = \theta^n + \Delta t\,\Omega^{n+1}, \quad \ldots
+#    ```
+#
+#    Then the new state is mirrored to the device.
 #
 # A subtlety worth making explicit, because it is the kind that silently ruins coupled
 # models: *does the berg feel the hydrostatic pressure, and from where?* A Boussinesq

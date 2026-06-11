@@ -349,6 +349,8 @@ function render_day(day::Int)
         # helper (03a) — they are includes / data prep, not standalone pages.
         startswith(f, "00_") && continue
         startswith(f, "03a_") && continue
+        # 04_gpu_computing is retained as a script but dropped from the day-1 lineup.
+        f == "04_gpu_computing.jl" && continue
 
         source = joinpath(srcdir, f)
 
@@ -400,7 +402,7 @@ write_summary_pages!(case_registry(REPO_ROOT); root = REPO_ROOT)
 function _nav_for_day(day::Int)
     pages = get(day_pages, day, String[])
     isempty(pages) && return nothing
-    label = day == 1 ? "Day 1 — GPU computing" :
+    label = day == 1 ? "Day 1 — Julia and ocean modeling" :
             day == 2 ? "Day 2 — One day in the high-latitude ocean" :
             day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
             day == 4 ? "Day 4 — Boundary heterogeneity & turbulence" :
