@@ -318,7 +318,7 @@ end
 # working directory (tutorials/dayN/) and references them with `![](file)`. These bypass the
 # cached-artifact Results section; the references are base64-embedded at render time. A source is skipped
 # until every asset it references exists, so a page only publishes once its movie has been produced.
-const INLINE_ASSET_DAYS = (2,)
+const INLINE_ASSET_DAYS = (1, 2)
 
 function _inline_assets_ready(source::AbstractString, assetdir::AbstractString)
     for m in eachmatch(r"!\[[^\]]*\]\(([^)]+)\)", read(source, String))

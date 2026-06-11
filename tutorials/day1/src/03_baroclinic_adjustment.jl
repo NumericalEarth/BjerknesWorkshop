@@ -79,8 +79,8 @@ nothing #hide
 # ``u``-momentum directed along the outward normal, so a flux with the *same* sign as
 # `u` at the bottom removes momentum — hence the minus sign. Second, the function
 # signature is `(position..., time, field_dependencies..., parameters)`: the same
-# zero-overhead pattern as the `Forcing` of the previous tutorial, compiled straight
-# into the GPU kernels. Custom `ValueBoundaryCondition` (Dirichlet) and
+# zero-overhead pattern Oceananigans uses for `Forcing` functions, compiled straight
+# into the model's update kernels. Custom `ValueBoundaryCondition` (Dirichlet) and
 # `GradientBoundaryCondition` (Neumann) work identically.
 #
 # ## Model

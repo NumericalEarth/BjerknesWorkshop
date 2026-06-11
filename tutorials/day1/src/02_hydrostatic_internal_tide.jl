@@ -2,13 +2,8 @@
 #
 # *Driving a hydrostatic ocean model: tidal flow over a sill.*
 #
-# This tutorial is one station along a single transect, from a Norwegian fjord sill out to
-# the Barents Sea. Other stations along that transect follow the Atlantic water north through
-# the eddy field that carries it, arrive at the freezing surface and watch the pack ice it
-# forms move and tear, pause at a calving glacier front to teach the model some physics it
-# does not yet know, and finally assemble everything into a realistic regional coupled
-# ocean–sea ice simulation of the Barents Sea itself — with an epilogue on what changes when
-# one GPU stops being enough.
+# Oceananigans assembles every simulation from the same few objects — a grid, a model, forcings, a
+# simulation, and output — and we meet them here on a compact but complete problem.
 #
 # A nonhydrostatic solver resolves the full three-dimensional pressure field; here we move to
 # the model class that powers basin-scale and global ocean simulations: the
