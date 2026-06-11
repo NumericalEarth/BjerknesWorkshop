@@ -15,9 +15,6 @@
 # `(7, npoints)` matrix, evaluate the network batched in a single
 # `Lux.apply`, and write the result back with array broadcasts.
 
-import Pkg
-Pkg.activate(".")
-
 using CUDA, cuDNN              # load the GPU stack first
 using SpeedyWeather, Lux, JLD2, Adapt
 

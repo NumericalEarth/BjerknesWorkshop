@@ -4,14 +4,11 @@
 # `LearnedSurfaceRoughness`. We first actually load the data, then we set up the model
 # and train it offline. 
 
-import Pkg
-Pkg.activate(".")
-
 using Lux, Optimisers, Zygote, ADTypes, Random, Printf, JLD2, CUDA, cuDNN
 using MLDataDevices: cpu_device, gpu_device
 using Lux: Training
 
-include("dataloaders.jl")
+include(joinpath(@__DIR__, "01c_dataloaders.jl"))
 
 # ## Data configuration 
 # 

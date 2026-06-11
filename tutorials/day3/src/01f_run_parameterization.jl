@@ -4,13 +4,10 @@
 # the `LearnedSurfaceRoughness` parameterization, we can
 # now plug the trained network into an actual SpeedyWeather simulation.
 
-import Pkg
-Pkg.activate(".")
-
 using SpeedyWeather, Lux, JLD2
 ## using CUDA, cuDNN   # only needed for arch = SpeedyWeather.GPU()
 
-include("parameterization.jl")
+include(joinpath(@__DIR__,"01e_parameterization.jl"))
 
 # ## Import the trained model
 #
