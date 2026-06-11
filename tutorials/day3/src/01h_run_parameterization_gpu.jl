@@ -15,20 +15,25 @@
 # `(7, npoints)` matrix, evaluate the network batched in a single
 # `Lux.apply`, and write the result back with array broadcasts.
 
+import Pkg
+Pkg.activate(".")
+
 using CUDA, cuDNN              # load the GPU stack first
 using SpeedyWeather, Lux, JLD2, Adapt
 
 # ## The global scheme
 #
-# The struct mirrors the column-wise version, with two differences: the
+# The struct mirrors the column-wise version, with one difference: the
 # normalisation constants are stored as plain vectors on the device (ordered
 # like the NN inputs, i.e. like the dataloader `stats` — no name mapping
-# needed), and the input buffer is a `(7, npoints)` matrix for all grid points
-# at once.
+# needed).
 
-@kwdef struct LearnedSurfaceRoughnessGlobal{NF, V, M, LNN, LP, LS} <: SpeedyWeather.AbstractSurfaceRoughness
+@kwdef struct LearnedSurfaceRoughnessGlobal{NF, V, LNN, LP, LS} <: SpeedyWeather.AbstractSurfaceRoughness
     "[OPTION] constant roughness length over ocean [m]"
     roughness_length_ocean::NF = 1.0e-4
+
+    ## number of horizontal grid points = batch size of the NN input variable
+    npoints::Int
 
     ## normalisation constants on the device, ordered like the NN input:
     ## [bare_soil, cvh, cvl, z, sd, stl1, swvl1]
@@ -36,9 +41,6 @@ using SpeedyWeather, Lux, JLD2, Adapt
     land_input_std::V
     land_output_mean::NF
     land_output_std::NF
-
-    ## preallocated NN input matrix (7, npoints) on the device
-    input_buffer::M
 
     ## NN structure, parameters and states
     land_nn::LNN
@@ -61,17 +63,45 @@ function LearnedSurfaceRoughnessGlobal(
         error("stats.input_names = $(stats.input_names), expected $(expected)")
 
     arch = SG.architecture
-    input_buffer    = on_architecture(arch, zeros(Float32, 7, SG.npoints))
     land_input_mean = on_architecture(arch, Float32.(stats.input_mean))
     land_input_std  = on_architecture(arch, Float32.(stats.input_std))
 
     return LearnedSurfaceRoughnessGlobal{
-        SG.NF, typeof(land_input_mean), typeof(input_buffer),
+        SG.NF, typeof(land_input_mean),
         typeof(land_nn), typeof(land_params), typeof(land_states)}(;
+        npoints = SG.npoints,
         land_input_mean, land_input_std,
         land_output_mean = stats.target_mean[1],
         land_output_std = stats.target_std[1],
-        input_buffer, land_nn, land_params, land_states, kwargs...)
+        land_nn, land_params, land_states, kwargs...)
+end
+
+# ## The input buffer as a model variable
+#
+# Any model component can declare the variables it needs by extending
+# `SpeedyWeather.variables`: when the model is initialized, SpeedyWeather
+# allocates them — on the right device, in the grid's number format — and makes
+# them available in the simulation's `Variables` (the `vars` argument of
+# `parameterization!`). We use this for the NN input buffer: a matrix variable
+# of size `(7, npoints)` declared with `MatrixDim`, which we can later access as
+# `vars.parameterizations.nn_input`.
+#
+# One subtlety: this method *replaces* the generic
+# `variables(::AbstractSurfaceRoughness)` method, which declares the three
+# surface-roughness output fields every roughness scheme writes into. So we
+# repeat those three here and add the input buffer as a fourth variable:
+
+function SpeedyWeather.variables(scheme::LearnedSurfaceRoughnessGlobal)
+    return (
+        ParameterizationVariable(:surface_roughness, SpeedyWeather.Grid2D(),
+            desc = "Surface roughness length", units = "m"),
+        ParameterizationVariable(:surface_roughness, SpeedyWeather.Grid2D(),
+            desc = "Land surface roughness length", units = "m", namespace = :land),
+        ParameterizationVariable(:surface_roughness, SpeedyWeather.Grid2D(),
+            desc = "Ocean surface roughness length", units = "m", namespace = :ocean),
+        ParameterizationVariable(:nn_input, SpeedyWeather.MatrixDim(7, scheme.npoints),
+            desc = "NN input buffer (features × grid points)"),
+    )
 end
 
 # One GPU subtlety: SpeedyWeather fuses all *column* parameterizations into a
@@ -84,12 +114,11 @@ end
 function Adapt.adapt_structure(to, scheme::LearnedSurfaceRoughnessGlobal)
     land_input_mean = Adapt.adapt(to, scheme.land_input_mean)
     land_input_std  = Adapt.adapt(to, scheme.land_input_std)
-    input_buffer    = Adapt.adapt(to, scheme.input_buffer)
     return LearnedSurfaceRoughnessGlobal{
         typeof(scheme.land_output_mean), typeof(land_input_mean),
-        typeof(input_buffer), Nothing, Nothing, Nothing}(
-        scheme.roughness_length_ocean, land_input_mean, land_input_std,
-        scheme.land_output_mean, scheme.land_output_std, input_buffer,
+        Nothing, Nothing, Nothing}(
+        scheme.roughness_length_ocean, scheme.npoints, land_input_mean,
+        land_input_std, scheme.land_output_mean, scheme.land_output_std,
         nothing, nothing, nothing)
 end
 
@@ -99,14 +128,15 @@ SpeedyWeather.initialize!(::LearnedSurfaceRoughnessGlobal, ::PrimitiveEquation) 
 #
 # A global parameterization implements `parameterization!(vars, scheme, model)`
 # — without the grid index `ij` — and runs once per time step outside any
-# kernel, so calling `Lux.apply` here is perfectly fine. Everything is
-# formulated as array broadcasts, which work on CPU arrays and CUDA arrays
-# alike.
+# kernel, so calling `Lux.apply` here is perfectly fine. The NN input buffer is
+# the variable we declared above, found in `vars` alongside all other model
+# variables. Everything is formulated as array broadcasts, which work on CPU
+# arrays and CUDA arrays alike.
 
 function SpeedyWeather.parameterization!(vars::SpeedyWeather.Variables,
         scheme::LearnedSurfaceRoughnessGlobal, model::PrimitiveEquation)
 
-    X = scheme.input_buffer
+    X = vars.parameterizations.nn_input
     land_vars = vars.parameterizations.land
     soil = vars.prognostic.land
 
@@ -190,7 +220,7 @@ surface_roughness = LearnedSurfaceRoughnessGlobal(
 boundary_layer = BoundaryLayer(spectral_grid; surface_roughness)
 model = PrimitiveWetModel(spectral_grid; boundary_layer)
 simulation = initialize!(model)
-run!(simulation, steps = 2)
+run!(simulation, period = Day(20))
 
 # And the same sanity check as before — the surface roughness the network
 # predicted over land, in meters:
