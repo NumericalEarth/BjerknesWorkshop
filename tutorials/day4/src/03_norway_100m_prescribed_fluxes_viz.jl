@@ -91,14 +91,17 @@ figL = try
     etopo = find_etopo()
     etopo === nothing && error("ETOPO relief not found in any depot scratchspace")
     ds = NCDataset(etopo)
-    elon = ds["lon"][:]; elat = ds["lat"][:]
+    ## NCDatasets returns CF arrays as Union{Missing,Float32}; Makie can't use a
+    ## Missing-union as an axis dimension, so coalesce to plain Float64.
+    elon = Float64.(coalesce.(ds["lon"][:], NaN))
+    elat = Float64.(coalesce.(ds["lat"][:], NaN))
     iL = findall(l -> 2 ≤ l ≤ 26, elon)      # Scandinavia / Norwegian Sea window
     jL = findall(l -> 57 ≤ l ≤ 72, elat)
-    Z = Array(ds["z"][iL, jL])               # (lon, lat), metres
+    Z = Float64.(coalesce.(Array(ds["z"][iL, jL]), NaN))   # (lon, lat), metres
     close(ds)
     elons, elats = elon[iL], elat[jL]
 
-    zmax = maximum(abs, Z)
+    zmax = maximum(abs, filter(isfinite, Z))
     fig_loc = Figure(size = (760, 740))
     axL = Axis(fig_loc[1, 1], xlabel = "longitude (°E)", ylabel = "latitude (°N)", aspect = DataAspect(),
                title = "Lofoten, northern Norway — the 100 km LES domain (red)")
