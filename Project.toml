@@ -1,0 +1,38 @@
+# This is a shared *environment* (not a package): run the Thursday scripts with
+# `julia --project=.`. Deliberately has no name/uuid so Julia does not try to
+# precompile it as a library.
+
+[deps]
+AtmosphericProfilesLibrary = "86bc3604-9858-485a-bdbe-831ec50de11d"
+Breeze = "660aa2fb-d4c8-4359-a52c-9c057bc511da"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+NumericalEarth = "904d977b-046a-4731-8b86-9235c0d1ef02"
+NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SeawaterPolynomials = "d496a93d-167e-4197-9f49-d3af4ff8fe40"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+# We dev the local Breeze checkout, which is on the terrain-following-substepping
+# branch (the "PR #712 equivalent" the Norway case depends on). Breeze in turn pulls
+# a compatible Oceananigans (0.110.x) from the registry — do NOT also dev the local
+# Oceananigans.jl checkout, which is an older debug branch and would conflict.
+[sources]
+Breeze = {path = "../Breeze.jl"}
+NumericalEarth = {path = "../NumericalEarth.jl"}
+
+[compat]
+AtmosphericProfilesLibrary = "0.1.7"
+CUDA = "5.9.7, 6.0"
+CairoMakie = "0.15.8"
+JLD2 = "0.6"
+Literate = "2.21"
+NCDatasets = "0.14"
+Oceananigans = "0.110"
+SeawaterPolynomials = "0.3.10"
+julia = "1.10"

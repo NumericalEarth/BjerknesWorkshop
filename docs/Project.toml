@@ -1,0 +1,18 @@
+# Documentation build environment for the Bjerknes workshop tutorials.
+# Deliberately separate from the root simulation environment so the doc render
+# (Documenter + Literate + lightweight plotting/IO) does not need Breeze / CUDA.
+# Do NOT instantiate as part of the core scaffolding step — that is the doc
+# agent's job.
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+
+[compat]
+CairoMakie = "0.15"
+Documenter = "1"
+JLD2 = "0.6"
+Literate = "2.21"
+julia = "1.10"
