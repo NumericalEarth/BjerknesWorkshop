@@ -53,9 +53,12 @@ Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
 axw = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "z (km)", title = "vertical velocity w (m s⁻¹)")
 axθ = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "potential temperature θ (K)")
 
-wlim = max(1e-3, maximum(abs, interior(w_t[Nt])))
+# Fixed color limits computed once over the whole time series, so the colors mean the
+# same thing in every frame (no per-frame autoscaling flicker).
+wlim = max(1e-3, maximum(abs, w_t))
+θ_limits = extrema(θ_t)
 hmw = heatmap!(axw, xkm, zkm, wn, colormap = :balance, colorrange = (-wlim, wlim))
-hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
+hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal, colorrange = θ_limits)
 Colorbar(fig[1, 2], hmw)
 Colorbar(fig[2, 2], hmθ)
 

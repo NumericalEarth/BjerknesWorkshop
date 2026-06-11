@@ -1,13 +1,14 @@
 # # A first taste of convection: 2D atmospheric free convection
 #
-# *The gentlest possible Breeze LES — heat the ground and watch the air rise.*
+# *The gentlest possible Breeze LES — a warm sea surface heats the air, and it rises.*
 #
 # This is the **introductory** example for the Thursday atmosphere cases. Before
 # we tackle sea-ice leads (case 1) or 100 m flow over coastal Norway (case 3), we
-# strip the physics down to its essentials: a flat surface, a warm patch of ground
-# everywhere, a little wind, and *dry* air. No microphysics, no terrain, no
-# heterogeneous surface mask. Just **free convection** — the single most important
-# process in the daytime atmospheric boundary layer.
+# strip the physics down to its essentials: a flat, uniformly **warm sea surface**, a
+# little wind, and *dry* air. No microphysics, no terrain, no heterogeneous surface
+# mask. The surface fluxes come from **bulk aerodynamic formulae** driven by a
+# prescribed sea surface temperature — just **free convection**, the single most
+# important process in the atmospheric boundary layer.
 #
 # ## What is free convection?
 #
@@ -29,17 +30,18 @@
 # w_\star = \left( \frac{g}{θ_0}\, \overline{w'θ'}_\mathrm{sfc}\, h_i \right)^{1/3}
 # ```
 #
-# where `(w′θ′)_sfc` is the surface kinematic heat flux. For our `Qʰ = 300 W m⁻²`
-# (kinematic flux ≈ 0.25 K m s⁻¹ for `θ₀ = 290 K`), and a boundary layer that
-# deepens to `hᵢ ≈ 1 km`, `w★ ≈ 2 m s⁻¹`. Updrafts of order `w★` and turnover
-# times `hᵢ/w★ ≈ 8 min` are what you should expect to see in the movie.
+# where `(w′θ′)_sfc` is the surface kinematic heat flux. Here that flux is *computed*
+# by the bulk formula from the air–sea temperature contrast (of order 100 W m⁻² once
+# the boundary layer spins up); for a boundary layer that deepens to `hᵢ ≈ 1 km`,
+# `w★ ≈ 1–2 m s⁻¹`. Updrafts of order `w★` and turnover times `hᵢ/w★ ≈ 8 min` are
+# what you should expect to see in the movie.
 #
 # ## A little wind shears the thermals
 #
 # With no wind, free-convection thermals are upright and roughly symmetric. Add a
 # mean wind and the rising thermals are tilted and stretched downwind; with enough
 # shear they organize into **convective rolls** aligned with the wind. We add a
-# light `U₀ = 2 m s⁻¹` wind and a simple surface drag so you can see the thermals
+# light `U₀ = 2 m s⁻¹` wind and the bulk-formula surface drag so you can see the thermals
 # lean — the seed of the organized, wind-sheared convection that dominates the
 # lead and Norway cases.
 #
@@ -50,6 +52,7 @@
 # the deepening boundary layer. The lead and Norway cases are the real 3D physics.
 
 using Breeze
+using Breeze: BulkDrag, BulkSensibleHeatFlux, PolynomialCoefficient, FilteredSurfaceVelocities
 using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
@@ -98,50 +101,56 @@ reference_state = ReferenceState(grid, constants,
                                  surface_pressure = p₀,
                                  potential_temperature = θ₀)
 dynamics = AnelasticDynamics(reference_state)
-
-cₚ = constants.dry_air.heat_capacity
 nothing #hide
 
-# ## Surface heating: the engine of convection
+# ## Surface fluxes from a prescribed sea surface temperature
 #
-# We drive convection with a **uniform positive sensible heat flux** at the ground.
-# Breeze's prognostic thermodynamic variable is the potential-temperature density
-# `ρθ`, so a heat flux `Qʰ` (W m⁻²) becomes a `ρθ` flux of `Qʰ / cₚ`. A *positive*
-# bottom flux warms the lowest air — exactly what a sun-warmed surface does.
+# Rather than *prescribe* the surface heat flux, we prescribe a warm **sea surface
+# temperature** `T₀` and let Breeze compute the turbulent fluxes with **bulk
+# aerodynamic formulae** — the same approach as Breeze's `prescribed_sea_surface_temperature`
+# example, and how real atmosphere models exchange heat and momentum with the ocean.
+# The sensible-heat and momentum fluxes follow
 #
-# `Qʰ = 300 W m⁻²` is a strong but realistic midday land-surface sensible heat
-# flux, vigorous enough to spin up convection within minutes.
-
-Qʰ = 300   # W m⁻², surface sensible heat flux
-ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(Qʰ / cₚ))
-
-# ## A bit of wind stress
+# ```math
+# Jᶿ = -ρ₀\, Cᵀ\, |ΔU|\, (θ - T_0), \qquad τˣ = -ρ₀\, Cᴰ\, |ΔU|\, (u - u_0),
+# ```
 #
-# We give the air a light mean wind `U₀` and let it feel the ground through a
-# simple quadratic bottom drag with friction velocity `u★` — the same wall model
-# the neutral-ABL and lead examples use. In 2D (`Flat` in `y`) only the `ρu`
-# momentum component exists, so we only need a drag on `ρu`.
+# where `|ΔU|` is the near-surface wind speed (with a small gustiness floor `Uᵍ`) and
+# `Cᵀ, Cᴰ` are wind- and stability-dependent exchange coefficients. Because the
+# surface is **warmer than the air** (`T₀ = 295 K` vs the `θ₀ = 290 K` airmass), the
+# air–sea contrast is unstable: heat flows upward and drives the convection. The flux
+# is no longer a fixed number — it is *computed every step* from the evolving wind and
+# air temperature, and the unstable stratification enhances the exchange coefficients
+# (Large & Yeager 2009).
 
-U₀ = 2     # m s⁻¹, light mean wind
-u★ = 0.2   # m s⁻¹, friction velocity
+T₀ = 295    # K, prescribed sea surface temperature (≈ 5 K warmer than the air → unstable)
+Uᵍ = 1e-2   # m s⁻¹, gustiness floor so the fluxes stay finite at vanishing wind
 
-# A small CONSTANT surface stress — the simplest, GPU-trivial "bit of wind stress."
-# (A velocity-dependent bulk drag, as in the lead case 01, is the richer option, but
-# a continuous-function momentum BC tripped a GPU codegen path here; a constant stress
-# is the clean choice for the intro.) τˣ < 0 removes +x momentum, i.e. drags the wind.
-τˣ = -0.02   # N m⁻² (Pa), surface drag on ρu
-ρu_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(τˣ))
+# Wind- and stability-dependent bulk coefficients (Large & Yeager 2009). The
+# near-surface wind is temporally filtered so turbulent fluctuations don't alias into
+# the bulk fluxes (Shin, Yang & Howland 2025). In 2D (`Flat` in `y`) only the `ρu`
+# momentum component exists, so we only drag `ρu`.
+
+coef = PolynomialCoefficient(roughness_length = 1.5e-4)
+filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 1hour)
+
+ρθ_bcs = FieldBoundaryConditions(bottom =
+    BulkSensibleHeatFlux(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
+ρu_bcs = FieldBoundaryConditions(bottom =
+    BulkDrag(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
+
+U₀ = 2   # m s⁻¹, light mean wind (initial condition; also feeds the bulk fluxes)
 
 # ## Model
 #
-# 9th-order WENO advection (low numerical dissipation, so the thermals stay crisp)
-# and a Smagorinsky–Lilly subgrid closure. Dry: no microphysics, no moisture — the
-# cleanest possible convection demo.
+# 9th-order WENO advection keeps the thermals crisp with low numerical dissipation.
+# We use **no explicit subgrid closure**: at this resolution WENO's own dissipation
+# acts as an implicit LES, the same choice as Breeze's prescribed-SST example. Dry:
+# no microphysics, no moisture — the cleanest possible convection demo.
 
 advection = WENO(order = 9)
-closure = SmagorinskyLilly()
 
-model = AtmosphereModel(grid; dynamics, advection, closure,
+model = AtmosphereModel(grid; dynamics, advection,
                         boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
 
 # ## Initial conditions
@@ -220,6 +229,11 @@ nothing #hide
 #   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> —
 #   defines `w★`, the convective velocity scale used here and throughout the
 #   atmosphere cases.
+#
+# - **Large, W. G., & Yeager, S. G. (2009).** The global climatology of an
+#   interannually varying air–sea flux data set. *Climate Dynamics*, 33, 341–364.
+#   <https://doi.org/10.1007/s00382-008-0441-3> — the wind- and stability-dependent
+#   bulk exchange coefficients used by the surface flux formulae here.
 #
 # !!! note "Why 2D?"
 #     This example is two-dimensional for speed and clarity: it runs in a couple of
