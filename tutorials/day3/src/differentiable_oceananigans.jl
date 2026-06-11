@@ -243,8 +243,8 @@ function build_model(grid, Δt₀, parameters)
                                                       Oceananigans.defaults.FloatType;
                                                       ν = 1e11)
 
-    model = HydrostaticFreeSurfaceModel(
-        grid;
+    model = HydrostaticFreeSurfaceModel(;
+        grid,
         free_surface          = SplitExplicitFreeSurface(substeps = 10),
         momentum_advection    = WENO(order = 3),
         tracer_advection      = WENO(order = 3),
@@ -354,7 +354,11 @@ end
 
 function loop!(model)
     Δt = model.clock.last_Δt
-    @trace mincut = true checkpointing = true track_numbers = false for i = 1:Ntimesteps
+    # NOTE: unrolled (no `@trace`) on purpose. Tracing this as a `stablehlo.while`
+    # makes Enzyme's reverse pass emit a dynamic_update_slice with a dynamic slice
+    # dimension, which XLA cannot lower inside a `while` ("op can't be translated to
+    # XLA HLO"). At small `Ntimesteps` unrolling sidesteps that codegen issue.
+    for i = 1:Ntimesteps
         time_step!(model, Δt)
     end
     return nothing
@@ -408,7 +412,7 @@ u_wind_stress = u_wind_stress_init(model.grid, parameters)
 v_wind_stress = v_wind_stress_init(model.grid, parameters)
 Tᵢ, Sᵢ       = temperature_salinity_init(model.grid, parameters)
 mld           = Field{Center, Center, Nothing}(model.grid)
-Δz            = Reactant.ConcreteRArray(reshape(Δz_col, :))
+Δz            = Reactant.ConcreteRArray(Δz_col)
 
 # Shadow (gradient accumulator) fields — initialized to zero:
 dmodel         = Enzyme.make_zero(model)
@@ -479,7 +483,7 @@ nothing #hide
 # more expensive AD pass:
 
 T_surf = convert(Array, interior(model.tracers.T))[:, :, Nz]
-η_surf = convert(Array, interior(model.free_surface.η))
+η_surf = convert(Array, interior(model.free_surface.η))[:, :, 1]
 
 fig_su = Figure(size = (1000, 450))
 ax_su1 = Axis(fig_su[1, 1], xlabel = "x (km)", ylabel = "y (km)", title = "Surface T [°C]")
@@ -546,10 +550,10 @@ jldsave(joinpath(output_dir, "channel_results.jld2");
         T_final, u_final, v_final, ssh,
         dT, dS, du_ws, dv_ws, dT_flux_arr,
         landmask,
-        xc = collect(xc), yc = collect(yc), zc = collect(zc),
-        xu = collect(xu), yu = collect(yu),
-        xv = collect(xv), yv = collect(yv),
-        zw = collect(zw))
+        xc = convert(Array, xc), yc = convert(Array, yc), zc = convert(Array, zc),
+        xu = convert(Array, xu), yu = convert(Array, yu),
+        xv = convert(Array, xv), yv = convert(Array, yv),
+        zw = convert(Array, zw))
 
 @info "Results saved to $(output_dir)/channel_results.jld2"
 nothing #hide
