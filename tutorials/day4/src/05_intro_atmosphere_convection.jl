@@ -205,53 +205,14 @@ simulation.output_writers[:slices] = JLD2Writer(model, outputs;
     filename = slice_name(config), schedule = TimeInterval(30seconds), overwrite_existing = true)
 
 # ## Go time
-run!(simulation)
-
-# ## Visualization
 #
-# Two stacked panels: vertical velocity `w(x, z, t)` (a symmetric blue–red
-# colormap, so updrafts and downdrafts are red and blue) shows the thermals
-# punching upward and the compensating subsidence between them; potential
-# temperature `θ(x, z, t)` (a warm `:thermal` colormap) shows the warm thermals
-# and the deepening, well-mixed boundary layer beneath the stable cap.
+# This is the one expensive step, and the only one that does **not** run during the
+# documentation build — it runs ahead of time on a GPU and caches its output. The
+# [visualization page](05_intro_atmosphere_convection_viz.md) then loads that cached
+# output and renders the figures and animation live when the docs are built, so what
+# you see there is the genuine production-resolution result.
 
-using CairoMakie
-
-if isfile(slice_name(config))
-    w_t = FieldTimeSeries(slice_name(config), "w")
-    θ_t = FieldTimeSeries(slice_name(config), "θ")
-    times = w_t.times
-    Nt = length(times)
-
-    xw, _, zw = nodes(w_t)
-    xkm = xw ./ 1e3
-    zkm = zw ./ 1e3
-
-    n = Observable(Nt)
-    wn = @lift interior(w_t[$n], :, 1, :)
-    θn = @lift interior(θ_t[$n], :, 1, :)
-    title = @lift "2D free convection — t = " * prettytime(times[$n])
-
-    fig = Figure(size = (1100, 750))
-    Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-    axw = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "z (km)", title = "vertical velocity w (m s⁻¹)")
-    axθ = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "potential temperature θ (K)")
-
-    wlim = max(1e-3, maximum(abs, interior(w_t[Nt])))
-    hmw = heatmap!(axw, xkm, zkm, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
-    Colorbar(fig[1, 2], hmw)
-    Colorbar(fig[2, 2], hmθ)
-
-    save(figure_name(config, "intro_atmosphere_convection_final"), fig)
-
-    if Nt > 1
-        record(fig, movie_name(config, "intro_atmosphere_convection"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-        @info "Wrote movie" movie_name(config, "intro_atmosphere_convection")
-    end
-end
+run!(simulation)
 
 @info "Intro convection complete" run_stamp(config)...
 nothing #hide

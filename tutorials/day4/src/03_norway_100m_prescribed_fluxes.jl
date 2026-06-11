@@ -349,73 +349,6 @@ checkpoint("statics written; starting run!")
 # ## Go time
 run!(simulation)
 
-# ## Visualization
-#
-# Four panels make the coupled flow interpretable: (top-left) the **terrain with the
-# land/water mask** — the boundary the flow reads; (top-right) the near-surface
-# wind-speed, showing gap jets threading the fjords and wakes downstream of the
-# islands; (bottom-left) a vertical `w` transect through the mountain line, showing the
-# mountain-wave train capped by the sponge; (bottom-right) the surface saturation `𝒮`
-# (wet fjords vs dry land), the moisture heterogeneity that drives the differential
-# surface flux.
-
-using CairoMakie
-
-stat = output_name(config, "statics")
-if isfile(slice_name(config)) && isfile(stat)
-    u_xy = FieldTimeSeries(slice_name(config), "u_xy")
-    v_xy = FieldTimeSeries(slice_name(config), "v_xy")
-    w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-    𝒮_ts = FieldTimeSeries(output_name(config, "land"), "𝒮")
-    times = w_xz.times
-    Nt = length(times)
-
-    h_ts     = FieldTimeSeries(stat, "h")
-    water_ts = FieldTimeSeries(stat, "water")
-
-    xs, ys, _ = nodes(u_xy)
-    xz_x, _, xz_z = nodes(w_xz)
-    xkm, ykm = xs ./ 1e3, ys ./ 1e3
-
-    n = Observable(Nt)
-    speed = @lift sqrt.(interior(u_xy[$n], :, :, 1).^2 .+ interior(v_xy[$n], :, :, 1).^2)
-    wn    = @lift interior(w_xz[$n], :, 1, :)
-    𝒮n    = @lift interior(𝒮_ts[$n], :, :, 1)
-    title = @lift "Coupled flow over Lofoten — t = " * prettytime(times[$n])
-
-    hh    = interior(h_ts[1], :, :, 1)
-    water = interior(water_ts[1], :, :, 1)
-
-    fig = Figure(size = (1150, 1000))
-    Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-
-    ax_terr = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "y (km)", title = "terrain (m) + water (cyan)", aspect = 1)
-    hmt = heatmap!(ax_terr, xkm, ykm, hh, colormap = :terrain, colorrange = (0, maximum(hh)))
-    ## Overlay water as a translucent cyan mask (fjords/sea).
-    contourf!(ax_terr, xkm, ykm, water; levels = [0.5, 1.0], colormap = [(:cyan, 0.0), (:cyan, 0.55)])
-    Colorbar(fig[1, 0], hmt, label = "elevation (m)")
-
-    ax_spd = Axis(fig[1, 2], xlabel = "x (km)", ylabel = "y (km)", title = "near-surface wind speed (m s⁻¹)", aspect = 1)
-    hms = heatmap!(ax_spd, xkm, ykm, speed, colormap = :speed)
-    Colorbar(fig[1, 3], hms)
-
-    ax_w = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w transect (m s⁻¹)")
-    wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
-    hmw = heatmap!(ax_w, xz_x ./ 1e3, xz_z ./ 1e3, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    Colorbar(fig[2, 0], hmw)
-
-    ax_𝒮 = Axis(fig[2, 2], xlabel = "x (km)", ylabel = "y (km)", title = "surface saturation 𝒮 (wet fjords / dry land)", aspect = 1)
-    hm𝒮 = heatmap!(ax_𝒮, xkm, ykm, 𝒮n, colormap = :dense, colorrange = (0, 1))
-    Colorbar(fig[2, 3], hm𝒮)
-
-    save(figure_name(config, "norway_final_w_slice"), fig)
-    if Nt > 1
-        record(fig, movie_name(config, "norway_100m_prescribed_fluxes"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-    end
-end
-
 @info "Case 3 complete" run_stamp(config)...
 
 # ## References
@@ -434,3 +367,4 @@ end
 #     Lofoten terrain (and land/water mask), CC BY 4.0.
 
 nothing #hide
+

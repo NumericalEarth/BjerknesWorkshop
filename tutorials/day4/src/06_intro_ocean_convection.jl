@@ -197,50 +197,6 @@ simulation.output_writers[:profiles] = JLD2Writer(model, profiles;
 # ## Go time
 run!(simulation)
 
-# ## Visualization
-#
-# A vertical velocity transect `w(x, z, t)` shows the cold dense plumes plunging
-# from the surface; the temperature transect `T(x, z, t)` shows the cold anomalies
-# they carry down and the mixed layer deepening over time. We build a movie and a
-# final-frame figure.
-
-if isfile(slice_name(config))
-    w_ts = FieldTimeSeries(slice_name(config), "w")
-    T_ts = FieldTimeSeries(slice_name(config), "T")
-    times = w_ts.times
-    Nt = length(times)
-
-    xw, _, zw = nodes(w_ts)
-
-    n = Observable(Nt)
-    wn = @lift interior(w_ts[$n], :, 1, :)
-    Tn = @lift interior(T_ts[$n], :, 1, :)
-    title = @lift "Ocean free convection — t = " * prettytime(times[$n])
-
-    fig = Figure(size = (1000, 700))
-    Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-    axw = Axis(fig[1, 1], xlabel = "x (m)", ylabel = "z (m)", title = "w (m s⁻¹)")
-    axT = Axis(fig[2, 1], xlabel = "x (m)", ylabel = "z (m)", title = "T (°C)")
-
-    wlim = max(1e-5, maximum(abs, interior(w_ts[Nt])))
-    Tn_last = interior(T_ts[Nt], :, 1, :)
-    Tlims = (minimum(Tn_last), maximum(Tn_last))
-
-    hmw = heatmap!(axw, xw, zw, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    hmT = heatmap!(axT, xw, zw, Tn, colormap = :thermal, colorrange = Tlims)
-    Colorbar(fig[1, 2], hmw)
-    Colorbar(fig[2, 2], hmT)
-
-    save(figure_name(config, "intro_ocean_convection_final"), fig)
-
-    if Nt > 1
-        record(fig, movie_name(config, "intro_ocean_convection"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-        @info "Wrote movie" movie_name(config, "intro_ocean_convection")
-    end
-end
-
 @info "Intro ocean convection complete" run_stamp(config)...
 nothing #hide
 
@@ -250,3 +206,4 @@ nothing #hide
 #   theory, and models. *Rev. Geophys.* **37**, 1–64.
 #   <https://doi.org/10.1029/98RG02739> — the standard review of oceanic deep
 #   convection: surface buoyancy loss, plume dynamics, and mixed-layer deepening.
+

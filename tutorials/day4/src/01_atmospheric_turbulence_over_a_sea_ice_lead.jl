@@ -401,58 +401,6 @@ write_once!(simulation.output_writers[:statics], model)
 # ## Go time
 run!(simulation)
 
-# ## Visualization
-#
-# A vertical transect of vertical velocity `w(x, z, t)` shows the plume rising
-# over the lead until the inversion caps it and it spreads downwind; the
-# potential-temperature transect shows the warm anomaly leaning and advecting over
-# the downwind ice. We build a movie from the high-cadence slices and a
-# final-frame figure.
-
-using CairoMakie
-
-if isfile(slice_name(config))
-    w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-    θ_xz = FieldTimeSeries(slice_name(config), "θ_xz")
-    qˡ_xz = FieldTimeSeries(slice_name(config), "qˡ_xz")
-    times = w_xz.times
-    Nt = length(times)
-
-    xw, _, zw = nodes(w_xz)
-    xkm = xw ./ 1e3
-    zkm = zw ./ 1e3
-
-    n = Observable(Nt)
-    wn = @lift interior(w_xz[$n], :, 1, :)
-    θn = @lift interior(θ_xz[$n], :, 1, :)
-    qln = @lift interior(qˡ_xz[$n], :, 1, :) .* 1e3   # g/kg
-    title = @lift "Sea-ice lead plume — t = " * prettytime(times[$n])
-
-    fig = Figure(size = (1100, 950))
-    Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-    axw = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w (m s⁻¹)")
-    axθ = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "θ (K)")
-    axq = Axis(fig[3, 1], xlabel = "x (km)", ylabel = "z (km)", title = "cloud liquid qˡ (g kg⁻¹) — the lead fog")
-
-    wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
-    qlmax = max(1e-4, maximum(interior(qˡ_xz[Nt])) * 1e3)
-    hmw = heatmap!(axw, xkm, zkm, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    hmθ = heatmap!(axθ, xkm, zkm, θn, colormap = :thermal)
-    hmq = heatmap!(axq, xkm, zkm, qln, colormap = :dense, colorrange = (0, qlmax))
-    Colorbar(fig[1, 2], hmw)
-    Colorbar(fig[2, 2], hmθ)
-    Colorbar(fig[3, 2], hmq)
-
-    save(figure_name(config, "atmosphere_lead_final_slice"), fig)
-
-    if Nt > 1
-        record(fig, movie_name(config, "lead_atmosphere_plume"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-        @info "Wrote movie" movie_name(config, "lead_atmosphere_plume")
-    end
-end
-
 @info "Case 1 complete" run_stamp(config)...
 nothing #hide
 
@@ -509,3 +457,4 @@ nothing #hide
 #     produces the supercooled-liquid analogue and omits ice-phase microphysics and
 #     ice-cloud radiative effects. The fog's location, timing, and downwind advection
 #     are representative; its phase and exact water content are not quantitative.
+

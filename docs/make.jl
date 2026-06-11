@@ -312,10 +312,12 @@ function render_day(day::Int)
     pages = String[]
     files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)); by = f -> _page_rank(day, f))
     for f in files
-        # Skip the shared infrastructure include (00_common) and the topo prep
-        # helper (03a) — they are includes / data prep, not standalone pages.
+        # Skip the shared infrastructure include (00_common), the topo prep helper
+        # (03a), and the `_viz.jl` visualization halves (rendered into their parent
+        # simulation page, not as standalone pages).
         startswith(f, "00_") && continue
         startswith(f, "03a_") && continue
+        endswith(f, "_viz.jl") && continue
 
         source = joinpath(srcdir, f)
         Literate.markdown(source, outdir;
@@ -326,9 +328,22 @@ function render_day(day::Int)
 
         mdname = replace(f, r"\.jl$" => ".md")
         mdpath = joinpath(outdir, mdname)
-
         slug = _slug_for_source(f)
-        slug === nothing || append_results_section!(mdpath, slug)
+
+        # If `scripts/render_all_viz.jl` (Phase A, workshop env) pre-rendered an
+        # executed visualization page for this case, append it (it carries the inline
+        # figure, diagnostics, and base64 animation). Otherwise fall back to the static
+        # cached-artifact Results section.
+        vizmd = joinpath(outdir, replace(f, r"\.jl$" => "_viz.md"))
+        if isfile(vizmd)
+            open(mdpath, "a") do io
+                println(io)
+                write(io, read(vizmd, String))
+            end
+            rm(vizmd; force = true)
+        elseif slug !== nothing
+            append_results_section!(mdpath, slug)
+        end
 
         push!(pages, joinpath("day$day", mdname))
     end
