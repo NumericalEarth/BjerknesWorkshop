@@ -342,40 +342,16 @@ function run_ocean_case(waves::Bool)
     write_once!(simulation.output_writers[:statics], model)
     run!(simulation)
 
-    ## A vertical transect of w(x, z, t) across the lead, plus a final-frame figure.
-    if isfile(slice_name(config))
-        w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-        times = w_xz.times
-        Nt = length(times)
-        xw, _, zw = nodes(w_xz)
-
-        n = Observable(Nt)
-        wn = @lift interior(w_xz[$n], :, 1, :)
-        title = @lift string(waves ? "Ocean below lead (waves)" : "Ocean below lead (no waves)",
-                             " — t = ", prettytime(times[$n]))
-
-        fig = Figure(size = (1100, 450))
-        Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-        ax = Axis(fig[1, 1], xlabel = "x (m)", ylabel = "z (m)", title = "w (m s⁻¹)")
-        wlim = max(1e-5, maximum(abs, interior(w_xz[Nt])))
-        hm = heatmap!(ax, xw, zw, wn, colormap = :balance, colorrange = (-wlim, wlim))
-        Colorbar(fig[1, 2], hm)
-        save(figure_name(config, string("ocean_lead_", label, "_final_slice")), fig)
-        if Nt > 1
-            record(fig, movie_name(config, string("ocean_lead_", label)), 1:Nt; framerate = 12) do i
-                n[] = i
-            end
-        end
-    end
-
     @info "Ocean case complete" run_stamp(config)...
     return nothing
 end
 
 # ## Run both cases
 #
-# No-waves control first, then the waves case. The two write distinct outputs so
-# the gallery can place them side by side.
+# No-waves control first, then the waves case. The two write distinct outputs so the
+# [visualization page](02_ocean_turbulence_below_a_lead_with_surface_waves_viz.md) can
+# place them side by side. `run!` is the only step excluded from the docs build — it
+# runs on a GPU ahead of time and caches the output both cases share.
 
 run_ocean_case(false)
 run_ocean_case(true)
