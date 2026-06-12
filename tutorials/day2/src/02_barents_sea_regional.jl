@@ -265,8 +265,8 @@ sea_ice = sea_ice_simulation(grid, ocean; dynamics=nothing)
 # concentration to the ice; one `MetadataSet` feeds both models, each picking up the variables it owns:
 
 set!(ocean.model, T = Tᵉˣᵗ[1], S = Sᵉˣᵗ[1])
-set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset=ECCO4Monthly(), dir_kw...),
-                    ℵ = Metadatum(:sea_ice_concentration, date=dates[1], dataset=ECCO4Monthly(), dir_kw...))
+set!(sea_ice.model, h = Metadatum(:sea_ice_thickness;     date=dates[1], dataset=ECCO4Monthly(), dir_kw...),
+                    ℵ = Metadatum(:sea_ice_concentration; date=dates[1], dataset=ECCO4Monthly(), dir_kw...))
 
 # ## The atmosphere and the coupled model
 #
