@@ -26,7 +26,7 @@ using Printf
 
 export TutorialCase, RunInfo,
        case_registry,
-       selected_days, selected_cases, selected_doc_days,
+       selected_days, selected_cases, selected_doc_days, doc_all_days,
        case_output_root, new_run_dir,
        latest_success, latest_attempt,
        safe_latest_success, safe_artifact,
@@ -407,7 +407,8 @@ function case_registry(root::AbstractString = pwd())
     # 01_arctic_sea_ice and 02_barents_sea_regional are deliberately NOT registered: their pages render
     # from the Literate sources (day-2 inline assets), but the runner has no business launching GPU/dataset
     # jobs on the docs host. The global-ocean sim likewise lives on day 4 (09_global_ocean.jl), unregistered
-    # and inline-rendered.
+    # and inline-rendered. The docs still pick up these pages: `selected_doc_days` discovers renderable days
+    # from the filesystem (`doc_all_days`), not from this registry, so unregistered ≠ unpublished.
 
     # ---- Day 3 (lightweight placeholders) ----
     push!(cases, TutorialCase(
@@ -634,12 +635,46 @@ function selected_cases(all::Vector{TutorialCase})
 end
 
 """
+    doc_all_days(root=pwd()) -> Vector{Int}
+
+Days the documentation can render: the union of the registry days and any
+`tutorials/dayN/src` that holds at least one renderable Literate source. The
+filesystem branch is what lets inline-asset days (e.g. day 2) appear on the site
+without being registered for the runner — `render_day` does not need a registry
+entry to render an inline-asset page.
+"""
+function doc_all_days(root::AbstractString = pwd())
+    days = Set(c.day for c in case_registry(root))
+    tutorials_dir = joinpath(root, "tutorials")
+    if isdir(tutorials_dir)
+        for entry in readdir(tutorials_dir)
+            m = match(r"^day(\d+)$", entry)
+            m === nothing && continue
+            srcdir = joinpath(tutorials_dir, entry, "src")
+            isdir(srcdir) || continue
+            renderable = any(readdir(srcdir)) do f
+                endswith(f, ".jl") && !startswith(f, "00_") && !startswith(f, "03a_") &&
+                    f != "04_gpu_computing.jl"
+            end
+            renderable && push!(days, parse(Int, m.captures[1]))
+        end
+    end
+    return sort!(collect(days))
+end
+
+"""
     selected_doc_days() -> Vector{Int}
 
 Days to include when building documentation, honoring `DOC_DAYS` (same grammar
-as `RUN_DAYS`). Defaults to all registry days.
+as `RUN_DAYS`). Unlike the runner selection, the candidate set is [`doc_all_days`](@ref)
+— registry days plus any day with renderable Literate sources — so inline-asset
+days that are deliberately unregistered from the runner still publish.
 """
-selected_doc_days() = selected_days("DOC_DAYS")
+function selected_doc_days()
+    all_days = doc_all_days()
+    requested = _parse_days(get(ENV, "DOC_DAYS", "all"), all_days)
+    return filter(d -> d in all_days, requested)
+end
 
 # ============================================================================
 # Output layout & run directories
