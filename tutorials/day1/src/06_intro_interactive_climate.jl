@@ -47,7 +47,7 @@ latitude_longitude_grid = LatitudeLongitudeGrid(size = (60, 30, 1),
                                                 z = (-1, 0),
                                                 topology = (Periodic, Bounded, Bounded))
 
-# With Oceananigans you can also define a `RectilinearGrid` for box domains or also use the LatitudeLongitudeGrid for regional problems by 
+# With Oceananigans you can also define a `RectilinearGrid` for box domains or use the `LatitudeLongitudeGrid` for regional problems by 
 # initializing it with latitude and longitude bounds e.g. `longitude = (0, 60)` , `latitude = (-30, 30)`.
 
 # ## Data on grids 
