@@ -27,7 +27,7 @@ A_cpu = SpeedyWeather.on_architecture(arch, A)
 # ## Grids and discretization 
 #
 # Next, we will have to set up the grid we want to discretize our model on.
-# * SpeedyWeather.jl is a spectral (or rather pseudo-spectral) model with variables discretized both in spectral space and in grid space. # * Oceananigans is a FVM model with just a central grid space discretization. 
+# * SpeedyWeather.jl is a spectral (or rather pseudo-spectral) model with variables discretized both in spectral space and in grid space. # * Oceananigans is based on a Finite Volume framework with equations discretized on a staggered C-grid (velocities are defined on edges and tracers in the center of the cell). 
 # For SpeedyWeather we therefore have a `SpectralGrid` as an object that bundles spectral and grid discretization information, we initialize it with an argument for the spectral truncation `trunc` that sets the maximum degree and order of the spherical harmonics (and therefore the resolution), and the number of vertical layers `nlayers` that we discretize the model in.
 
 spectral_grid = SpectralGrid(trunc=31, nlayers=8, architecture = arch)
