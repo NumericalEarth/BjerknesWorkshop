@@ -46,7 +46,7 @@ arch = GPU()   # CPU() works too — heroically — at reduced resolution
 
 Nx = 1440
 Ny = 720
-Nz = 50
+Nz = 40
 
 depth = 5000meters
 z = ExponentialDiscretization(Nz, -depth, 0; scale = depth/4, mutable = true)
@@ -84,9 +84,7 @@ grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height);
 # For the surface boundary layer we use CATKE, a prognostic turbulent-kinetic-energy
 # vertical mixing scheme:
 
-using Oceananigans.TurbulenceClosures: IsopycnalSkewSymmetricDiffusivity, AdvectiveFormulation
-
-vertical_mixing = NumericalEarth.Oceans.default_ocean_closure()  # CATKE
+vertical_mixing = CATKEVerticalDiffusivity(minimum_tke=1e-7)
 
 # ## The ocean component
 #
@@ -97,11 +95,10 @@ vertical_mixing = NumericalEarth.Oceans.default_ocean_closure()  # CATKE
 # objects you already know:
 
 free_surface       = SplitExplicitFreeSurface(grid; substeps = 70)
-momentum_advection = WENOVectorInvariant(order = 5)
-tracer_advection   = WENO(order = 5)
+momentum_advection = WENOVectorInvariant()
+tracer_advection   = WENO(order = 7)
 
-ocean = ocean_simulation(grid; momentum_advection, tracer_advection, free_surface,
-                         closure = (eddy_closure, vertical_mixing))
+ocean = ocean_simulation(grid; momentum_advection, tracer_advection, free_surface, closure = vertical_mixing))
 
 # ## The sea-ice component
 #
@@ -148,7 +145,7 @@ radiation     = JRA55PrescribedRadiation(arch; ocean_surface, dir_kw...)
 
 coupled_model = OceanSeaIceModel(ocean, sea_ice; atmosphere, land, radiation)
 
-simulation = Simulation(coupled_model; Δt = 20minutes, stop_time = 365days)
+simulation = Simulation(coupled_model; Δt = 30minutes, stop_time = 365days)
 
 # A year at one degree takes a few hours on a single modern GPU. The progress callback
 # keeps us honest while it runs:
