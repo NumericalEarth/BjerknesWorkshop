@@ -66,7 +66,9 @@ SpeedyWeather.set!(A, 1.0)
 # we also have to specificy where on the grid (e.g. `Center` or `Face`) the data is located. 
 # We initialize an Oceananigans `Field` as follows:
 
-Field{Center, Center, Center}(latitude_longitude_grid) 
+A_ocean = Field{Center, Center, Center}(latitude_longitude_grid) 
+Oceananigans.set!(A_ocean, 1.0)
+
 
 # ## Models 
 #
