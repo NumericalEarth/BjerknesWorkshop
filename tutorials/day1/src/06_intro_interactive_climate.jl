@@ -5,7 +5,7 @@
 # introduce some basic concepts that both models share and then later actually run some 
 # simulations with SpeedyWeather. Let's go step by step through all ingredients that we need! 
 #
-# Note that for a lot of these examples, we have to specify `SpeedyWeather.` or `Oceananigans.` (e.g. `SpeedyWeather.run!` or `Oceananigans.run!`) to avoid ambiguity. This isn't neccarry if you are just using one of the packages by itself
+# Note that for a lot of these examples, we have to specify `SpeedyWeather.` or `Oceananigans.` (e.g. `SpeedyWeather.run!` or `Oceananigans.run!`) to avoid ambiguity. This isn't necessary if you are just using one of the packages by itself
 
 # ## Devices and architectures: Where do we run our model?
 #
