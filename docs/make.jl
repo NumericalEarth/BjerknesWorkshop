@@ -155,11 +155,6 @@ const _RESULTS_SPEC = Dict(
         figures = ["intro_atmosphere_convection_final.png"],
         movies = ["intro_atmosphere_convection.mp4"],
     ),
-    "intro_ocean" => (
-        title = "Intro: 2D ocean free convection",
-        figures = ["intro_ocean_convection_final.png"],
-        movies = ["intro_ocean_convection.mp4"],
-    ),
     "intro_coupled" => (
         title = "Intro: 2D coupled air–sea convection",
         figures = ["intro_coupled_convection_final.png"],
@@ -284,8 +279,7 @@ end
 # taste of convection" mid-list. List the intended order here; files not listed
 # sort after, alphabetically. Other days fall back to filename order.
 const _PAGE_ORDER = Dict(
-    4 => ["05_intro_atmosphere_convection",          # first taste: 2D atmosphere
-          "06_intro_ocean_convection",               #              2D ocean
+    4 => ["05_intro_atmosphere_convection",          # first taste: 2D atmosphere (flat + terrain)
           "07_intro_coupled_convection",             #              2D coupled
           "01_atmospheric_turbulence_over_a_sea_ice_lead",
           "02_ocean_turbulence_below_a_lead_with_surface_waves",

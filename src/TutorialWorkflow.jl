@@ -534,26 +534,11 @@ function case_registry(root::AbstractString = pwd())
         source = joinpath(DAY4_SRC, "05_intro_atmosphere_convection.jl"),
         generated_script = joinpath(DAY4_SCRIPTS, "05_intro_atmosphere_convection.jl"),
         output_root = joinpath("output", "day4", "intro_atmosphere"),
-        required_outputs = ["free_convection.jld2"],
+        required_outputs = ["flat_convection.jld2", "agnesi_convection.jld2"],
         workdir = :artifacts,
         parameters = (Lx = 8_000, Lz = 4_000, Nx = 256, Nz = 128, stop_hours = 2, Q = 300),
         critical = false,
         description = "Intro: 2D Breeze atmosphere free convection with a surface heat flux and light wind stress.",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "Intro: 2D ocean free convection",
-        slug = "intro_ocean",
-        source = joinpath(DAY4_SRC, "06_intro_ocean_convection.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "06_intro_ocean_convection.jl"),
-        output_root = joinpath("output", "day4", "intro_ocean"),
-        required_outputs = [
-            "ocean_convection.jld2",
-            "ocean_convection_profiles.jld2",
-        ],
-        workdir = :artifacts,
-        parameters = (Lx = 512, Lz = 256, Nx = 256, Nz = 128, stop_hours = 4, Q = 200),
-        critical = false,
-        description = "Intro: 2D Oceananigans ocean free convection driven by surface cooling with light wind stress.",
     ))
     push!(cases, TutorialCase(
         day = 4, name = "Intro: 2D coupled air–sea convection",

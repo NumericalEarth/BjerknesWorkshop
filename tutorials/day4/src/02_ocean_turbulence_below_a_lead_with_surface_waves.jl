@@ -83,6 +83,7 @@
 
 using Oceananigans
 using Oceananigans.Units
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using SeawaterPolynomials.TEOS10: TEOS10EquationOfState
 using Printf
 using Random
@@ -91,7 +92,7 @@ using CairoMakie
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-arch = choose_architecture()
+arch = GPU()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
 FT = Float32

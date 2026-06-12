@@ -9,6 +9,7 @@ using Oceananigans
 using Oceananigans.Units
 using CairoMakie
 using Printf
+using Statistics
 
 atmos_file = "coupled_convection_atmosphere.jld2"
 ocean_file = "coupled_convection_ocean.jld2"
@@ -29,12 +30,13 @@ xo, _, zo = nodes(wo_t)
 xa_km = xa ./ 1e3
 xo_km = xo ./ 1e3
 
-# ## The initial condition: a warm ocean filament
+# ## The initial condition: a surface-trapped warm ocean filament
 #
 # Before the model steps, the ocean carries a warm Gaussian filament centered in the
-# domain on an otherwise near-neutral sea surface (uniform with depth). This is the
-# boundary heterogeneity the coupled system responds to — the warm band is where the
-# air–sea contrast is largest, and so where convection will light up.
+# domain, trapped in the upper ~15 m of a 25 m mixed layer, over a weakly stratified
+# interior. This is the boundary heterogeneity the coupled system responds to — the
+# warm band is where the air–sea contrast is largest, so it is where the heat loss,
+# the convection, and the mixed-layer deepening will concentrate.
 
 T_ic = interior(To_t[1], :, 1, :)
 @printf("Initial ocean temperature: background ≈ %.1f °C, filament peak ≈ %.1f °C\n",
@@ -54,16 +56,24 @@ fig_ic
 # vertical velocity `w(x, z, t)` on top (thermals rising over the warm filament) and
 # ocean vertical velocity `w(x, z, t)` on the bottom (cooled water sinking beneath it).
 # The shared blue–red colormap makes the *symmetry* of convection above and below the
-# interface visible, and both are concentrated over the filament.
+# interface visible, and both are concentrated over the filament. Note the very
+# different *speeds*: atmospheric thermals reach metres per second, while ocean
+# convection — driven by the same heat flux but in water that is ~1000× denser and has
+# ~4× the heat capacity — is an order of magnitude slower. Each panel is therefore
+# scaled to its own fluid.
 
 n = Observable(Nt)
 wan = @lift interior(wa_t[$n], :, 1, :)
 won = @lift interior(wo_t[$n], :, 1, :)
 title = @lift "Coupled convection over a warm filament — t = " * prettytime(times[$n])
 
-## Fixed, symmetric color limits per fluid, taken over the whole time series.
+## Fixed, symmetric color limits per fluid. The atmosphere grows monotonically, so its
+## series max is fine. The ocean spikes briefly during spin-up, so scaling to that max
+## washes out the developed plumes — instead use a high percentile of |w| over the
+## developed period (after the first quarter of the run) so the slow plumes are visible.
 wa_lim = max(1e-3, maximum(abs, wa_t))
-wo_lim = max(1e-5, maximum(abs, wo_t))
+wo_dev = reduce(vcat, (abs.(vec(interior(wo_t[i], :, 1, :))) for i in (Nt ÷ 4):Nt))
+wo_lim = max(1e-5, quantile(wo_dev, 0.99))
 
 fig = Figure(size = (1100, 800))
 Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
@@ -82,7 +92,7 @@ fig
 
 # ## Animation
 
-record(fig, "coupled_convection.mp4", 1:Nt; framerate = 12) do i
+record(fig, "coupled_convection.mp4", 1:Nt; framerate = 24, compression = 28) do i
     n[] = i
 end
 nothing #hide

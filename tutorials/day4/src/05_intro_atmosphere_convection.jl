@@ -1,243 +1,217 @@
-# # A first taste of convection: 2D atmospheric free convection
+# # A first taste of the atmosphere: convection over a flat surface — and over a mountain
 #
-# *The gentlest possible Breeze LES — a warm sea surface heats the air, and it rises.*
+# *One surface forcing, two boundary shapes. Heat the air from below over a flat sea,
+# then do exactly the same thing with a mountain in the way, and watch what the terrain
+# does to the turbulence.*
 #
-# This is the **introductory** example for the Thursday atmosphere cases. Before
-# we tackle sea-ice leads (case 1) or 100 m flow over coastal Norway (case 3), we
-# strip the physics down to its essentials: a flat, uniformly **warm sea surface**, a
-# little wind, and *dry* air. No microphysics, no terrain, no heterogeneous surface
-# mask. The surface fluxes come from **bulk aerodynamic formulae** driven by a
-# prescribed sea surface temperature — just **free convection**, the single most
-# important process in the atmospheric boundary layer.
+# This is the **introductory** example for the Thursday atmosphere cases, and it
+# introduces the two ideas every later case builds on:
 #
-# ## What is free convection?
+# 1. **Free convection.** When the surface is warmer than the air above it, the lowest
+#    layer warms, becomes buoyant, and rises in coherent **thermals** — plumes that
+#    punch upward through the boundary layer while cooler air sinks between them. This
+#    buoyancy-driven overturning is what fills the sky with fair-weather cumulus.
+# 2. **Flow over terrain.** Put a mountain under the *same* heated, windy boundary
+#    layer and the flow must respond: air accelerates over the crest, launches
+#    vertically propagating **mountain waves** into the stable air aloft, and sheds a
+#    turbulent, convecting wake in its lee.
 #
-# When the ground is warmer than the air above it, the surface transfers heat
-# upward as a **sensible heat flux**. The lowest layer of air warms, becomes
-# buoyant relative to its surroundings, and rises in coherent **thermals** —
-# plumes of warm air that punch upward through the boundary layer. Cooler air sinks
-# between them to conserve mass. This overturning is *free* convection: it is driven
-# by buoyancy from below, not by mechanical shear. It is what fills the sky with
-# fair-weather cumulus on a sunny afternoon.
-#
-# ## The convective velocity scale w★
-#
-# How fast do the thermals rise? [Deardorff (1970)](https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2)
-# showed that the natural velocity scale for buoyancy-driven turbulence in a
-# boundary layer of depth `hᵢ` is the **convective velocity scale**
+# We run the **same simulation twice** — identical surface forcing, wind, and
+# stratification — once with a flat lower boundary and once with a
+# **Witch of Agnesi** hill,
 #
 # ```math
-# w_\star = \left( \frac{g}{θ_0}\, \overline{w'θ'}_\mathrm{sfc}\, h_i \right)^{1/3}
+# h(x) = \frac{h_0}{1 + x^2 / a^2},
 # ```
 #
-# where `(w′θ′)_sfc` is the surface kinematic heat flux. Here that flux is *computed*
-# by the bulk formula from the air–sea temperature contrast (of order 100 W m⁻² once
-# the boundary layer spins up); for a boundary layer that deepens to `hᵢ ≈ 1 km`,
-# `w★ ≈ 1–2 m s⁻¹`. Updrafts of order `w★` and turnover times `hᵢ/w★ ≈ 8 min` are
-# what you should expect to see in the movie.
+# the classic bell-shaped profile of mountain-wave theory. The pair makes the role of
+# the boundary unmistakable: the *forcing* is identical, so every difference between
+# the two movies is the mountain's doing.
 #
-# ## A little wind shears the thermals
+# ## Surface fluxes from a prescribed sea surface temperature
 #
-# With no wind, free-convection thermals are upright and roughly symmetric. Add a
-# mean wind and the rising thermals are tilted and stretched downwind; with enough
-# shear they organize into **convective rolls** aligned with the wind. We add a
-# light `U₀ = 2 m s⁻¹` wind and the bulk-formula surface drag so you can see the thermals
-# lean — the seed of the organized, wind-sheared convection that dominates the
-# lead and Norway cases.
+# In both runs the heating is not prescribed: we prescribe a warm **surface
+# temperature** `T₀` and let Breeze compute the turbulent fluxes with **bulk
+# aerodynamic formulae** (the same approach as Breeze's
+# `prescribed_sea_surface_temperature` example, and how real atmosphere models exchange
+# heat and momentum with the ocean):
 #
-# This is a **2D** simulation: one horizontal direction `x`, the vertical `z`, and
-# `Flat` in `y`. Two dimensions cannot capture real turbulence (vortex stretching
-# is a 3D process), so treat this as a *conceptual cartoon* of convection — cheap
-# enough to run in a couple of minutes, rich enough to show thermals, plumes, and
-# the deepening boundary layer. The lead and Norway cases are the real 3D physics.
+# ```math
+# Jᶿ = -ρ₀\, Cᵀ\, |ΔU|\, (θ - T_0), \qquad τˣ = -ρ₀\, Cᴰ\, |ΔU|\, (u - u_0),
+# ```
+#
+# with wind- and stability-dependent exchange coefficients (Large & Yeager 2009) and a
+# temporally filtered surface wind. Because the surface is warmer than the air, the
+# exchange is unstable-enhanced and heat flows upward — driving the convection.
+#
+# Both runs are **2D** (`Flat` in `y`): cheap enough to run in minutes, rich enough to
+# show thermals, waves, and the lee-side wake. Real turbulence is 3D — treat these as
+# conceptual cartoons that the later 3D cases make rigorous.
 
 using Breeze
 using Breeze: BulkDrag, BulkSensibleHeatFlux, PolynomialCoefficient, FilteredSurfaceVelocities
 using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using Printf
 using Random
 
-include(joinpath(@__DIR__, "00_common.jl"))
-using .ThursdayLES
-
-Random.seed!(1994)
-
-arch = choose_architecture()
-gpu_report()
-Oceananigans.defaults.FloatType = Float32
+arch = GPU()
+Oceananigans.defaults.FloatType = Float64
 nothing #hide
 
-# ## Domain and grid
+# ## The shared setup
 #
-# A 6 km × 2 km vertical slice at uniform ≈ 23 m × 16 m resolution: 256 × 128 cells.
-# `Periodic` in `x` (an infinite repeating slice), `Flat` in `y` (no `y`-dependence
-# — this is what makes it 2D), and `Bounded` in `z`.
+# A 24 km × 8 km vertical slice. The top 2.5 km is a sponge that absorbs the mountain
+# waves before they reflect off the model top. Both runs use a terrain-following grid —
+# for the flat run the "terrain" is simply `h(x) = 0`, so the grids (and everything
+# else) are identical except for the hill.
 
-Lx = 6kilometers
-Lz = 2kilometers
+Lx = 24kilometers
+Lz = 8kilometers
 
-Nx = 256
-Nz = 128
+Nx = 384
+Nz = 160
 
-memory_report(Nx, 1, Nz; nfields = 5)
+# Atmosphere: a stably stratified profile with constant buoyancy frequency
+# `N = 0.01 s⁻¹` — the resistance the surface heating must erode (it sets the
+# boundary-layer depth) and the medium the mountain waves propagate in. A mean wind
+# `U₀` advects the thermals and forces flow over the hill.
 
-grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
-                       x = (0, Lx), z = (0, Lz),
-                       topology = (Periodic, Flat, Bounded))
+p₀ = 1e5     # Pa, surface pressure
+θ₀ = 290     # K, surface potential temperature
+N² = 1e-4    # s⁻², stratification (N = 0.01 s⁻¹)
+g  = 9.81
+U₀ = 8       # m s⁻¹, mean wind
 
-# ## Reference state and anelastic dynamics
-#
-# The anelastic approximation filters sound waves while retaining buoyancy and
-# stratification — the standard choice for boundary-layer LES. We anchor it on a
-# surface pressure of 1000 hPa and a reference potential temperature of 290 K.
+potential_temperature_profile(z) = θ₀ * exp(N² * z / g)
 
-p₀ = 1e5   # Pa
-θ₀ = 290   # K
+# The Witch of Agnesi hill. With `h₀ = 600 m`, `N = 0.01 s⁻¹`, and `U₀ = 8 m s⁻¹` the
+# nondimensional mountain height is `M = N h₀ / U₀ = 0.75` — high enough for vigorous
+# waves and a disturbed lee, low enough that the flow still makes it over the crest.
 
-constants = ThermodynamicConstants()
-reference_state = ReferenceState(grid, constants,
-                                 surface_pressure = p₀,
-                                 potential_temperature = θ₀)
-dynamics = AnelasticDynamics(reference_state)
+h₀ = 600     # m, hill height
+a  = 1kilometer   # hill half-width
+
+agnesi(x) = h₀ / (1 + x^2 / a^2)
+flat(x) = zero(x)
 nothing #hide
 
-# ## Surface fluxes from a prescribed sea surface temperature
+# The warm surface: `T₀ = θ₀ + 5 K`, an unstable air–sea contrast that drives an
+# upward sensible heat flux of order 10² W m⁻² once the wind is accounted for.
+
+T₀ = θ₀ + 5   # K, prescribed surface temperature
+Uᵍ = 1e-2     # m s⁻¹, gustiness floor for the bulk formulae
+
+# ## One function, two boundaries
 #
-# Rather than *prescribe* the surface heat flux, we prescribe a warm **sea surface
-# temperature** `T₀` and let Breeze compute the turbulent fluxes with **bulk
-# aerodynamic formulae** — the same approach as Breeze's `prescribed_sea_surface_temperature`
-# example, and how real atmosphere models exchange heat and momentum with the ocean.
-# The sensible-heat and momentum fluxes follow
-#
-# ```math
-# Jᶿ = -ρ₀\, Cᵀ\, |ΔU|\, (θ - T_0), \qquad τˣ = -ρ₀\, Cᴰ\, |ΔU|\, (u - u_0),
-# ```
-#
-# where `|ΔU|` is the near-surface wind speed (with a small gustiness floor `Uᵍ`) and
-# `Cᵀ, Cᴰ` are wind- and stability-dependent exchange coefficients. Because the
-# surface is **warmer than the air** (`T₀ = 295 K` vs the `θ₀ = 290 K` airmass), the
-# air–sea contrast is unstable: heat flows upward and drives the convection. The flux
-# is no longer a fixed number — it is *computed every step* from the evolving wind and
-# air temperature, and the unstable stratification enhances the exchange coefficients
-# (Large & Yeager 2009).
+# Everything for a single run: terrain-following grid, compressible dynamics with
+# acoustic substepping (the terrain-capable solver), bulk surface fluxes, initial
+# conditions, time stepping, and output. The *only* input that differs between the
+# two runs is the hill function.
 
-T₀ = 295    # K, prescribed sea surface temperature (≈ 5 K warmer than the air → unstable)
-Uᵍ = 1e-2   # m s⁻¹, gustiness floor so the fluxes stay finite at vanishing wind
+function run_convection(name, hill)
+    @info "=== Convection over $(name) topography ==="
 
-# Wind- and stability-dependent bulk coefficients (Large & Yeager 2009). The
-# near-surface wind is temporally filtered so turbulent fluctuations don't alias into
-# the bulk fluxes (Shin, Yang & Howland 2025). In 2D (`Flat` in `y`) only the `ρu`
-# momentum component exists, so we only drag `ρu`.
+    z_faces = TerrainFollowingVerticalDiscretization(collect(range(0, Lz, length = Nz + 1));
+                  formulation = TwoLevelDecay(large_scale_height = Lz / 2,
+                                              small_scale_height = Lz / 8))
 
-coef = PolynomialCoefficient(roughness_length = 1.5e-4)
-filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 1hour)
+    grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
+                           x = (-Lx/2, Lx/2), z = z_faces,
+                           topology = (Periodic, Flat, Bounded))
 
-ρθ_bcs = FieldBoundaryConditions(bottom =
-    BulkSensibleHeatFlux(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
-ρu_bcs = FieldBoundaryConditions(bottom =
-    BulkDrag(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
+    materialize_terrain!(grid, hill)
 
-U₀ = 2   # m s⁻¹, light mean wind (initial condition; also feeds the bulk fluxes)
+    time_discretization = SplitExplicitTimeDiscretization(acoustic_cfl = 0.5,
+                              sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers))
 
-# ## Model
-#
-# 9th-order WENO advection keeps the thermals crisp with low numerical dissipation.
-# We use **no explicit subgrid closure**: at this resolution WENO's own dissipation
-# acts as an implicit LES, the same choice as Breeze's prescribed-SST example. Dry:
-# no microphysics, no moisture — the cleanest possible convection demo.
+    dynamics = CompressibleDynamics(time_discretization;
+                                    slope_stencil = SlopeInsideInterpolation(),
+                                    surface_pressure = p₀,
+                                    reference_potential_temperature = potential_temperature_profile)
 
-advection = WENO(order = 9)
+    ## The same bulk surface fluxes for both runs: sensible heat from the warm surface,
+    ## and a bulk drag. The exchange coefficients respond to wind and stability.
+    coef = PolynomialCoefficient(roughness_length = 1.5e-4)
+    filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 1hour)
 
-model = AtmosphereModel(grid; dynamics, advection,
-                        boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
+    ρθ_bcs = FieldBoundaryConditions(bottom =
+        BulkSensibleHeatFlux(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
+    ρu_bcs = FieldBoundaryConditions(bottom =
+        BulkDrag(coefficient = coef; gustiness = Uᵍ, surface_temperature = T₀, filtered_velocities))
 
-# ## Initial conditions
-#
-# We start from a weakly **stably stratified** atmosphere, `θ(z) = θ₀ + Γ z` with
-# `Γ = 0.003 K m⁻¹`. Stable stratification is the resistance the surface heating
-# must overcome: thermals rise until they reach air as warm as themselves, which
-# is what sets the boundary-layer depth and ultimately `w★`. We seed turbulence
-# with small random `θ` perturbations in the lowest ≈ 300 m, and set the wind to
-# the uniform `U₀`.
+    model = AtmosphereModel(grid; dynamics, advection = WENO(order = 9),
+                            timestepper = :AcousticRungeKutta3,
+                            boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs))
 
-Γ = 0.003   # K m⁻¹, background lapse rate (stable)
-δθ = 0.1    # K, perturbation amplitude
-zδ = 300    # m, perturbation depth
+    ## Hydrostatically balanced initial state (essential on terrain-following grids),
+    ## the stable θ profile, the mean wind, and small near-surface θ perturbations to
+    ## seed the convection.
+    Random.seed!(1994)
+    δθ = 0.1     # K, perturbation amplitude
+    zδ = 400     # m, perturbation depth
+    θᵢ(x, z) = potential_temperature_profile(z) + δθ * (rand() - 0.5) * (z < zδ)
 
-θᵣ(z) = θ₀ + Γ * z
+    set!(model, ρ = model.dynamics.terrain_reference_density,
+         θ = θᵢ, u = U₀, w = 0, enforce_mass_conservation = false)
+    Oceananigans.TimeSteppers.update_state!(model)
 
-ϵ() = rand() - 0.5
-θᵢ(x, z) = θᵣ(z) + δθ * ϵ() * (z < zδ)
+    ## The acoustic substepper handles the sound waves, so the outer step follows the
+    ## advective CFL — the wizard targets cfl = 1.
+    simulation = Simulation(model; Δt = 1.0, stop_time = 2hours)
+    conjure_time_step_wizard!(simulation, cfl = 1.0)
+    Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 
-set!(model, θ = θᵢ, u = U₀)
+    wall_clock = Ref(time_ns())
+    function progress(sim)
+        elapsed = 1e-9 * (time_ns() - wall_clock[])
+        @info @sprintf("[%s] Iter %d, t %s, Δt %s, wall %s, max|w| %.2e m/s",
+                       name, iteration(sim), prettytime(sim), prettytime(sim.Δt),
+                       prettytime(elapsed), maximum(abs, sim.model.velocities.w))
+        return nothing
+    end
+    add_callback!(simulation, progress, IterationInterval(200))
 
-# ## Simulation
-#
-# Adaptive time stepping at CFL 0.7, integrated for 2 hours — long enough for the
-# convective boundary layer to spin up and deepen through several turnovers
-# (`hᵢ/w★ ≈ 8 min`). A NaN check guards against blow-up, and a progress callback
-# prints the maximum vertical velocity, which should grow toward ≈ `w★`.
+    ## 2D already (`Flat` in `y`): save w and θ every 30 s for the animation.
+    w = model.velocities.w
+    θ = liquid_ice_potential_temperature(model)
+    simulation.output_writers[:slices] = JLD2Writer(model, (; w, θ);
+        filename = "$(name)_convection.jld2", schedule = TimeInterval(30seconds),
+        overwrite_existing = true)
 
-simulation = Simulation(model; Δt = 0.5, stop_time = 2hours)
-conjure_time_step_wizard!(simulation, cfl = 0.7, max_Δt = 5.0)
-Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
-
-wall_clock = Ref(time_ns())
-function progress(sim)
-    wmax = maximum(abs, sim.model.velocities.w)
-    elapsed = 1e-9 * (time_ns() - wall_clock[])
-    @info @sprintf("Iter %d, t %s, Δt %s, wall %s, max|w| %.2e m/s",
-                   iteration(sim), prettytime(sim), prettytime(sim.Δt),
-                   prettytime(elapsed), wmax)
+    run!(simulation)
+    @info "$(name) run complete."
     return nothing
 end
-add_callback!(simulation, progress, IterationInterval(100))
 
-# ## Outputs
+# ## Run both
 #
-# Because the grid is `Flat` in `y`, the vertical velocity `w` and the
-# liquid-ice potential temperature `θ` are already 2D `x–z` fields — no slicing
-# needed. We save both every 30 seconds for the animation.
+# The flat control first, then the mountain. These are the only expensive steps and the
+# only ones that do **not** run during the documentation build — they run ahead of time
+# on a GPU and cache their output; the
+# [visualization page](05_intro_atmosphere_convection_viz.md) renders the comparison
+# live from that cached output.
 
-w = model.velocities.w
-θ = liquid_ice_potential_temperature(model)
+run_convection("flat", flat)
+run_convection("agnesi", agnesi)
 
-outputs = (; w, θ)
-
-simulation.output_writers[:slices] = JLD2Writer(model, outputs;
-    filename = "free_convection.jld2", schedule = TimeInterval(30seconds), overwrite_existing = true)
-
-# ## Go time
-#
-# This is the one expensive step, and the only one that does **not** run during the
-# documentation build — it runs ahead of time on a GPU and caches its output. The
-# [visualization page](05_intro_atmosphere_convection_viz.md) then loads that cached
-# output and renders the figures and animation live when the docs are built, so what
-# you see there is the genuine production-resolution result.
-
-run!(simulation)
-
-@info "Intro convection complete"
+@info "Intro atmosphere case complete (flat + agnesi)."
 nothing #hide
 
 # ## References
 #
-# - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for
-#   the unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213.
-#   <https://doi.org/10.1175/1520-0469(1970)027%3C1211:CVATSF%3E2.0.CO;2> —
-#   defines `w★`, the convective velocity scale used here and throughout the
-#   atmosphere cases.
-#
+# - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for the
+#   unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213 — the convective
+#   velocity scale `w★` for the thermals.
 # - **Large, W. G., & Yeager, S. G. (2009).** The global climatology of an
-#   interannually varying air–sea flux data set. *Climate Dynamics*, 33, 341–364.
-#   <https://doi.org/10.1007/s00382-008-0441-3> — the wind- and stability-dependent
-#   bulk exchange coefficients used by the surface flux formulae here.
+#   interannually varying air–sea flux data set. *Climate Dynamics*, 33, 341–364 —
+#   the wind- and stability-dependent bulk exchange coefficients.
+# - **Smith, R. B. (1989).** Hydrostatic airflow over mountains. *Adv. Geophys.*, 31,
+#   1–41 — `M = N h / U` and the mountain-wave regimes the Agnesi run explores.
 #
 # !!! note "Why 2D?"
-#     This example is two-dimensional for speed and clarity: it runs in a couple of
-#     minutes and makes individual thermals easy to see. Real turbulence is
-#     three-dimensional — 2D suppresses vortex stretching and the energy cascade, so
-#     the thermal *structure* here is schematic. The sea-ice lead (case 1) and the
-#     coastal Norway run (case 3) are the genuine 3D large-eddy simulations.
+#     Both runs are two-dimensional for speed and clarity. Real turbulence is 3D — 2D
+#     suppresses vortex stretching, so treat the structures as schematic. The sea-ice
+#     lead (case 1) and coastal Norway (case 3) are the genuine 3D LES.

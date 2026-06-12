@@ -103,18 +103,21 @@ ocean_grid = RectilinearGrid(arch; size = (Nx, Nz_o), halo = (5, 5),
 # The atmosphere is moist by default (warm-phase saturation-adjustment microphysics),
 # so if the rising air saturates it can form cloud. We give it a reference potential
 # temperature of 290 K (≈ 16.9 °C) and a Smagorinsky–Lilly LES closure, and initialize
-# it isothermal at the reference state with a light 1 m s⁻¹ wind (so the bulk formulae
-# have a nonzero wind to work with, and the thermals lean).
+# it isothermal at the reference state with a `U₀ = 8 m s⁻¹` mean wind. The wind
+# matters twice: the bulk air–sea fluxes scale with wind speed (8 m s⁻¹ over the warm
+# filament yields ≈ 10² W m⁻² of combined sensible + latent heat loss — a realistic
+# marine-cold-air-outbreak magnitude), and the coupled wind stress stirs the ocean's
+# surface directly. Both are what make the *ocean's* turbulence vigorous enough to see.
 
 atmosphere = atmosphere_simulation(atmos_grid;
                                    potential_temperature = 290,
                                    closure = SmagorinskyLilly())
 
 ## Initialize the atmosphere at its reference potential-temperature profile with a
-## light mean wind. `set!` acts on the wrapped `atmosphere.model`.
+## mean wind. `set!` acts on the wrapped `atmosphere.model`.
 set!(atmosphere.model,
      θ = atmosphere.model.dynamics.reference_state.potential_temperature,
-     u = 1)
+     u = 8)
 
 # ## The ocean component, with a warm filament
 #
@@ -123,11 +126,24 @@ set!(atmosphere.model,
 # `(T, S)` tracers and a TEOS-10 seawater equation of state. Like the atmosphere, its
 # *top* boundary conditions are blank coupling fields the coupler fills.
 #
-# The initial ocean temperature is a **warm Gaussian filament**: a near-neutral
-# background sea surface (`T_ambient ≈` the 16.9 °C airmass) with a warm ribbon of
-# water centered in the domain, peaking `ΔT` warmer. That warm band is the engine —
-# it is where the air–sea contrast is large, so it is where convection lights up on
-# both sides of the interface.
+# The initial ocean temperature is a **surface-trapped warm filament over a weakly
+# stratified interior**: a 25 m mixed layer at the near-neutral background temperature
+# (`T_ambient ≈` the 16.9 °C airmass), weak thermal stratification beneath it, and a
+# warm ribbon of water centered in the domain, peaking `ΔT` warmer at the surface and
+# decaying over the top ~15 m. That structure makes the ocean's response *visible*:
+#
+# - The warm band is where the air–sea contrast is large, so the heat loss (and the
+#   convection it drives) is concentrated there.
+# - Because the anomaly is surface-trapped, the cooling **erodes a warm layer** —
+#   convective plumes punch into the mixed layer and deepen it against the weak
+#   stratification below, the classic mixed-layer-deepening signature.
+# - The filament's flanks carry a horizontal buoyancy gradient, so the light water
+#   also **slumps and spreads** along the surface while it convects.
+#
+# (One thing 2D *cannot* do is baroclinic instability — the eddying breakup of a front
+# needs the along-front dimension. The 3D warm-filament case (08) has exactly that
+# geometry; spinning its ocean up to an eddying state before coupling is the natural
+# extension, at the cost of an ocean-only spin-up integration.)
 #
 # !!! warning "Units: the ocean is in °C, the atmosphere is in K"
 #     The ocean's TEOS-10 equation of state and the air–sea coupler both expect the
@@ -140,13 +156,16 @@ set!(atmosphere.model,
 ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic)
 
 T_ambient = 17     # °C, background sea surface ≈ the 290 K (≈ 16.9 °C) airmass → near-neutral
-ΔT        = 3      # °C, filament warm anomaly (peak ≈ 20 °C, ≈ 3 K warmer than the air)
+ΔT        = 6      # °C, filament warm anomaly (peak ≈ 23 °C, ≈ 6 K warmer than the air)
 x₀        = Lx / 2 # filament center
 σ         = 700    # m, filament Gaussian half-width scale (≈ 1.6 km full width)
+h_ml      = 25     # m, initial mixed-layer depth
+dTdz      = 0.05   # K m⁻¹, weak interior stratification below the mixed layer
+δ_fil     = 15     # m, vertical trapping scale of the filament's warm anomaly
 
-## A warm Gaussian filament, uniform with depth; uniform salinity. `ocean_simulation`
-## returns a `Simulation`, so `set!` targets `ocean.model`.
-Tᵢ(x, z) = T_ambient + ΔT * exp(-(x - x₀)^2 / (2σ^2))
+## Surface-trapped warm filament over a weakly stratified interior; uniform salinity.
+## `ocean_simulation` returns a `Simulation`, so `set!` targets `ocean.model`.
+Tᵢ(x, z) = T_ambient + dTdz * min(z + h_ml, 0) + ΔT * exp(-(x - x₀)^2 / (2σ^2)) * exp(z / δ_fil)
 set!(ocean.model, T = Tᵢ, S = 35)
 
 # ## Couple them
@@ -163,12 +182,13 @@ model = AtmosphereOceanModel(atmosphere, ocean)
 #
 # The coupled model is stepped by a single outer `Simulation`. A fixed 2 s step keeps
 # the vigorous, localized ocean convection over the warm filament within CFL on the
-# thin 100 m ocean grid; we integrate for 2 hours of simulated time, long enough to
-# spin up convection over the filament and to watch the surface fluxes develop. A
-# progress callback prints the peak vertical velocity in each fluid and the peak
-# sensible heat flux.
+# thin 100 m ocean grid. We integrate for **4 hours**: ocean turbulence develops on a
+# slower clock than the air above it (the same heat flux moves a far denser fluid), so
+# the longer run is what gives the plumes time to erode the warm layer and visibly
+# deepen the mixed layer. A progress callback prints the peak vertical velocity in
+# each fluid and the peak sensible heat flux.
 
-simulation = Simulation(model; Δt = 2, stop_time = 2hours)
+simulation = Simulation(model; Δt = 2, stop_time = 4hours)
 
 wall_clock = Ref(time_ns())
 function progress(sim)

@@ -45,11 +45,7 @@ using NumericalEarth
 using Oceananigans
 using Oceananigans.Units
 using Oceananigans.Grids: xnode, ynode
-using Breeze: PiecewiseStretchedDiscretization, CompressibleDynamics,
-              SplitExplicitTimeDiscretization, UpperSponge
-using Breeze.TerrainFollowingDiscretization: TerrainFollowingVerticalDiscretization,
-                                             TwoLevelDecay, SlopeInsideInterpolation,
-                                             materialize_terrain!
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using JLD2
 using Printf
 using Random
@@ -64,7 +60,7 @@ checkpoint(msg) = (@info @sprintf("⏱ %-26s %8.1f s", msg, 1e-9 * (time_ns() - 
 
 Random.seed!(100)
 
-arch = choose_architecture()
+arch = GPU()
 gpu_report()
 ## The coupled `EarthSystemModel` clock follows the atmosphere; we run the whole
 ## stack in Float32 (the terrain compressible solver's native precision).
@@ -272,11 +268,13 @@ checkpoint("coupled model built")
 # ## Simulation
 #
 # The split-explicit scheme advances on a large advective outer step while acoustic
-# substeps handle the fast sound waves. We run **90 min** so the mountain-wave field,
-# the gap jets, and the convective plumes over the wet fjords develop.
+# substeps handle the fast sound waves — so the outer step is limited only by the
+# advective CFL, and the wizard can target `cfl = 1`. We run **3 hours** so the
+# mountain-wave field, the gap jets, and the convective plumes over the wet fjords
+# develop fully and the lee-side eddy shedding becomes statistically steady.
 
-simulation = Simulation(model; Δt = 1.0, stop_time = 90minutes)
-conjure_time_step_wizard!(simulation, cfl = 0.5, max_Δt = 10.0)
+simulation = Simulation(model; Δt = 1.0, stop_time = 3hours)
+conjure_time_step_wizard!(simulation, cfl = 1.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 
 wall_clock = Ref(time_ns())

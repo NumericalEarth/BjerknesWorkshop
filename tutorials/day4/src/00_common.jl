@@ -25,7 +25,7 @@ using CUDA
 using Oceananigans
 
 export write_once!,
-       choose_architecture, gpu_report,
+       gpu_report,
        smooth_step, top_hat, lead_mask, edge_taper,
        memory_report, format_gib, bilinear
 
@@ -35,23 +35,8 @@ export write_once!,
 # case from its own artifacts directory, so those bare filenames land there with
 # no path bookkeeping; run a case by hand and the files appear next to you.
 
-# ## Architecture selection
-#
-# Production runs are GPU runs. We probe CUDA at runtime and fall back to CPU so
-# the scripts still construct on a head node with no device. Importing CUDA at
-# module scope (not inside the function) avoids a world-age error when querying it.
-
-function choose_architecture()
-    if CUDA.functional()
-        CUDA.allowscalar(false)
-        return GPU()
-    else
-        @warn "CUDA not functional; running on CPU."
-        return CPU()
-    end
-end
-
-# A one-shot device report for the top of a run log. No-op (with a note) on CPU.
+# A one-shot device report for the top of a run log. (The cases construct their
+# architecture directly with `GPU()` — every Thursday run is a GPU run.)
 
 function gpu_report()
     if CUDA.functional()

@@ -29,4 +29,7 @@ CondaPkg.toml
 tutorials/day1/.CondaPkg/*
 tutorials/day1/CondaPkg.toml
 tutorials/day2/.CondaPkg/*
-tutorials/day2/CondaPkg.toml
+tutorials/day2/CondaPkg.toml# simulation output / render leftovers
+*.jld2
+docs/src/day*/*.png
+docs/src/day*/*.mp4

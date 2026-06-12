@@ -34,7 +34,9 @@
 # All modes write the *same* artifact schema, so `03_...` does not care which was
 # used.
 
+using Oceananigans
 using Oceananigans.Units
+using NumericalEarth
 using JLD2
 using Printf
 using Random
@@ -108,19 +110,25 @@ end
 # ## Real Kartverket DTM (via the custom NumericalEarth dataset)
 #
 # Build a `Metadatum` for a metric window centered on the domain (`halfwidth = Lx/2`)
-# at the case resolution, fetch the DTM via WCS, and sample its height function onto
-# the case `(x, y)` grid (box-centred metres). Kartverket returns ocean as 0, so the
-# shared `h_raw .> 0` land mask below works directly. No reprojection — the DTM is
-# already in the UTM 33N metric frame the LES grid uses.
+# at the case resolution, fetch the DTM via WCS, and regrid it onto the case grid with
+# NumericalEarth's **`regrid_topography`** — the same pipeline used for ETOPO/GEBCO,
+# dispatching on the Kartverket metadatum (both the DTM window and the LES grid are
+# metric UTM 33N, recentred, so the interpolation is coordinate-consistent). Kartverket
+# returns ocean as 0, so the shared `h_raw .> 0` land mask below works directly.
 
 function prepare_from_kartverket(x, y)
-    @info "Fetching Kartverket DTM via WCS and sampling onto the case grid…" center_lat center_lon
+    @info "Fetching Kartverket DTM via WCS and regridding onto the case grid…" center_lat center_lon
     metadatum = KartverketDEM.kartverket_metadatum(; center_lat, center_lon,
                                                    halfwidth = Float64(Lx / 2),
                                                    resolution = Float64(Δ))
-    h_fun = KartverketDEM.kartverket_height_function(metadatum)   # box-centred metric coords
     Nx, Ny = length(x), length(y)
-    return Float64[h_fun(x[i], y[j]) for i in 1:Nx, j in 1:Ny]
+    Δx = x[2] - x[1]; Δy = y[2] - y[1]
+    target_grid = RectilinearGrid(CPU(); size = (Nx, Ny), halo = (3, 3),
+                                  x = (x[1] - Δx/2, x[end] + Δx/2),
+                                  y = (y[1] - Δy/2, y[end] + Δy/2),
+                                  topology = (Bounded, Bounded, Flat))
+    h = regrid_topography(target_grid, metadatum)
+    return Float64.(Array(interior(h, :, :, 1)))
 end
 
 # ## Synthetic Lofoten-flavored terrain (dependency-free fallback)

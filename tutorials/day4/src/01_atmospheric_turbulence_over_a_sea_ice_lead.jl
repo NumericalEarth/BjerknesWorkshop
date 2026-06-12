@@ -61,6 +61,7 @@ using Breeze: BulkDrag, BulkSensibleHeatFlux, BulkVaporFlux, PolynomialCoefficie
 using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using Printf
 using Random
 
@@ -69,7 +70,7 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-arch = choose_architecture()
+arch = GPU()
 gpu_report()
 Oceananigans.defaults.FloatType = Float32
 FT = Float32

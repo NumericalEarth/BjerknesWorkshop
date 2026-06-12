@@ -37,14 +37,19 @@ using Downloads
 using Printf
 using Statistics
 
+using Oceananigans
 using NumericalEarth
-using NumericalEarth.DataWrangling: AbstractStaticBathymetry
+using NumericalEarth.DataWrangling: AbstractStaticBathymetry, Metadata
 
 import NumericalEarth.DataWrangling:
     default_download_directory,
     metadata_filename,
     dataset_variable_name,
-    metadata_url
+    metadata_url,
+    construct_native_grid,
+    validate_dataset_coverage
+
+import NumericalEarth: regrid_topography, regrid_bathymetry
 
 export KartverketDTM, KartverketWindow, kartverket_metadatum,
        latlon_to_utm33n, kartverket_topography, kartverket_height_function
@@ -279,6 +284,67 @@ function kartverket_height_function(metadatum::NumericalEarth.DataWrangling.Meta
     N₀ = metadatum.region.center_northing
     interp = _bilinear(h, xs, ys)
     return recenter ? (x, y) -> interp(x + E₀, y + N₀) : interp
+end
+
+# ============================================================================
+# `regrid_topography` compatibility (NumericalEarth.Bathymetry)
+# ============================================================================
+#
+# NumericalEarth's regridding pipeline (`regrid_bathymetry` → `regrid_topography`)
+# needs three things from a dataset: a *native grid*, the NetCDF *variable name*,
+# and a *coverage check*. The DTM window and the LES grid are both metric and
+# rectilinear (UTM 33N metres, recentred on the window), so Oceananigans'
+# `interpolate!` regrids between them directly — no lat–lon detour.
+
+dataset_variable_name(m::Metadata{<:KartverketDTM}) = dataset_variable_name(m.dataset)
+
+## The native grid of the windowed DTM: one cell per DTM pixel, centres at the
+## pixel coordinates, recentred so (0, 0) is the window centre — the same frame
+## the LES grid uses. Requires the file (downloads on demand; idempotent).
+function construct_native_grid(metadatum::Metadata{<:KartverketDTM}, region::KartverketWindow,
+                               arch; halo = (10, 10, 1))
+    filepath = Downloads.download(metadatum)
+    x, y = NCDataset(filepath) do ds
+        Array{Float64}(ds["x"][:]), Array{Float64}(ds["y"][:])
+    end
+    (length(y) > 1 && y[2] < y[1]) &&
+        error("Kartverket WCS NetCDF has descending northings; the regrid pipeline assumes " *
+              "ascending coordinates. Re-fetch the window (recent WCS responses are ascending).")
+    Δx = (x[end] - x[1]) / (length(x) - 1)
+    Δy = (y[end] - y[1]) / (length(y) - 1)
+    E₀, N₀ = region.center_easting, region.center_northing
+    return RectilinearGrid(arch; size = (length(x), length(y)), halo = (halo[1], halo[2]),
+                           x = (x[1] - Δx/2 - E₀, x[end] + Δx/2 - E₀),
+                           y = (y[1] - Δy/2 - N₀, y[end] + Δy/2 - N₀),
+                           topology = (Bounded, Bounded, Flat))
+end
+
+## The window must cover the target grid (both in recentred metric coordinates).
+function validate_dataset_coverage(grid, metadatum::Metadata{<:KartverketDTM})
+    w = metadatum.region
+    x₋, x₊ = Oceananigans.Grids.x_domain(grid)
+    y₋, y₊ = Oceananigans.Grids.y_domain(grid)
+    if x₋ < -w.halfwidth || x₊ > w.halfwidth || y₋ < -w.halfwidth || y₊ > w.halfwidth
+        error("Target grid ($(x₋)..$(x₊), $(y₋)..$(y₊)) m exceeds the Kartverket window " *
+              "(±$(w.halfwidth) m). Fetch a wider window with kartverket_metadatum.")
+    end
+    return nothing
+end
+
+"""
+    regrid_topography(target_grid, metadatum::Metadata{<:KartverketDTM}; kw...)
+
+Regrid the windowed Kartverket DTM onto `target_grid` (a metric `RectilinearGrid`
+recentred on the window) with NumericalEarth's bathymetry-regridding pipeline, then
+clamp to land elevation (ocean → 0). `major_basins` is disabled — this is terrain,
+not bathymetry. Returns a `Field{Center, Center, Nothing}` on `target_grid`.
+"""
+function regrid_topography(target_grid, metadatum::Metadata{<:KartverketDTM};
+                           interpolation_passes = 1, cache = true)
+    elevation = regrid_bathymetry(target_grid, metadatum;
+                                  interpolation_passes, major_basins = Inf, cache)
+    parent(elevation) .= max.(parent(elevation), 0)   # land elevation; ocean → 0
+    return elevation
 end
 
 ## Bilinear interpolation over a regular (xs, ys) grid; clamps to the domain edge.

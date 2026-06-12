@@ -162,12 +162,12 @@ fig
 
 # ## Animation
 #
-# We subsample to ≈90 frames (every few outputs) and play at 3 frames per second
-# (≈30 s) so the gap jets, lee eddies, and mountain-wave train read clearly while the
-# clip stays light enough to embed inline without bloating the page.
+# Every saved frame, at full playback rate — the gap jets, lee eddies, and the
+# mountain-wave train evolve smoothly instead of stuttering. The heavier frame count
+# is paid for with stronger H.264 compression (`compression` maps to ffmpeg's CRF;
+# higher = smaller file), which keeps the embedded clip page-friendly.
 
-frame_stride = max(1, Nt ÷ 90)
-record(fig, "norway.mp4", 1:frame_stride:Nt; framerate = 3) do i
+record(fig, "norway.mp4", 1:Nt; framerate = 24, compression = 30) do i
     n[] = i
 end
 nothing #hide
@@ -185,27 +185,53 @@ nothing #hide
 # `e` marks where the flow is most variable — shear layers off the peaks, separating
 # gap jets, and lee eddies.
 
-ū = sum(interior(u_xy[i], :, :, 1) for i in 1:Nt) ./ Nt
-v̄ = sum(interior(v_xy[i], :, :, 1) for i in 1:Nt) ./ Nt
-tke = sum(0.5 .* ((interior(u_xy[i], :, :, 1) .- ū).^2 .+ (interior(v_xy[i], :, :, 1) .- v̄).^2)
-          for i in 1:Nt) ./ Nt
+# The whole computation stays in Oceananigans abstractions: the time means
+# accumulate by broadcasting `Field`s, each fluctuation snapshot is an
+# `AbstractOperation` interpolated to cell centers with `@at` and materialized with
+# `compute!`, and the land/sea and elevation-bin statistics are conditional `mean`s
+# over the `tke` Field.
 
-## Bin the TKE by terrain elevation to show the enhancement quantitatively.
+using Oceananigans.AbstractOperations: @at
+
+LXu, LYu, LZu = location(u_xy)
+LXv, LYv, LZv = location(v_xy)
+ū = Field{LXu, LYu, LZu}(u_xy.grid)
+v̄ = Field{LXv, LYv, LZv}(v_xy.grid)
+for i in 1:Nt
+    ū .+= u_xy[i]
+    v̄ .+= v_xy[i]
+end
+ū ./= Nt
+v̄ ./= Nt
+
+tke = Field{Center, Center, Center}(u_xy.grid)
+for i in 1:Nt
+    eᵢ = @at (Center, Center, Center) ((u_xy[i] - ū)^2 + (v_xy[i] - v̄)^2) / 2
+    tke .+= eᵢ
+end
+tke ./= Nt
+
+## Terrain height and water fraction as conditions for the statistics (the masks come
+## from the same static fields shown in the figure).
+hgrid = [h_fun(x, y) for x in xs, y in ys, k in 1:1]
+wgrid = [1 - land_fun(x, y) for x in xs, y in ys, k in 1:1]
+
+tke_sea  = mean(tke; condition = wgrid .> 0.5)
+tke_land = mean(tke; condition = wgrid .≤ 0.5)
+@printf("Near-surface TKE: domain mean %.2f, peak %.1f m² s⁻²; land %.2f vs water %.2f m² s⁻²\n",
+        mean(tke), maximum(tke), tke_land, tke_sea)
+
+## Conditional means of the TKE Field, binned by terrain elevation.
 hmax  = maximum(hh)
 edges = range(0, hmax; length = 9)
 binmid = 0.5 .* (edges[1:end-1] .+ edges[2:end])
-tke_binned = [ (m = (hh .>= edges[k]) .& (hh .< edges[k+1]); any(m) ? mean(tke[m]) : NaN)
-               for k in 1:length(edges)-1 ]
-
-tke_sea  = mean(tke[water .> 0.5])
-tke_land = mean(tke[water .<= 0.5])
-@printf("Near-surface TKE: domain mean %.2f, peak %.1f m² s⁻²; land %.2f vs water %.2f m² s⁻²\n",
-        mean(tke), maximum(tke), tke_land, tke_sea)
+tke_binned = [mean(tke; condition = (hgrid .≥ edges[k]) .& (hgrid .< edges[k+1]))
+              for k in 1:length(edges)-1]
 
 figT = Figure(size = (1250, 520))
 axTm = Axis(figT[1, 1], xlabel = "x (km)", ylabel = "y (km)", aspect = 1,
             title = "near-surface TKE  ½⟨u′²+v′²⟩  (m² s⁻²)")
-hmT = heatmap!(axTm, xkm, ykm, tke, colormap = :inferno)
+hmT = heatmap!(axTm, xkm, ykm, interior(tke, :, :, 1), colormap = :inferno)
 contour!(axTm, xkm, ykm, hh; levels = range(200, hmax; length = 5), color = (:white, 0.45), linewidth = 0.6)
 Colorbar(figT[1, 2], hmT)
 
