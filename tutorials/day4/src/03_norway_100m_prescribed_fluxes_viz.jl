@@ -23,8 +23,8 @@ using .ThursdayLES
 
 u_xy = FieldTimeSeries("norway_slices.jld2", "u_xy")
 v_xy = FieldTimeSeries("norway_slices.jld2", "v_xy")
+w_xy = FieldTimeSeries("norway_slices.jld2", "w_xy")   # near-surface vertical velocity
 w_xz = FieldTimeSeries("norway_slices.jld2", "w_xz")
-𝒮_ts = FieldTimeSeries("norway_land.jld2", "𝒮")
 times = w_xz.times
 Nt = length(times)
 println("Loaded ", Nt, " frames spanning ", prettytime(times[1]), " – ", prettytime(times[end]))
@@ -33,19 +33,8 @@ repo = get(ENV, "THURSDAY_REPO_ROOT", pwd())
 topo = load(joinpath(repo, "thursday", "data", "norway_lofoten_100m_topography.jld2"))
 xt, yt, h_data, land_data = topo["x"], topo["y"], topo["h"], topo["land_mask"]
 
-function bilinear(arr, xs, ys)
-    x0, x1 = first(xs), last(xs); y0, y1 = first(ys), last(ys)
-    nx, ny = length(xs), length(ys)
-    dx = (x1 - x0) / (nx - 1); dy = (y1 - y0) / (ny - 1)
-    return function (x, y)
-        fx = clamp((x - x0) / dx, 0, nx - 1 - 1e-6)
-        fy = clamp((y - y0) / dy, 0, ny - 1 - 1e-6)
-        i = floor(Int, fx) + 1; j = floor(Int, fy) + 1
-        tx = fx - (i - 1); ty = fy - (j - 1)
-        @inbounds (arr[i, j]   * (1 - tx) * (1 - ty) + arr[i+1, j]   * tx * (1 - ty) +
-                   arr[i, j+1] * (1 - tx) * ty       + arr[i+1, j+1] * tx * ty)
-    end
-end
+## `bilinear` lives in ThursdayLES — the same interpolator the simulation used to
+## carve the terrain, reused here to reconstruct the static terrain/water fields.
 h_fun, land_fun = bilinear(h_data, xt, yt), bilinear(land_data, xt, yt)
 
 xs, ys, _ = nodes(u_xy)
@@ -121,18 +110,30 @@ catch err
 end
 figL
 
-# ## The terrain and the four-panel coupled flow
+# ## The terrain and the coupled flow — four views
 #
-# (top-left) terrain with the **land/water mask** — the boundary the flow reads;
-# (top-right) near-surface wind speed — gap jets threading the fjords, wakes behind the
-# islands; (bottom-left) a vertical `w` transect — the mountain-wave train under the
-# sponge; (bottom-right) surface saturation `𝒮` — wet fjords vs dry land, the moisture
-# heterogeneity driving the differential surface flux.
+# (top-left) terrain with the **land/water mask** — the boundary the flow reads. This
+# wet/dry surface forcing is what drives the differential heat/moisture flux; the
+# surface saturation itself barely changes over 90 min (the soil hydrology evolves on
+# an hours timescale), so we show it here as a *static* boundary rather than animate it.
+# (top-right) near-surface wind speed — gap jets threading between the islands, wakes
+# behind the peaks; (bottom-left) a vertical `w` transect through **the lowest 5 km**,
+# where the boundary-layer convection and the base of the mountain-wave train live;
+# (bottom-right) near-surface **vertical velocity** `w` in plan view — convective
+# plumes over the warm water and terrain-forced ascent/descent over the peaks.
+#
+# All colour limits are computed **once over the whole run** and held fixed, so the
+# colour scale does not flicker frame-to-frame.
+
+k5 = findlast(z -> z ≤ 5000, xz_z)            # crop the transect to the lowest 5 km
+speed_max = maximum(maximum(sqrt.(interior(u_xy[i], :, :, 1).^2 .+ interior(v_xy[i], :, :, 1).^2)) for i in 1:Nt)
+w_lim     = maximum(maximum(abs, interior(w_xz[i], :, 1, 1:k5)) for i in 1:Nt)
+wxy_lim   = maximum(maximum(abs, interior(w_xy[i], :, :, 1)) for i in 1:Nt)
 
 n = Observable(Nt)
 speed = @lift sqrt.(interior(u_xy[$n], :, :, 1).^2 .+ interior(v_xy[$n], :, :, 1).^2)
-wn    = @lift interior(w_xz[$n], :, 1, :)
-𝒮n    = @lift interior(𝒮_ts[$n], :, :, 1)
+wn    = @lift interior(w_xz[$n], :, 1, 1:k5)
+wxy   = @lift interior(w_xy[$n], :, :, 1)
 title = @lift "Coupled flow over Lofoten — t = " * prettytime(times[$n])
 
 fig = Figure(size = (1150, 1000))
@@ -144,17 +145,16 @@ contourf!(ax_terr, xkm, ykm, water; levels = [0.5, 1.0], colormap = [(:cyan, 0.0
 Colorbar(fig[1, 0], hmt, label = "elevation (m)")
 
 ax_spd = Axis(fig[1, 2], xlabel = "x (km)", ylabel = "y (km)", title = "near-surface wind speed (m s⁻¹)", aspect = 1)
-hms = heatmap!(ax_spd, xkm, ykm, speed, colormap = :speed)
+hms = heatmap!(ax_spd, xkm, ykm, speed, colormap = :speed, colorrange = (0, speed_max))
 Colorbar(fig[1, 3], hms)
 
-ax_w = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w transect (m s⁻¹)")
-wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
-hmw = heatmap!(ax_w, xz_x ./ 1e3, xz_z ./ 1e3, wn, colormap = :balance, colorrange = (-wlim, wlim))
+ax_w = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "z (km)", title = "w transect, lowest 5 km (m s⁻¹)")
+hmw = heatmap!(ax_w, xz_x ./ 1e3, xz_z[1:k5] ./ 1e3, wn, colormap = :balance, colorrange = (-w_lim, w_lim))
 Colorbar(fig[2, 0], hmw)
 
-ax_𝒮 = Axis(fig[2, 2], xlabel = "x (km)", ylabel = "y (km)", title = "surface saturation 𝒮 (wet fjords / dry land)", aspect = 1)
-hm𝒮 = heatmap!(ax_𝒮, xkm, ykm, 𝒮n, colormap = :dense, colorrange = (0, 1))
-Colorbar(fig[2, 3], hm𝒮)
+ax_wxy = Axis(fig[2, 2], xlabel = "x (km)", ylabel = "y (km)", title = "near-surface vertical velocity w (m s⁻¹)", aspect = 1)
+hmwxy = heatmap!(ax_wxy, xkm, ykm, wxy, colormap = :balance, colorrange = (-wxy_lim, wxy_lim))
+Colorbar(fig[2, 3], hmwxy)
 
 save("norway.png", fig)
 fig

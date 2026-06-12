@@ -27,7 +27,7 @@ using Oceananigans
 export write_once!,
        choose_architecture, gpu_report,
        smooth_step, top_hat, lead_mask, edge_taper,
-       memory_report, format_gib
+       memory_report, format_gib, bilinear
 
 # Each case writes its output with a plain, descriptive filename (e.g.
 # `"free_convection.jld2"`) into the current working directory — exactly as a
@@ -105,6 +105,29 @@ end
     ty = smooth_step(y + Ly/2 - taper_width, taper_width/3) *
          smooth_step(Ly/2 - taper_width - y, taper_width/3)
     return tx * ty
+end
+
+# ## Gridded-data lookup
+#
+# `bilinear(arr, xs, ys)` returns a function `(x, y) -> value` that bilinearly
+# interpolates the array `arr` defined on the (sorted, evenly spaced) coordinate
+# vectors `xs`, `ys`, clamping to the domain edges. The Norway case uses it to
+# evaluate cached topography / land-mask arrays at arbitrary grid points — both
+# when carving the terrain (simulation) and when reconstructing the static fields
+# for the figures (visualization).
+
+function bilinear(arr, xs, ys)
+    x0, x1 = first(xs), last(xs); y0, y1 = first(ys), last(ys)
+    nx, ny = length(xs), length(ys)
+    dx = (x1 - x0) / (nx - 1); dy = (y1 - y0) / (ny - 1)
+    return function (x, y)
+        fx = clamp((x - x0) / dx, 0, nx - 1 - 1e-6)
+        fy = clamp((y - y0) / dy, 0, ny - 1 - 1e-6)
+        i = floor(Int, fx) + 1; j = floor(Int, fy) + 1
+        tx = fx - (i - 1); ty = fy - (j - 1)
+        @inbounds (arr[i, j]   * (1 - tx) * (1 - ty) + arr[i+1, j]   * tx * (1 - ty) +
+                   arr[i, j+1] * (1 - tx) * ty       + arr[i+1, j+1] * tx * ty)
+    end
 end
 
 # ## Memory accounting

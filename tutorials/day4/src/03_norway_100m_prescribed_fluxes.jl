@@ -1,4 +1,4 @@
-# # Fjords as boundary conditions: 100 m coupled air–land flow over coastal Lofoten
+# # Steep island mountains as boundary conditions: 100 m coupled air–land flow over Lofoten
 #
 # *Boundary heterogeneity writes turbulence into the fluid — case 3 of 3.*
 #
@@ -88,22 +88,8 @@ h_data = topo["h"]
 land_data = topo["land_mask"]
 @info "Loaded topography" topo_path size_h = size(h_data) source = topo["source_metadata"].source
 
-## A bilinear interpolation of the cached arrays, evaluated on the CPU when building
-## the terrain and the surface land/water fields.
-function bilinear(arr, xs, ys)
-    x0, x1 = first(xs), last(xs); y0, y1 = first(ys), last(ys)
-    nx, ny = length(xs), length(ys)
-    dx = (x1 - x0) / (nx - 1); dy = (y1 - y0) / (ny - 1)
-    return function (x, y)
-        fx = clamp((x - x0) / dx, 0, nx - 1 - 1e-6)
-        fy = clamp((y - y0) / dy, 0, ny - 1 - 1e-6)
-        i = floor(Int, fx) + 1; j = floor(Int, fy) + 1
-        tx = fx - (i - 1); ty = fy - (j - 1)
-        @inbounds (arr[i, j]   * (1 - tx) * (1 - ty) + arr[i+1, j]   * tx * (1 - ty) +
-                   arr[i, j+1] * (1 - tx) * ty       + arr[i+1, j+1] * tx * ty)
-    end
-end
-
+## `bilinear` (from ThursdayLES) interpolates the cached arrays on the CPU when
+## carving the terrain and building the surface land/water fields.
 h_fun    = bilinear(h_data, xt, yt)
 land_fun = bilinear(land_data, xt, yt)
 
