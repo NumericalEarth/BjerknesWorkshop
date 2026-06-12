@@ -65,7 +65,9 @@ function render_one(vizfile, outdir, artifacts_dir)
     for m in collect(eachmatch(r"src=\"([^\"]+\.mp4)\"", md))
         rel = m.captures[1]
         mp4 = nothing
-        for c in (joinpath(artifacts_dir, rel), joinpath(outdir, rel), rel)
+        # Prefer the movie the viz just recorded in `outdir`; only fall back to the
+        # artifacts dir. A stale movie left in the artifacts dir must never win.
+        for c in (joinpath(outdir, rel), joinpath(artifacts_dir, rel), rel)
             isfile(c) && (mp4 = c; break)
         end
         mp4 === nothing && (@warn "viz mp4 not found for embedding" rel; continue)
@@ -88,6 +90,8 @@ for day in 1:9
     outdir = joinpath(SRC_DIR, "day$day")
     for f in sort(readdir(srcdir))
         endswith(f, "_viz.jl") || continue
+        only = get(ENV, "RENDER_VIZ", "")          # e.g. RENDER_VIZ=03_norway to re-render one case
+        isempty(only) || occursin(only, f) || continue
         simbase = replace(f, "_viz.jl" => ".jl")
         adir = artifacts_dir_for(simbase)
         if adir === nothing
