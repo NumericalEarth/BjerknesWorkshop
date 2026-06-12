@@ -52,7 +52,7 @@ latitude_longitude_grid = LatitudeLongitudeGrid(size = (60, 30, 1),
 
 # ## Data on grids 
 #
-# Almost all data or arrays in SpeedyWeather.jl and Oceananigans.jl are located on these discretizations. 
+# Almost all data or arrays in SpeedyWeather.jl and Oceananigans.jl are associated with these discrete domains. 
 # In SpeedyWeather we have a `LowerTriangularArray` that hold an array and a `Spectrum` and a `Field` that hold an array and a `Grid`. 
 # In Oceananigans we just have a `Field`. Let's initialize one! 
 
