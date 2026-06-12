@@ -53,7 +53,7 @@ arch = GPU()   # CPU() also works, at reduced resolution
 # so the plotting later needs no regridding. Since the slab ocean has no vertical structure we use a single
 # vertical level, enough for the bathymetry to mark land from ocean.
 
-Nx, Ny = 180, 180
+Nx, Ny = 720, 720
 δ = 25   # half-width of the cap, in rotated degrees
 z = (-10meters, 0)
 
@@ -124,10 +124,9 @@ dynamics = SeaIceMomentumEquation(grid;
                                   rheology = ElastoViscoPlasticRheology(),
                                   solver = SplitExplicitSolver(grid; substeps = 100))
 
-sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
+sea_ice = sea_ice_simulation(grid;
                              advection = WENO(order = 7),
                              dynamics,
-                             timestepper = :ForwardEuler,
                              bottom_heat_boundary_condition)
 
 # We start the ice from the ECCO state estimate for the same date — a realistic January–February pack —
@@ -154,7 +153,7 @@ radiation  = JRA55PrescribedRadiation(arch; dir_kw...)
 
 arctic = OceanSeaIceModel(ocean, sea_ice; atmosphere, radiation)
 
-simulation = Simulation(arctic; Δt = 15minutes, stop_time = 180days)
+simulation = Simulation(arctic; Δt = 30minutes, stop_time = 180days)
 
 wall_time = Ref(time_ns())
 
