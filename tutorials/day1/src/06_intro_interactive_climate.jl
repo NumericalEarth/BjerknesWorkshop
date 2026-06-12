@@ -132,7 +132,7 @@ function animate_field(data, filename; lon=axes(data, 1), lat=axes(data, 2),
     end
 end
 
-# Now we can animate the vorticity with a single function call:
+# Now we can animate the vorticity (rendering the animation might take a bit): 
 
 n_steps = min(100, size(ds["vor"], 4))  # animate a slice of (up to) 100 time steps
 vor = nomissing(ds["vor"][:, :, i_layer, 1:n_steps], NaN)
