@@ -41,13 +41,14 @@ spectral_grid.spectrum
 
 spectral_grid.grid 
 
-# This is analogous to defining e.g. a `RectilinearGrid` or ` LatitudeLongitudeGrid` in Oceananigans.jl: 
+# This is analogous to defining e.g. a `LatitudeLongitudeGrid` in Oceananigans.jl: 
 
 latitude_longitude_grid = LatitudeLongitudeGrid(size = (60, 30, 1),
-                                                longitude = (0, 60),
-                                                latitude = (-30, 30),
                                                 z = (-1, 0),
                                                 topology = (Periodic, Bounded, Bounded))
+
+# With Oceananigans you can also define a `RectilinearGrid` for box domains or also use the LatitudeLongitudeGrid for regional problems by 
+# initializing it with latitude and longitude bounds e.g. `longitude = (0, 60)` , `latitude = (-30, 30)`.
 
 # ## Data on grids 
 #
