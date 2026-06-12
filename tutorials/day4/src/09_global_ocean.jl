@@ -46,7 +46,7 @@ Nz = 40
 depth = 5000meters
 z = ExponentialDiscretization(Nz, -depth, 0; scale = depth/4, mutable = true)
 
-underlying_grid = TripolarGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 4), z)
+underlying_grid = TripolarGrid(arch; size = (Nx, Ny, Nz), halo = (7, 7, 7), z)
 
 # (`mutable = true` makes the vertical coordinate a *z★* coordinate that breathes with the free surface —
 # relevant for tides and shelf seas, free to keep on.)
