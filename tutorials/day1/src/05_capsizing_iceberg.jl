@@ -2,33 +2,28 @@
 #
 # *Teaching the model new physics from user space.*
 #
-# Most simulations use physics the models already know. This one does not: we
-# teach Oceananigans about an object it has never heard of — a rigid, buoyant,
-# *rotating* iceberg — using nothing but the public extension points
-# (`Forcing`, `Callback`, abstract operations). The point here is less
-# the iceberg itself than the demonstration that a new piece of coupled physics —
-# a moving boundary with its own dynamics — consists in ~100 lines of ordinary Julia,
-# without touching the model source. And because we write those lines with the GPU
-# rules in mind, the same script runs unmodified on a laptop CPU and on a device.
+# Most simulations use physics the models already know. This one does not: we teach Oceananigans about an
+# object it has never heard of — a rigid, buoyant, *rotating* iceberg — using nothing but the public
+# extension points (`Forcing`, `Callback`, abstract operations). The point here is less the iceberg itself
+# than the demonstration that a new piece of coupled physics — a moving boundary with its own dynamics —
+# consists in ~100 lines of ordinary Julia, without touching the model source. And because we write those
+# lines with the GPU rules in mind, the same script runs unmodified on a laptop CPU and on a device.
 #
-# The phenomenon is worth the trouble. Icebergs calving from Greenland's outlet glaciers
-# are frequently taller than they are wide, and a floating slab with width-to-height
-# ratio below ``\epsilon \approx 0.75`` is gravitationally *unstable*: it capsizes,
-# rotating by 90° and releasing a potential energy comparable to a small earthquake —
-# the source of the teleseismic "glacial earthquakes"
-# ([Tsai and Ekström, 2007](https://doi.org/10.1029/2006JF000596)) and of local
-# tsunamis, studied in the laboratory by
-# [Burton et al. (2012)](https://doi.org/10.1029/2011JF002055). Capsize events also
-# stir and mix the fjord water column, with a possible role in bringing warm Atlantic
-# water into contact with glacier fronts.
+# The phenomenon is worth the trouble. Icebergs calving from Greenland's outlet glaciers are frequently
+# taller than they are wide, and a floating slab with width-to-height ratio below ``\epsilon \approx 0.75``
+# is gravitationally *unstable*: it capsizes, rotating by 90° and releasing a potential energy comparable to
+# a small earthquake — the source of the teleseismic "glacial earthquakes"
+# ([Tsai and Ekström, 2007](https://doi.org/10.1029/2006JF000596)) and of local tsunamis, studied in the
+# laboratory by [Burton et al. (2012)](https://doi.org/10.1029/2011JF002055). Capsize events also stir and
+# mix the fjord water column, with a possible role in bringing warm Atlantic water into contact with glacier
+# fronts.
 #
 # ## The method: volume penalization
 #
-# We represent the berg cross-section (this is a 2D, ``x``–``z`` experiment) by a smooth
-# mask ``\chi(x, z) \in [0, 1]`` and add to the momentum equations a *penalization*
-# forcing that relaxes the fluid velocity, inside the mask, toward the local rigid-body
-# velocity of the berg on a fast timescale ``\tau``
-# ([Angot et al., 1999](https://doi.org/10.1007/s002110050401)):
+# We represent the berg cross-section (this is a 2D, ``x``–``z`` experiment) by a smooth mask
+# ``\chi(x, z) \in [0, 1]`` and add to the momentum equations a *penalization* forcing that relaxes the
+# fluid velocity, inside the mask, toward the local rigid-body velocity of the berg on a fast timescale
+# ``\tau`` ([Angot et al., 1999](https://doi.org/10.1007/s002110050401)):
 #
 # ```math
 # \mathbf{F} = -\frac{\chi(x, z)}{\tau}
@@ -36,36 +31,31 @@
 # \mathbf{u}_{berg} = (U - \Omega \, \tilde z, \; W + \Omega \, \tilde x),
 # ```
 #
-# with ``(\tilde x, \tilde z)`` the position relative to the berg center and
-# ``(U, W, \Omega)`` its translational and angular velocities. The berg, in turn, obeys
-# Newton: it feels gravity, the Archimedean buoyancy of its submerged area (computed by
-# quadrature over material points, so the torque that drives the capsize comes out of
-# the geometry automatically), and the *reaction* to the penalization force — the fluid
-# pushing back. This two-way coupling is the same idea behind fluid–structure
-# interaction methods in engineering, in its simplest possible clothing.
+# with ``(\tilde x, \tilde z)`` the position relative to the berg center and ``(U, W, \Omega)`` its
+# translational and angular velocities. The berg, in turn, obeys Newton: it feels gravity, the Archimedean
+# buoyancy of its submerged area (computed by quadrature over material points, so the torque that drives the
+# capsize comes out of the geometry automatically), and the *reaction* to the penalization force — the fluid
+# pushing back. This two-way coupling is the same idea behind fluid–structure interaction methods in
+# engineering, in its simplest possible clothing.
 #
-# The choice of ``\tau`` deserves a word, because it is a genuine trade-off and not a
-# numerical afterthought. A very small ``\tau`` holds the masked fluid rigidly but acts
-# as a powerful artificial damper: every bit of relative motion in the smoothed rim of
-# the mask is destroyed within ``\tau``, and with it the rotational kinetic energy that
-# should let the berg *overshoot and rock* around its new equilibrium. A large ``\tau``
-# returns that energy to the physics — livelier wake, visible ring-down — at the price
-# of a mushier body. A few times the time step is rigid; a few tens of time steps is
-# lively; beyond that the berg turns to jelly.
+# The choice of ``\tau`` deserves a word, because it is a genuine trade-off and not a numerical afterthought.
+# A very small ``\tau`` holds the masked fluid rigidly but acts as a powerful artificial damper: every bit of
+# relative motion in the smoothed rim of the mask is destroyed within ``\tau``, and with it the rotational
+# kinetic energy that should let the berg *overshoot and rock* around its new equilibrium. A large ``\tau``
+# returns that energy to the physics — livelier wake, visible ring-down — at the price of a mushier body. A
+# few times the time step is rigid; a few tens of time steps is lively; beyond that the berg turns to jelly.
 #
-# Honesty box: this is a pedagogical model, not a validated calving simulator. The
-# nonhydrostatic model has a rigid lid (no tsunami wave — the fjord seiche is left as a
-# natural extension with `SplitExplicitFreeSurface`), we neglect the added-mass correction
-# to the berg inertia, and the penalized region drags its tracer content around. None of
-# this changes the character of the capsize.
+# Honesty box: this is a pedagogical model, not a validated calving simulator. The nonhydrostatic model has a
+# rigid lid (no tsunami wave — the fjord seiche is left as a natural extension with
+# `SplitExplicitFreeSurface`), we neglect the added-mass correction to the berg inertia, and the penalized
+# region drags its tracer content around. None of this changes the character of the capsize.
 #
 # ## Setup
 #
-# A 1.2 km × 300 m slice of quiescent, stratified fjord water. The model is a
-# `NonhydrostaticModel` — at these scales the hydrostatic
-# approximation would be exactly wrong. The architecture is chosen once, here; the
-# float type comes from the grid, and every device-side constant below is converted
-# through it (Apple GPUs, for instance, only speak `Float32`):
+# A 1.2 km × 300 m slice of quiescent, stratified fjord water. The model is a `NonhydrostaticModel` — at
+# these scales the hydrostatic approximation would be exactly wrong. The architecture is chosen once, here;
+# the float type comes from the grid, and every device-side constant below is converted through it (Apple
+# GPUs, for instance, only speak `Float32`):
 
 using Oceananigans
 using Oceananigans.Units
@@ -93,21 +83,18 @@ grid = RectilinearGrid(arch, FT,
 
 # ## The iceberg: host truth, device mirror
 #
-# The berg state lives in a `mutable struct` that the rigid-body integrator updates —
-# on the *host*. Here is the GPU subtlety this tutorial exists to teach: a mutable
-# struct is a pointer into CPU heap memory, and a GPU kernel cannot chase it — kernel
-# arguments must be `isbits` values (plain numbers, immutable structs) or device
-# arrays. So the forcing cannot simply close over `iceberg`. Instead we keep **two**
-# representations:
+# The berg state lives in a `mutable struct` that the rigid-body integrator updates — on the *host*. Here is
+# the GPU subtlety this tutorial exists to teach: a mutable struct is a pointer into CPU heap memory, and a
+# GPU kernel cannot chase it — kernel arguments must be `isbits` values (plain numbers, immutable structs) or
+# device arrays. So the forcing cannot simply close over `iceberg`. Instead we keep **two** representations:
 #
 # - the mutable struct: the truth, owned and evolved by the host;
-# - a 6-element **device array** `state` holding `(x_c, z_c, θ, U, W, Ω)`: a snapshot
-#   the kernels can read, refreshed by the callback with one `copyto!` per time step —
-#   24 bytes of traffic, irrelevant next to anything else the model does.
+# - a 6-element **device array** `state` holding `(x_c, z_c, θ, U, W, Ω)`: a snapshot the kernels can read,
+#   refreshed by the callback with one `copyto!` per time step — 24 bytes of traffic, irrelevant next to
+#   anything else the model does.
 #
-# This host-truth/device-mirror pattern is not a workaround but *the* standard idiom
-# for coupling scalar dynamics (a rigid body, a controller, an ice-sheet point model)
-# to a GPU-resident fluid:
+# This host-truth/device-mirror pattern is not a workaround but *the* standard idiom for coupling scalar
+# dynamics (a rigid body, a controller, an ice-sheet point model) to a GPU-resident fluid:
 
 mutable struct Iceberg
     xc :: FT        # center position [m]
@@ -126,11 +113,10 @@ width  = 70.0
 height = 200.0
 τ      = 2.0     # penalization timescale [s] — see the trade-off discussion above
 
-# A width-to-height ratio of 0.35 — well below the 0.75 stability threshold. Floating at
-# hydrostatic equilibrium the berg's center sits at ``z_c = (1/2 - \rho_i/\rho_o) H``
-# below the waterline. We start from an *almost vertical* position, misaligned by only
-# 2°: the instability needs nothing more than a seed, and watching it grow from nearly
-# nothing is half the lesson:
+# A width-to-height ratio of 0.35 — well below the 0.75 stability threshold. Floating at hydrostatic
+# equilibrium the berg's center sits at ``z_c = (1/2 - \rho_i/\rho_o) H`` below the waterline. We start from
+# an *almost vertical* position, misaligned by only 2°: the instability needs nothing more than a seed, and
+# watching it grow from nearly nothing is half the lesson:
 
 zc_equilibrium = (1/2 - ρᵢ/ρₒ) * height
 
@@ -139,8 +125,8 @@ iceberg = Iceberg(0, zc_equilibrium, deg2rad(2), 0, 0, 0)
 state = on_architecture(arch, FT[iceberg.xc, iceberg.zc, iceberg.θ,
                                  iceberg.U,  iceberg.W,  iceberg.Ω])
 
-# The mask: rotate into the berg frame ``(\xi, \eta)`` — the lab coordinates rotated by ``-\theta`` about
-# the center — and take a smoothed box indicator, a product of two soft steps:
+# The mask: rotate into the berg frame ``(\xi, \eta)`` — the lab coordinates rotated by ``-\theta`` about the
+# center — and take a smoothed box indicator, a product of two soft steps:
 #
 # ```math
 # \chi = \sigma\!\left(\frac{W/2 - |\xi|}{\lambda}\right)\,\sigma\!\left(\frac{H/2 - |\eta|}{\lambda}\right),
@@ -165,11 +151,10 @@ nothing #hide
 
 # ## The penalization forcing
 #
-# Two `Forcing`s relax `u` and `w` toward the rigid-body motion. The `parameters` are
-# an immutable named tuple — scalars converted to the grid's float type, plus the
-# device `state` array. When the model launches its kernels, Oceananigans `adapt`s the
-# parameters for the device, and the `state` array arrives as a device pointer the
-# kernel can legally read:
+# Two `Forcing`s relax `u` and `w` toward the rigid-body motion. The `parameters` are an immutable named
+# tuple — scalars converted to the grid's float type, plus the device `state` array. When the model launches
+# its kernels, Oceananigans `adapt`s the parameters for the device, and the `state` array arrives as a device
+# pointer the kernel can legally read:
 
 forcing_parameters = (; state, width = FT(width), height = FT(height), τ = FT(τ), λ = FT(λ))
 
@@ -189,12 +174,12 @@ u_forcing = Forcing(u_penalization, field_dependencies = :u, parameters = forcin
 w_forcing = Forcing(w_penalization, field_dependencies = :w, parameters = forcing_parameters)
 nothing #hide
 
-# The model: a strongly stratified fjord (``N^2 = 10^{-4}`` s⁻², a buoyancy period of
-# ~10 minutes), so the capsize-stirred water mass slumps back as gravity currents and,
-# on longer runs than ours, radiates internal waves:
+# The model: a strongly stratified fjord (``N^2 = 10^{-4}`` s⁻², a buoyancy period of ~10 minutes), so the
+# capsize-stirred water mass slumps back as gravity currents and, on longer runs than ours, radiates internal
+# waves:
 
-# (Note `WENO(FT, ...)`: numerics objects carry their own float type, independently
-# from the grid — forget it and a `Float64` sneaks into your `Float32` GPU kernels.)
+# (Note `WENO(FT, ...)`: numerics objects carry their own float type, independently from the grid — forget it
+# and a `Float64` sneaks into your `Float32` GPU kernels.)
 
 model = NonhydrostaticModel(grid;
                             advection = WENO(FT, order = 9),
@@ -207,8 +192,8 @@ set!(model, b = (x, z) -> N² * z)
 
 # ## The rigid-body dynamics
 #
-# Now the berg's side of the bargain, advanced by a `Callback` every iteration. The berg is a rigid body
-# with three degrees of freedom — its center ``(x_c, z_c)`` and tilt ``\theta`` — obeying Newton–Euler,
+# Now the berg's side of the bargain, advanced by a `Callback` every iteration. The berg is a rigid body with
+# three degrees of freedom — its center ``(x_c, z_c)`` and tilt ``\theta`` — obeying Newton–Euler,
 #
 # ```math
 # m\,\dot{U} = F_x, \qquad m\,\dot{W} = F_z, \qquad I\,\dot{\Omega} = T, \qquad
@@ -224,8 +209,8 @@ set!(model, b = (x, z) -> N² * z)
 # Writing ``(\tilde x, \tilde z) = (x - x_c,\, z - z_c)``, the force ``(F_x, F_z)`` and torque ``T`` gather
 # three contributions, evaluated every iteration:
 #
-# 1. **Fluid reaction.** The penalization exerts ``-\rho_o \chi (\mathbf{u} - \mathbf{u}_{berg})/\tau``
-#    per unit volume on the fluid; the berg feels the reaction, integrated over its area:
+# 1. **Fluid reaction.** The penalization exerts ``-\rho_o \chi (\mathbf{u} - \mathbf{u}_{berg})/\tau`` per
+#    unit volume on the fluid; the berg feels the reaction, integrated over its area:
 #
 #    ```math
 #    \mathbf{F}^{\mathrm{fluid}} = \frac{\rho_o}{\tau} \int \chi\,(\mathbf{u} - \mathbf{u}_{berg})\,dA,
@@ -234,8 +219,8 @@ set!(model, b = (x, z) -> N² * z)
 #        \left[\tilde x\,(w - w_{berg}) - \tilde z\,(u - u_{berg})\right] dA.
 #    ```
 # 2. **Buoyancy and weight.** Material points tile the berg; those below the waterline (area
-#    ``A_{\mathrm{sub}}``) carry Archimedes' lift, the whole slab carries its weight, and the first moment
-#    of the submerged area is the torque whose sign makes tall bergs capsize:
+#    ``A_{\mathrm{sub}}``) carry Archimedes' lift, the whole slab carries its weight, and the first moment of
+#    the submerged area is the torque whose sign makes tall bergs capsize:
 #
 #    ```math
 #    F_z^{\mathrm{buoy}} = g\,(\rho_o A_{\mathrm{sub}} - \rho_i W H), \qquad
@@ -251,28 +236,23 @@ set!(model, b = (x, z) -> N² * z)
 #
 #    Then the new state is mirrored to the device.
 #
-# A subtlety worth making explicit, because it is the kind that silently ruins coupled
-# models: *does the berg feel the hydrostatic pressure, and from where?* A Boussinesq
-# solver subtracts the background hydrostatic pressure ``\rho_o g z`` once and for all —
-# the pressure it computes is only the dynamic, perturbation part. But the dominant
-# force on a floating body **is** the background hydrostatic pressure: its surface
-# integral over the wetted area is Archimedes' force ``\rho_o g A_{sub}``, and its first
-# moment is the righting (or, for our tall berg, capsizing) torque. Since the fluid
-# solver cannot deliver it, step 2 restores it analytically. The *perturbation*
-# pressure — the flow pushing back, including the rigid-lid pressure that stands in for
-# the missing surface elevation — reaches the berg implicitly through the penalization
-# reaction of step 1, which in the ``\tau \to 0`` limit converges to the surface
-# integral of the perturbation stresses plus the inertia of the enclosed fluid. What
-# remains neglected is only the hydrostatic pressure of the density *anomalies*
-# (``\sim N^2 H``, four orders of magnitude below the effective gravity
-# ``g(1 - \rho_i/\rho_o)``) and the change of the waterline geometry by the real free
-# surface.
+# A subtlety worth making explicit, because it is the kind that silently ruins coupled models: *does the berg
+# feel the hydrostatic pressure, and from where?* A Boussinesq solver subtracts the background hydrostatic
+# pressure ``\rho_o g z`` once and for all — the pressure it computes is only the dynamic, perturbation part.
+# But the dominant force on a floating body **is** the background hydrostatic pressure: its surface integral
+# over the wetted area is Archimedes' force ``\rho_o g A_{sub}``, and its first moment is the righting (or,
+# for our tall berg, capsizing) torque. Since the fluid solver cannot deliver it, step 2 restores it
+# analytically. The *perturbation* pressure — the flow pushing back, including the rigid-lid pressure that
+# stands in for the missing surface elevation — reaches the berg implicitly through the penalization reaction
+# of step 1, which in the ``\tau \to 0`` limit converges to the surface integral of the perturbation stresses
+# plus the inertia of the enclosed fluid. What remains neglected is only the hydrostatic pressure of the
+# density *anomalies* (``\sim N^2 H``, four orders of magnitude below the effective gravity
+# ``g(1 - \rho_i/\rho_o)``) and the change of the waterline geometry by the real free surface.
 #
-# The reaction integrals of step 1 must also obey the GPU rules: a scalar `for` loop
-# over a device array would be somewhere between catastrophically slow and illegal.
-# Broadcasts and reductions, on the other hand, compile to device kernels on any
-# backend — so we phrase the integrals as exactly that, over coordinate arrays built
-# once, on the right architecture, before the run:
+# The reaction integrals of step 1 must also obey the GPU rules: a scalar `for` loop over a device array
+# would be somewhere between catastrophically slow and illegal. Broadcasts and reductions, on the other hand,
+# compile to device kernels on any backend — so we phrase the integrals as exactly that, over coordinate
+# arrays built once, on the right architecture, before the run:
 
 u, v, w = model.velocities
 
@@ -285,8 +265,7 @@ Xʷ = on_architecture(arch, repeat(collect(FT, xw), 1, length(zw)))
 Zʷ = on_architecture(arch, repeat(collect(FT, zw)', length(xw), 1))
 nothing #hide
 
-# The mass, inertia, and material points of the berg (host-side, like all the
-# rigid-body bookkeeping):
+# The mass, inertia, and material points of the berg (host-side, like all the rigid-body bookkeeping):
 
 m_berg = ρᵢ * width * height                      # mass per unit length [kg m⁻¹]
 I_berg = m_berg * (width^2 + height^2) / 12       # moment of inertia [kg m]
@@ -349,16 +328,15 @@ function advance_iceberg!(sim)
 end
 nothing #hide
 
-# That is the entire implementation. It is worth pausing on what we did *not* do: no
-# subclassing, no registration with an interface, no recompilation of the package —
-# and no CPU-only shortcuts: every line that touches model data is a kernel, a
-# broadcast, or a reduction, so the architecture at the top of the script is a free
-# choice.
+# That is the entire implementation. It is worth pausing on what we did *not* do: no subclassing, no
+# registration with an interface, no recompilation of the package — and no CPU-only shortcuts: every line
+# that touches model data is a kernel, a broadcast, or a reduction, so the architecture at the top of the
+# script is a free choice.
 #
 # ## Run
 #
-# Three simulated minutes — from a 2° seed the berg leans imperceptibly for a while,
-# then rolls over in a few tens of seconds:
+# Three simulated minutes — from a 2° seed the berg leans imperceptibly for a while, then rolls over in a few
+# tens of seconds:
 
 simulation = Simulation(model, Δt = 0.1, stop_time = 3minutes)
 
@@ -385,8 +363,7 @@ run!(simulation)
 
 # ## The capsize, frame by frame
 #
-# We animate the vorticity with the berg outline drawn on top from the recorded rigid
-# body trajectory:
+# We animate the vorticity with the berg outline drawn on top from the recorded rigid body trajectory:
 
 using CairoMakie
 
@@ -436,14 +413,13 @@ nothing #hide
 
 # ![](capsizing_iceberg.mp4)
 #
-# The tilt grows slowly at first — the instability is exponential from a small seed —
-# then the berg rolls over in a few tens of seconds, shedding a vortex dipole from each
-# corner, overshoots past horizontal, and rocks back and forth around its new
-# equilibrium with the *long* side at the waterline, now a stable ``\epsilon > 1``
-# configuration. It is possible to notice that the capsize also *propels* the berg
-# horizontally — momentum conservation working on the asymmetric roll, an effect well
-# documented in the laboratory — while the stirred, displaced water slumps back through
-# the stratification (look at the buoyancy field in the saved output).
+# The tilt grows slowly at first — the instability is exponential from a small seed — then the berg rolls
+# over in a few tens of seconds, shedding a vortex dipole from each corner, overshoots past horizontal, and
+# rocks back and forth around its new equilibrium with the *long* side at the waterline, now a stable
+# ``\epsilon > 1`` configuration. It is possible to notice that the capsize also *propels* the berg
+# horizontally — momentum conservation working on the asymmetric roll, an effect well documented in the
+# laboratory — while the stirred, displaced water slumps back through the stratification (look at the
+# buoyancy field in the saved output).
 #
 # And the tilt history, the quantitative summary of the event:
 
