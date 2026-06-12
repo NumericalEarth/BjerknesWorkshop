@@ -302,9 +302,7 @@ println("$n_days simulated days took $(round(elapsed, digits=1)) s, that's $(rou
 # Try to rerun this section with `arch = SpeedyWeather.CPU()` or with a different `trunc`
 # and compare: how much faster is the GPU, and how does the gap change with resolution?
 
-# Then let's visualize the results: at T256 (about 50 km grid spacing) the flow is full of
-# sharp fronts and small-scale eddies that the coarser runs from above simply can't resolve.
-# The surface relative vorticity shows them off best. Let's look at the last snapshot:
+# Then let's visualize the results: at T256 (about 50 km grid spacing). Let's look at the last snapshot:
 
 ds = NCDataset(joinpath(model.output.run_path, model.output.filename))
 
