@@ -42,6 +42,7 @@ xz_x, _, xz_z = nodes(w_xz)
 xkm, ykm = xs ./ 1e3, ys ./ 1e3
 hh    = [h_fun(x, y)       for x in xs, y in ys]
 water = [1 - land_fun(x, y) for x in xs, y in ys]
+nothing #hide
 
 # ## Where in the world: the Lofoten archipelago
 #
@@ -161,10 +162,12 @@ fig
 
 # ## Animation
 #
-# Slowed to 6 frames per second so the gap jets, lee eddies, and the mountain-wave
-# train have time to read on screen.
+# We subsample to ≈90 frames (every few outputs) and play at 3 frames per second
+# (≈30 s) so the gap jets, lee eddies, and mountain-wave train read clearly while the
+# clip stays light enough to embed inline without bloating the page.
 
-record(fig, "norway.mp4", 1:Nt; framerate = 6) do i
+frame_stride = max(1, Nt ÷ 90)
+record(fig, "norway.mp4", 1:frame_stride:Nt; framerate = 3) do i
     n[] = i
 end
 nothing #hide
