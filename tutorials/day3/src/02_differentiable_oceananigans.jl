@@ -22,6 +22,23 @@
 # dynamics, [Reactant.jl](https://github.com/EnzymeAD/Reactant.jl) to JIT-compile the
 # time-stepping via XLA (the same compiler used by JAX), and
 # [Enzyme.jl](https://github.com/EnzymeAD/Enzyme.jl) for reverse-mode AD.
+#
+# The configuration is a zonally re-entrant channel with:
+#
+# * **12.5 km horizontal resolution**;
+# * **32 vertical levels** whose thickness grows from 10 m at the surface to roughly
+#   214 m at the bottom;
+# * **periodic boundaries** in the zonal direction, with a **sponge layer at the northern
+#   boundary** that restores the stratification;
+# * an idealized **mid-latitude westerly zonal wind stress**;
+# * a **heat flux** that loosely approximates the observed buoyancy fluxes of the
+#   Southern Ocean.
+#
+# ![Drake Passage](assets/drake_passage.png)
+#
+# *The Drake Passage — the gap between South America and the Antarctic Peninsula that the
+# ACC must squeeze through. We idealize this as a re-entrant channel with a ridge-and-gap
+# barrier standing in for the passage. (Map: Geo Swan, Wikimedia Commons, public domain.)*
 
 # ## Packages
 #
@@ -39,6 +56,7 @@ using SeawaterPolynomials
 using Reactant
 using Oceananigans.Architectures: ReactantState
 using Enzyme
+using CUDA
 
 using Printf
 using Statistics
@@ -49,14 +67,8 @@ using CairoMakie
 #
 # ### Reactant back-end
 #
-# By default we use an NVIDIA GPU via Reactant's XLA backend. To run on CPU instead
-# (slower, but no GPU required), change the backend:
-#
-# ```julia
-# # Reactant.set_default_backend("cpu")
-# ```
+# We run on an NVIDIA GPU via Reactant's XLA backend.
 
-using CUDA
 Reactant.set_default_backend("gpu")
 
 # Set the default floating-point precision for all Oceananigans fields:
@@ -69,23 +81,26 @@ Oceananigans.defaults.FloatType = Float64
 # They **must** be constants because Reactant traces loops at compile time
 # (the XLA program is unrolled, not interpreted). Increase them for production runs.
 
-const Ntimesteps = 5    # steps in the AD pass      (production: 25+)
-const Nspinup    = 5    # spinup steps               (production: 100+)
+const Ntimesteps = 25     # steps in the AD pass      (production: 25+)
+const Nspinup    = 100    # spinup steps               (production: 100+)
 
 # ### Grid size
 #
-# Small defaults for interactive use. For a credible ACC the values used in the paper
-# are Nx = 80, Ny = 160, Nz = 32.
+# The 80 × 160 horizontal grid spans the 1000 km × 2000 km domain, giving a **12.5 km
+# horizontal resolution** — fine enough to permit mesoscale eddies.
 
-const Nx = 20
-const Ny = 40
-const Nz = 8
+const Nx = 80
+const Ny = 160
+const Nz = 32
 
 const x_midpoint = Nx ÷ 2 + 1   # zonal index at which we evaluate the transport
 
 # ### Output directory
+#
+# Anchored to this file's directory (the `day3` notebook folder) so results land in the
+# tutorial subdirectory regardless of the working directory the kernel was launched from.
 
-output_dir = get(ENV, "CASE_OUTPUT_DIR", "differentiable_channel_output")
+output_dir = get(ENV, "CASE_OUTPUT_DIR", joinpath(@__DIR__, "differentiable_channel_output"))
 isdir(output_dir) || mkdir(output_dir)
 nothing #hide
 
@@ -108,8 +123,9 @@ const Ly = 2000kilometers
 
 # ### Vertical grid
 #
-# We use a surface-intensified stretched grid, with grid cells expanding
-# geometrically toward the sea floor:
+# The 32 vertical levels use a surface-intensified stretched grid: cell thickness grows
+# geometrically from 10 m at the surface to roughly 214 m at the bottom, so the
+# near-surface boundary layer is well resolved while the deep ocean stays cheap.
 
 k_center  = collect(1:Nz)
 Δz_center = @. 10 * 1.104^(Nz - k_center)
@@ -170,6 +186,28 @@ function make_grid(architecture, Nx, Ny, Nz, z_faces)
 end
 nothing #hide
 
+# Build the grid so we can look at the channel before assembling the full model:
+
+architecture = ReactantState()
+grid         = make_grid(architecture, Nx, Ny, Nz, z_faces)
+
+# ### Channel geometry
+#
+# The partial meridional barrier mimicking Drake Passage is visible as a ridge spanning
+# most of the domain, with a gap at mid-latitudes:
+
+_xc, _yc, _  = nodes(grid, Center(), Center(), Center())
+bottom_depth = convert(Array, interior(grid.immersed_boundary.bottom_height))[:, :, 1]
+
+fig_topo, ax_topo, hm_topo = heatmap(collect(_xc) .* 1e-3, collect(_yc) .* 1e-3, bottom_depth;
+    colormap = :deep,
+    axis = (xlabel = "x (km)", ylabel = "y (km)", title = "Channel bottom depth"))
+Colorbar(fig_topo[1, 2], hm_topo, label = "m")
+save(joinpath(output_dir, "bottom_topography.png"), fig_topo)
+nothing #hide
+
+# ![](differentiable_channel_output/bottom_topography.png)
+
 # ## Model
 #
 # We use `HydrostaticFreeSurfaceModel` — appropriate for the mesoscale-resolving
@@ -185,9 +223,9 @@ nothing #hide
 
 function build_model(grid, Δt₀, parameters)
 
-    # ---- Boundary conditions ----
-    # Wind stress and heat flux are stored as 2-D fields so their values can be
-    # set independently of the model and passed as initial conditions to the AD.
+    ## ---- Boundary conditions ----
+    ## Wind stress and heat flux are stored as 2-D fields so their values can be
+    ## set independently of the model and passed as initial conditions to the AD.
     temperature_flux_bc = FluxBoundaryCondition(Field{Center, Center, Nothing}(grid))
     u_stress_bc         = FluxBoundaryCondition(Field{Face,   Center, Nothing}(grid))
     v_stress_bc         = FluxBoundaryCondition(Field{Center, Face,   Nothing}(grid))
@@ -202,12 +240,12 @@ function build_model(grid, Δt₀, parameters)
     u_bcs = FieldBoundaryConditions(top = u_stress_bc, bottom = u_drag_bc)
     v_bcs = FieldBoundaryConditions(top = v_stress_bc, bottom = v_drag_bc)
 
-    # ---- Coriolis ----
+    ## ---- Coriolis ----
     coriolis = BetaPlane(f₀ = f, β = β)
 
-    # ---- Temperature relaxation forcing ----
-    # A sponge layer at the southern boundary restores T to a prescribed profile,
-    # preventing the channel from drifting away from the target stratification.
+    ## ---- Temperature relaxation forcing ----
+    ## A sponge layer at the northern boundary restores T to a prescribed profile,
+    ## preventing the channel from drifting away from the target stratification.
     @inline initial_temperature(z, p) =
         p.ΔT * (exp(z / p.h) - exp(-p.Lz / p.h)) / (1 - exp(-p.Lz / p.h))
     @inline mask(y, p) = max(0.0, y - p.y_sponge) / (Ly - p.y_sponge)
@@ -222,13 +260,13 @@ function build_model(grid, Δt₀, parameters)
 
     FT = Forcing(temperature_relaxation, discrete_form = true, parameters = parameters)
 
-    # ---- Diffusivities ----
+    ## ---- Diffusivities ----
     κh = 5e-5    # [m² s⁻¹] horizontal diffusivity
     νh = 500.0   # [m² s⁻¹] horizontal viscosity
     κz = 5e-5    # [m² s⁻¹] vertical diffusivity
     νz = 3e-3    # [m² s⁻¹] vertical viscosity
 
-    # Surface-intensified vertical diffusivity:
+    ## Surface-intensified vertical diffusivity:
     κz_field = Field{Center, Center, Center}(grid)
     κz_array = zeros(Nx, Ny, Nz)
     κz_add   = 5e-5
@@ -311,12 +349,13 @@ nothing #hide
 #
 # We compile two kernels separately:
 #
-# 1. **`spinup_loop!`** — just the forward time-stepping, unrolled for `Nspinup` steps.
-# 2. **`differentiate_tracer_error`** — the full forward + reverse (adjoint) pass,
-#    unrolled for `Ntimesteps` steps.
+# 1. **`spinup_loop!`** — just the forward time-stepping over `Nspinup` steps.
+# 2. **`differentiate_tracer_error`** — the full forward + reverse (adjoint) pass over
+#    `Ntimesteps` steps.
 #
-# Reverse-mode AD unrolls the forward tape **and** the corresponding adjoint operations,
-# so the compiled program is ``O(N_\text{timesteps})`` in length.
+# Both time loops are traced with `@trace` into XLA `while` loops, so the compiled program
+# stays compact — its length is independent of the number of steps — and the reverse pass
+# is generated once rather than unrolled.
 
 function spinup_loop!(model)
     Δt = model.clock.last_Δt
@@ -354,11 +393,7 @@ end
 
 function loop!(model)
     Δt = model.clock.last_Δt
-    # NOTE: unrolled (no `@trace`) on purpose. Tracing this as a `stablehlo.while`
-    # makes Enzyme's reverse pass emit a dynamic_update_slice with a dynamic slice
-    # dimension, which XLA cannot lower inside a `while` ("op can't be translated to
-    # XLA HLO"). At small `Ntimesteps` unrolling sidesteps that codegen issue.
-    for i = 1:Ntimesteps
+    @trace mincut = true track_numbers = false for i = 1:Ntimesteps
         time_step!(model, Δt)
     end
     return nothing
@@ -403,8 +438,6 @@ nothing #hide
 
 Δt₀ = 2.5minutes
 
-architecture   = ReactantState()
-grid           = make_grid(architecture, Nx, Ny, Nz, z_faces)
 model          = build_model(grid, Δt₀, parameters)
 
 T_flux        = T_flux_init(model.grid, parameters)
@@ -426,23 +459,6 @@ dΔz            = Enzyme.make_zero(Δz)
 
 @info "Built $(summary(model))"
 nothing #hide
-
-# ### Channel geometry
-#
-# The partial meridional barrier mimicking Drake Passage is visible as a ridge spanning
-# most of the domain, with a gap at mid-latitudes:
-
-_xc, _yc, _ = nodes(grid, Center(), Center(), Center())
-bh_arr = convert(Array, interior(model.grid.immersed_boundary.bottom_height))[:, :, 1]
-
-fig_topo, ax_topo, hm_topo = heatmap(collect(_xc) .* 1e-3, collect(_yc) .* 1e-3, bh_arr;
-    colormap = :deep,
-    axis = (xlabel = "x (km)", ylabel = "y (km)", title = "Channel bottom depth"))
-Colorbar(fig_topo[1, 2], hm_topo, label = "m")
-save(joinpath(output_dir, "bottom_topography.png"), fig_topo)
-nothing #hide
-
-# ![](differentiable_channel_output/bottom_topography.png)
 
 # ## Compilation
 #
@@ -544,7 +560,7 @@ du_ws          = convert(Array, interior(du_wind_stress))
 dv_ws          = convert(Array, interior(dv_wind_stress))
 dT_flux_arr    = convert(Array, interior(dT_flux))
 
-jldsave(joinpath(output_dir, "channel_results.jld2");
+jldsave(joinpath(output_dir, "channel_results.jld2"), false, IOStream;
         Nx, Ny, Nz,
         zonal_transport,
         T_final, u_final, v_final, ssh,
