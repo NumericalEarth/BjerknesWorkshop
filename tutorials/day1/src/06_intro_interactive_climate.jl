@@ -27,13 +27,15 @@ A_cpu = SpeedyWeather.on_architecture(arch, A)
 # ## Grids and discretization 
 #
 # Next, we will have to set up the grid we want to discretize our model on.
-# * SpeedyWeather.jl is a spectral (or rather pseudo-spectral) model with variables discretized both in spectral space and in grid space. # * Oceananigans is based on a Finite Volume framework with equations discretized on a staggered C-grid (velocities are defined on edges and tracers in the center of the cell). 
+# * SpeedyWeather.jl is a spectral (or rather pseudo-spectral) model with variables discretized both in spectral space and in grid space.
+# * Oceananigans is based on a Finite Volume framework with equations discretized on a staggered C-grid (velocities are defined on edges and tracers in the center of the cell).
+#
 # For SpeedyWeather we therefore have a `SpectralGrid` as an object that bundles spectral and grid discretization information, we initialize it with an argument for the spectral truncation `trunc` that sets the maximum degree and order of the spherical harmonics (and therefore the resolution), and the number of vertical layers `nlayers` that we discretize the model in.
 
 spectral_grid = SpectralGrid(trunc=31, nlayers=8, architecture = arch)
 
-# We also directly see these information summarized here in the return. 
-# The `SpectralGrid` hold both the spectral discretization
+# We also directly see this information summarized here in the return.
+# The `SpectralGrid` holds both the spectral discretization
 
 spectral_grid.spectrum 
 
@@ -54,7 +56,7 @@ latitude_longitude_grid = LatitudeLongitudeGrid(size = (360, 180, 1),
 # ## Data on grids 
 #
 # Almost all data or arrays in SpeedyWeather.jl and Oceananigans.jl are associated with these discrete domains. 
-# In SpeedyWeather we have a `LowerTriangularArray` that hold an array and a `Spectrum` and a `Field` that hold an array and a `Grid`. 
+# In SpeedyWeather we have a `LowerTriangularArray` that holds an array and a `Spectrum` and a `Field` that holds an array and a `Grid`.
 # In Oceananigans we just have a `Field`. Let's initialize one! 
 
 A = rand(spectral_grid.grid)
@@ -64,10 +66,10 @@ A = rand(spectral_grid.grid)
 SpeedyWeather.set!(A, 1.0)
 
 # In Oceananigans we have a `Field` well, but as Oceananigans makes use of staggered grids, 
-# we also have to specificy where on the grid (e.g. `Center` or `Face`) the data is located. 
+# we also have to specify where on the grid (e.g. `Center` or `Face`) the data is located. 
 # We initialize an Oceananigans `Field` as follows:
 
-A_ocean = Field{Center, Center, Center}(latitude_longitude_grid) 
+A_ocean = Oceananigans.Field{Center, Center, Center}(latitude_longitude_grid) 
 Oceananigans.set!(A_ocean, 1.0)
 
 # ## Models 
@@ -155,8 +157,8 @@ animate_field(vor, "vorticity.mp4"; lon=ds["lon"][:], lat=ds["lat"][:],
 
 # ## The variables
 #
-# Then, let's briefly look a bit under the hood of our model. To run the model, so far we intialize the `model` with 
-# `initialize!(model)` this returns a `Simulation` which hold both the model itself, but also all the allocated variables
+# Then, let's briefly look a bit under the hood of our model. To run the model, so far we initialize the `model` with
+# `initialize!(model)`, this returns a `Simulation` which holds both the model itself, but also all the allocated variables
 # at the current timestep in SpeedyWeather.jl (In Oceananigans the model holds the variables directly). 
 # When we want to interact and modify the model, we have to work with those variables!
 #
@@ -169,7 +171,7 @@ simulation.variables
 # ## Configuring a model 
 #
 # Of course, we don't always want to run the default configuration of a model. 
-# A main advantage of our modelling approaches is that it is very easy to tailor a model to your needs, change parameters, but also whole model components, just a in a script. 
+# A main advantage of our modelling approaches is that it is very easy to tailor a model to your needs, change parameters, but also whole model components, just in a script.
 # Later, on Wednesday, we'll even see how we can define a new machine learned model component that we can then use in a model!
 #
 # The documentations of [SpeedyWeather](https://speedyweather.github.io/SpeedyWeatherDocumentation/dev/), [Oceananigans](https://clima.github.io/OceananigansDocumentation/dev/) and [Breeze](https://github.com/NumericalEarth/Breeze.jl) provide extensive resources on which components and processes are actually available.
@@ -209,15 +211,15 @@ spectral_grid = SpectralGrid(trunc = 32, architecture = SpeedyWeather.CPU())
 model = PrimitiveWetModel(spectral_grid)
 simulation = SpeedyWeather.initialize!(model)
 
-
 # set to a global constant
 SpeedyWeather.set!(model, orography=0)
 
+# define the orography amplitude and extent parameters, and (optionally, uncomment to try it!)
 # add two 1500m ridges at +-30˚E from 60˚S to 60˚N
 H, λ₀, φmax = 1500, 15, 60
-#SpeedyWeather.set!(model, orography=(λ,φ) -> 2λ₀ < λ < 360-2λ₀ || abs(φ) > φmax ? 0 : H*sind(180*λ/2λ₀)^2)
+## SpeedyWeather.set!(model, orography=(λ,φ) -> 2λ₀ < λ < 360-2λ₀ || abs(φ) > φmax ? 0 : H*sind(180*λ/2λ₀)^2)
 
-# add a 1km zonal ridge between 60˚E and 300˚E
+# add a 1500m zonal ridge between 60˚E and 300˚E
 SpeedyWeather.set!(model, orography=(λ,φ) -> λ > 4λ₀ && λ < 360-4λ₀ && abs(φ) < 20 ? H*cosd(3φ)^2 : 0, add=true)
 
 # add two Gaussian mountains
@@ -231,7 +233,7 @@ SpeedyWeather.set!(model, orography=(λ,φ) -> 4*H*exp(-spherical_distance((λ,�
 # and add second
 SpeedyWeather.set!(model, orography=(λ,φ) -> 4*H*exp(-spherical_distance((λ,φ), (λ2,φ₀), radius=360/2π)^2/2σ^2), add=true)
 
-# * If you are not familiar with Julia, the `?` command might be unknown to you. It's just a short hand for a one-line `if` clause. It's syntax is `value = condition ? true_value : false_value`.
+# * If you are not familiar with Julia, the `?` command might be unknown to you. It's just a short hand for a one-line `if` clause. Its syntax is `value = condition ? true_value : false_value`.
 # * The `->` assigns an anonymous function (like Python's `lambda` functions), with `(input_arg_1, input_args_2, ...) -> output` as its syntax.
 # * `||` and `&&` are the usual short-circuit logical operators `OR` and `AND`.
 #
@@ -312,7 +314,7 @@ println("$n_days simulated days took $(round(elapsed, digits=1)) s, that's $(rou
 # Try to rerun this section with `arch = SpeedyWeather.CPU()` or with a different `trunc`
 # and compare: how much faster is the GPU, and how does the gap change with resolution?
 
-# Then let's visualize the results: at T256 (about 50 km grid spacing). Let's look at the last snapshot:
+# Then let's visualize the results at T256 (about 50 km grid spacing). Let's look at the last snapshot:
 
 ds = NCDataset(joinpath(model.output.run_path, model.output.filename))
 
