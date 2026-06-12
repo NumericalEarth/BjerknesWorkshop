@@ -62,6 +62,12 @@ A = rand(spectral_grid.grid)
 
 SpeedyWeather.set!(A, 1.0)
 
+# In Oceananigans we have a `Field` well, but as Oceananigans makes use of staggered grids, 
+# we also have to specificy where on the grid (e.g. `Center` or `Face`) the data is located. 
+# We initialize an Oceananigans `Field` as follows:
+
+Field{Center, Center, Center}(latitude_longitude_grid) 
+
 # ## Models 
 #
 # Now that we have a grid, we can also construct a model! In SpeedyWeather.jl we have four models available: a `BarotropicModel`, a `ShallowWaterModel`, a `PrimitiveDryModel` and the full complexity `PrimitiveWetModel`. The model constructor takes in the discretization as an argument and then also allows for further configuration (more about that later): 
