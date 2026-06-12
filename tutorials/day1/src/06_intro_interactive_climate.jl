@@ -109,26 +109,36 @@ time_step = 30
 heatmap(ds["vor"][:,:,i_layer,time_step])
 
 # We can also animate the vorticity ourselves with CairoMakie: we wrap the time index in an
-# `Observable`, build the heatmap from it, and then `record` updates it frame by frame.
+# `Observable`, build a heatmap from it, and then `record` updates it frame by frame.
+
+function animate_field(data, filename; lon=axes(data, 1), lat=axes(data, 2),
+                       label="", title="", time_steps=1:size(data, 3), framerate=10)
+    ## this defines the iterator that will update the animation
+    i_time = Observable(1)
+
+    ## this is the array that is animated
+    frame = @lift data[:, :, $i_time]
+
+    data_max = maximum(abs, data) # symmetric colorrange around zero, fixed for all frames
+    fig, ax, hm = heatmap(lon, lat, frame, colormap=:balance,
+                          colorrange=(-data_max, data_max),
+                          axis=(xlabel="Longitude [˚E]", ylabel="Latitude [˚N]"))
+    Colorbar(fig[1, 2], hm; label)
+
+    ## here, we do the actual animation:
+    record(fig, filename, eachindex(time_steps); framerate) do t
+        i_time[] = t
+        ax.title = "$title, time step $(time_steps[t])"
+    end
+end
+
+# Now we can animate the vorticity with a single function call:
 
 n_steps = min(100, size(ds["vor"], 4))  # animate a slice of (up to) 100 time steps
 vor = nomissing(ds["vor"][:, :, i_layer, 1:n_steps], NaN)
 
-## this defines the iterator that will update the animation 
-i_time = Observable(1)
-
-## this is the array that is animated
-vor_frame = @lift vor[:, :, $i_time]
-
-vor_max = maximum(abs, vor) # symmetric colorrange around zero, fixed for all frames
-fig, ax, hm = heatmap(vor_frame, colormap=:balance, colorrange=(-vor_max, vor_max))
-Colorbar(fig[1, 2], hm, label="Relative vorticity [1/s]")
-
-## here, we do the actual animation:
-record(fig, "vorticity.mp4", 1:n_steps; framerate=10) do t
-    i_time[] = t
-    ax.title = "Relative vorticity, time step $t"
-end
+animate_field(vor, "vorticity.mp4"; lon=ds["lon"][:], lat=ds["lat"][:],
+              label="Relative vorticity [1/s]", title="Relative vorticity")
 
 # ## The variables
 #
@@ -242,26 +252,15 @@ hm = heatmap!(ax, lon, lat, u_end, colormap=:balance, colorrange=(-u_max, u_max)
 Colorbar(fig[1, 2], hm, label="u [m/s]")
 fig
 
-# And we can reuse our animation recipe from above, this time animating the zonal wind
-# over (up to) the last 100 output time steps:
+# And we can reuse our `animate_field` function from above, this time animating the zonal
+# wind over (up to) the last 100 output time steps:
 
 n_steps = min(100, size(ds["u"], 4))
 t_range = (size(ds["u"], 4) - n_steps + 1):size(ds["u"], 4)  # slice from the end of the run
 u_anim = nomissing(ds["u"][:, :, i_layer, t_range], NaN)
 
-i_time = Observable(1)
-u_frame = @lift u_anim[:, :, $i_time]
-
-u_anim_max = maximum(abs, u_anim) # again a fixed, symmetric colorrange for all frames
-fig, ax, hm = heatmap(lon, lat, u_frame, colormap=:balance,
-                      colorrange=(-u_anim_max, u_anim_max),
-                      axis=(xlabel="Longitude [˚E]", ylabel="Latitude [˚N]"))
-Colorbar(fig[1, 2], hm, label="Zonal wind [m/s]")
-
-record(fig, "zonal_wind.mp4", 1:n_steps; framerate=10) do t
-    i_time[] = t
-    ax.title = "Surface zonal wind, time step $(t_range[t])"
-end
+animate_field(u_anim, "zonal_wind.mp4"; lon, lat, time_steps=t_range,
+              label="Zonal wind [m/s]", title="Surface zonal wind")
 
 # ## One Global GPU Example
 #
@@ -320,20 +319,11 @@ hm = heatmap!(ax, lon, lat, vor_anim[:, :, end], colormap=:balance, colorrange=(
 Colorbar(fig[1, 2], hm, label="Vorticity [1/s]")
 fig
 
-# We reuse our animation recipe once more,
+# We reuse our `animate_field` function once more,
 # again on the slice from the end of the run:
 
-i_time = Observable(1)
-vor_frame = @lift vor_anim[:, :, $i_time]
-
-fig, ax, hm = heatmap(lon, lat, vor_frame, colormap=:balance, colorrange=(-vor_max, vor_max),
-                      axis=(xlabel="Longitude [˚E]", ylabel="Latitude [˚N]"))
-Colorbar(fig[1, 2], hm, label="Relative vorticity [1/s]")
-
-record(fig, "vorticity_gpu.mp4", 1:n_steps; framerate=10) do t
-    i_time[] = t
-    ax.title = "Surface relative vorticity, time step $(t_range[t])"
-end
+animate_field(vor_anim, "vorticity_gpu.mp4"; lon, lat, time_steps=t_range,
+              label="Relative vorticity [1/s]", title="Surface relative vorticity")
 
 # That's it! You have run atmospheric simulations from your laptop's CPU all the way to a
 # high-resolution GPU run, configured grids, time stepping and orography along the way.
