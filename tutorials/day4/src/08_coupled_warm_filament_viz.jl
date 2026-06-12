@@ -14,6 +14,42 @@ include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
 
+# ## The spin-up: the front breaks into submesoscale eddies
+#
+# Before the coupled run, the ocean spun up **alone for 24 hours** from a
+# thermal-wind-balanced filament: the front's available potential energy feeds
+# mixed-layer baroclinic instability, and the warm band breaks into a field of
+# submesoscale eddies. We show SST and surface vertical vorticity `ζ = ∂x v − ∂y u`
+# at the start and end of the spin-up — the coupled simulation begins where the
+# right column leaves off.
+
+T_sp = FieldTimeSeries("warm_filament_spinup.jld2", "T")
+ζ_sp = FieldTimeSeries("warm_filament_spinup.jld2", "ζ")
+t_sp = T_sp.times
+Nsp = length(t_sp)
+println("Spin-up: ", Nsp, " frames over ", prettytime(t_sp[end]))
+
+xsp, ysp, _ = nodes(T_sp)
+xsp_km, ysp_km = xsp ./ 1e3, ysp ./ 1e3
+
+T_sp_lims = extrema(T_sp)
+ζ_sp_lim = maximum(abs, ζ_sp[Nsp])
+
+fig_sp = Figure(size = (1200, 640))
+ax1 = Axis(fig_sp[1, 1], ylabel = "y (km)", title = "SST (°C) — initial front")
+ax2 = Axis(fig_sp[1, 2], title = "SST (°C) — after 24 h spin-up")
+ax3 = Axis(fig_sp[2, 1], xlabel = "x (km)", ylabel = "y (km)", title = "surface ζ (s⁻¹) — initial")
+ax4 = Axis(fig_sp[2, 2], xlabel = "x (km)", title = "surface ζ (s⁻¹) — eddies")
+hm_T = heatmap!(ax1, xsp_km, ysp_km, interior(T_sp[1], :, :, 1), colormap = :thermal, colorrange = T_sp_lims)
+heatmap!(ax2, xsp_km, ysp_km, interior(T_sp[Nsp], :, :, 1), colormap = :thermal, colorrange = T_sp_lims)
+hm_ζ = heatmap!(ax3, xsp_km, ysp_km, interior(ζ_sp[1], :, :, 1), colormap = :balance, colorrange = (-ζ_sp_lim, ζ_sp_lim))
+heatmap!(ax4, xsp_km, ysp_km, interior(ζ_sp[Nsp], :, :, 1), colormap = :balance, colorrange = (-ζ_sp_lim, ζ_sp_lim))
+Colorbar(fig_sp[1, 3], hm_T, label = "T (°C)")
+Colorbar(fig_sp[2, 3], hm_ζ, label = "ζ (s⁻¹)")
+
+save("warm_filament_spinup.png", fig_sp)
+fig_sp
+
 # ## Visualization
 #
 # A multi-panel figure tells the coupled story in one frame:
@@ -126,7 +162,7 @@ fig
 # ## Animation
 #
 
-record(fig, "warm_filament.mp4", 1:Nt; framerate = 12) do i
+record(fig, "warm_filament.mp4", 1:Nt; framerate = 24, compression = 28) do i
     n[] = i
 end
 @info "Wrote movie" "warm_filament.mp4"

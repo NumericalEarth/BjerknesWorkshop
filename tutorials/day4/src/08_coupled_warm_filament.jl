@@ -174,21 +174,33 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 
 # ### Initialize the WARM SST FILAMENT — the ocean's living boundary
 #
-# The filament is a warm band centered in `y`, uniform along the wind (`x`), riding on
-# a mixed layer over a stratified interior. The surface temperature is
+# The filament is a warm band centered in `y`, uniform along the wind (`x`), trapped
+# in the upper part of a mixed layer over a stratified interior. The surface
+# temperature is
 #
 # ```math
 # T(x, y, z=0) = T_\mathrm{cold} + \Delta T\,\exp\!\Big(-\frac{(y - L_y/2)^2}{2\sigma^2}\Big)
 # ```
 #
-# with `ΔT ≈ 3 K` and `σ ≈ 1 km` (a ≈ 2 km-wide warm filament). Below a mixed-layer
-# depth `h` the water is stratified at `N²`, so the warm anomaly sits in a
-# well-mixed surface layer that the coupled fluxes can erode and deepen. Salinity is a
-# uniform 35 g kg⁻¹. The warm filament is the **boundary feature** the atmosphere
-# reads and the cloud street traces.
+# with `ΔT ≈ 3 K` and `σ ≈ 1 km` (a ≈ 2 km-wide warm filament), the anomaly decaying
+# over the top `δᵥ = 20 m`. Below the mixed-layer depth `h` the water is stratified at
+# `N²`. Salinity is a uniform 35 g kg⁻¹.
 #
-# We add a tiny random thermal perturbation in the mixed layer to seed ocean
-# convection once surface cooling begins.
+# **This front is baroclinically unstable.** A surface-trapped lateral buoyancy
+# gradient on an `f`-plane carries available potential energy that frontal
+# (mixed-layer) instabilities convert into **submesoscale eddies** — but they take
+# inertial periods (`2π/f ≈ 17 h`), not minutes, to grow. Rather than burn expensive
+# *coupled* hours waiting, we **spin the ocean up alone first** (next section): the
+# filament is initialized in **thermal-wind balance**, with an along-front jet
+#
+# ```math
+# f \,\partial_z u = -\partial_y b, \qquad
+# u(y, z) = -\frac{g\,α\,δᵥ}{f}\, \partial_y G(y) \left(e^{z/δᵥ} - e^{-H/δᵥ}\right),
+# ```
+#
+# so the instability grows directly out of the balanced state instead of being lost to
+# geostrophic adjustment. A tiny random thermal perturbation seeds it (and later, the
+# convection under the coupled surface cooling).
 #
 # !!! warning "Units: the ocean is in °C, the atmosphere is in K"
 #     The ocean uses the TEOS-10 equation of state, whose conservative temperature
@@ -216,18 +228,65 @@ dTdz   = N² / (g_oce * α_T)   # K/m, interior temperature gradient
 
 y_c    = Ly / 2   # filament center in y
 δT_o   = 0.01     # K, ocean mixed-layer perturbation amplitude
+δᵥ     = 20       # m, vertical trapping scale of the filament's warm anomaly
+f_oce  = 1e-4     # s⁻¹, ocean f-plane (matches the atmosphere)
 
-## Warm filament at the surface, mixed to depth h, stratified below.
-function Tᵢ(x, y, z)
-    filament = ΔT * exp(-(y - y_c)^2 / (2 * σ^2))
-    mixed    = T_cold + filament
-    ## Below the mixed layer (z < -h) decay toward a stratified interior.
-    stratified = mixed + dTdz * (z + h)   # z + h ≤ 0 below the mixed layer
-    T = z > -h ? mixed : stratified
-    return T + δT_o * (rand() - 0.5) * (z > -h)
+## The filament's horizontal structure and its y-derivative (for the balanced jet).
+G(y)  = ΔT * exp(-(y - y_c)^2 / (2σ^2))
+∂yG(y) = -(y - y_c) / σ^2 * G(y)
+
+## Surface-trapped warm filament over a mixed layer and stratified interior, with a
+## small random perturbation to seed the frontal instability (and, later, convection).
+T_background(z) = T_cold + (z > -h ? 0.0 : dTdz * (z + h))
+Tᵒᵢ(x, y, z) = T_background(z) + G(y) * exp(z / δᵥ) + δT_o * (rand() - 0.5) * (z > -h)
+
+## The thermal-wind-balanced along-front jet: f ∂z u = -∂y b with b ≈ g α T′,
+## integrated from the (quiescent) bottom. Peaks at ≈ 0.7 m s⁻¹ on the filament flanks.
+uᵒᵢ(x, y, z) = -(g_oce * α_T / f_oce) * ∂yG(y) * δᵥ * (exp(z / δᵥ) - exp(-Lz_o / δᵥ))
+
+# ## Spin up the ocean alone: let the front go unstable *before* coupling
+#
+# Mixed-layer baroclinic instabilities need ≈ 1–2 inertial periods to reach finite
+# amplitude — far longer than we want to integrate the full coupled system. The ocean
+# alone, though, is small (≈ 0.9 M cells), so we run it **standalone for 24 hours**:
+# no surface fluxes, just the balanced front releasing its available potential energy
+# into a field of submesoscale eddies. The coupled simulation then starts from this
+# *already-eddying* ocean, and every expensive coupled minute is spent on the
+# interesting regime. (For larger setups the same trick works with a coarse ocean
+# spin-up, cached to disk.)
+
+spinup = ocean_simulation(ocean_grid; model = :nonhydrostatic,
+                          coriolis = FPlane(f = f_oce))
+set!(spinup.model, T = Tᵒᵢ, S = S₀, u = uᵒᵢ)
+
+spinup.stop_time = 24hours
+conjure_time_step_wizard!(spinup, cfl = 1.0)
+
+spinup_wall = Ref(time_ns())
+function spinup_progress(sim)
+    elapsed = 1e-9 * (time_ns() - spinup_wall[])
+    u, v, w = sim.model.velocities
+    @info @sprintf("[spinup] Iter %d, t %s, Δt %s, wall %s, max|u| %.2f, max|w| %.2e m/s",
+                   iteration(sim), prettytime(sim), prettytime(sim.Δt),
+                   prettytime(elapsed), maximum(abs, u), maximum(abs, w))
+    return nothing
 end
+add_callback!(spinup, spinup_progress, IterationInterval(200))
 
-set!(ocean.model, T = Tᵢ, S = S₀)
+## Track the front's breakup: SST and surface vertical vorticity every 30 minutes.
+u_sp, v_sp, w_sp = spinup.model.velocities
+ζ_sp = Field(∂x(v_sp) - ∂y(u_sp), indices = (:, :, Nz_o:Nz_o))
+spinup.output_writers[:surface] = JLD2Writer(spinup.model,
+    (; T = view(spinup.model.tracers.T, :, :, Nz_o), ζ = ζ_sp);
+    filename = "warm_filament_spinup.jld2", schedule = TimeInterval(30minutes),
+    overwrite_existing = true)
+
+run!(spinup)
+@info "Ocean spin-up complete — initializing the coupled ocean from the eddying state."
+
+## Hand the spun-up state to the coupled ocean.
+set!(ocean.model, T = spinup.model.tracers.T, S = spinup.model.tracers.S,
+     u = u_sp, v = v_sp, w = w_sp)
 
 # ## Couple them
 #
@@ -240,15 +299,14 @@ model = AtmosphereOceanModel(atmosphere, ocean)
 
 # ## Simulation
 #
-# The coupled model is stepped by a single outer `Simulation`. A fixed 5 s step is
-# comfortable for this grid (the atmosphere's ≈ 31 m vertical surface cell and
-# ≈ 62 m horizontal cells, with U₀ = 5 m s⁻¹ and convective velocities of order
-# 1 m s⁻¹, give CFL well below 1). We integrate **1 hour** for first validation —
-# long enough to spin up a recognizable cloud street and start eroding the filament.
-# A production run would integrate several hours (e.g. `stop_time = 6hours`) to watch
-# the filament measurably erode and the ocean mixed layer deepen.
+# The coupled model is stepped by a single outer `Simulation`. We integrate
+# **2 hours** of coupled time — the cloud street organizes within the first hour, and
+# the second hour shows it riding over the (pre-spun-up) eddying SST field while the
+# coupled fluxes erode the filament. A longer production run (e.g. `stop_time =
+# 6hours`) would watch the eddies stir the filament apart under the storm of its own
+# making.
 
-simulation = Simulation(model; Δt = 2, stop_time = 1hour)
+simulation = Simulation(model; Δt = 2, stop_time = 2hours)
 
 wall_clock = Ref(time_ns())
 function progress(sim)

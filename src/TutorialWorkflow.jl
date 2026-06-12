@@ -563,6 +563,7 @@ function case_registry(root::AbstractString = pwd())
         generated_script = joinpath(DAY4_SCRIPTS, "08_coupled_warm_filament.jl"),
         output_root = joinpath("output", "day4", "warm_filament"),
         required_outputs = [
+            "warm_filament_spinup.jld2",
             "warm_filament_atmosphere.jld2",
             "warm_filament_ocean.jld2",
             "warm_filament_fluxes.jld2",
