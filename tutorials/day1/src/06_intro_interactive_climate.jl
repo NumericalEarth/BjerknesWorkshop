@@ -200,26 +200,27 @@ spectral_grid = SpectralGrid(trunc = 32, architecture = SpeedyWeather.CPU())
 model = PrimitiveWetModel(spectral_grid)
 simulation = SpeedyWeather.initialize!(model)
 
-## set to a global constant
+
+# set to a global constant
 SpeedyWeather.set!(model, orography=0)
 
-## add two 6000m ridges at +-30˚E from 60˚S to 60˚N
-H, λ₀, φmax = 6000, 15, 60
-SpeedyWeather.set!(model, orography=(λ,φ) -> 2λ₀ < λ < 360-2λ₀ || abs(φ) > φmax ? 0 : H*sind(180*λ/2λ₀)^2)
+# add two 1500m ridges at +-30˚E from 60˚S to 60˚N
+H, λ₀, φmax = 1500, 15, 60
+#SpeedyWeather.set!(model, orography=(λ,φ) -> 2λ₀ < λ < 360-2λ₀ || abs(φ) > φmax ? 0 : H*sind(180*λ/2λ₀)^2)
 
-## add a zonal ridge between 60˚E and 300˚E
+# add a 1km zonal ridge between 60˚E and 300˚E
 SpeedyWeather.set!(model, orography=(λ,φ) -> λ > 4λ₀ && λ < 360-4λ₀ && abs(φ) < 20 ? H*cosd(3φ)^2 : 0, add=true)
 
-## add two Gaussian mountains
+# add two Gaussian mountains
 λ1, λ2  = (120, 240)    # longitude positions [˚E]
 φ₀ = 45                 # latitude [˚N]
 σ = 5                   # width [˚]
 
-## first mountain, radius=360/2π to have distance in ˚ again (not meters)
-SpeedyWeather.set!(model, orography=(λ,φ) -> H*exp(-spherical_distance((λ,φ), (λ1,φ₀), radius=360/2π)^2/2σ^2), add=true)
+# first 6km mountain, radius=360/2π to have distance in ˚ again (not meters)
+SpeedyWeather.set!(model, orography=(λ,φ) -> 4*H*exp(-spherical_distance((λ,φ), (λ1,φ₀), radius=360/2π)^2/2σ^2), add=true)
 
-## and add second
-SpeedyWeather.set!(model, orography=(λ,φ) -> H*exp(-spherical_distance((λ,φ), (λ2,φ₀), radius=360/2π)^2/2σ^2), add=true)
+# and add second
+SpeedyWeather.set!(model, orography=(λ,φ) -> 4*H*exp(-spherical_distance((λ,φ), (λ2,φ₀), radius=360/2π)^2/2σ^2), add=true)
 
 # * If you are not familiar with Julia, the `?` command might be unknown to you. It's just a short hand for a one-line `if` clause. It's syntax is `value = condition ? true_value : false_value`.
 # * The `->` assigns an anonymous function (like Python's `lambda` functions), with `(input_arg_1, input_args_2, ...) -> output` as its syntax.
