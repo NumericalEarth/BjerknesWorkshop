@@ -43,9 +43,10 @@ spectral_grid.grid
 
 # This is analogous to defining e.g. a `LatitudeLongitudeGrid` in Oceananigans.jl: 
 
-latitude_longitude_grid = LatitudeLongitudeGrid(size = (60, 30, 1),
-                                                z = (-1, 0),
-                                                topology = (Periodic, Bounded, Bounded))
+latitude_longitude_grid = LatitudeLongitudeGrid(size = (360, 180, 1),
+                                                longitude = (0, 360),
+                                                latitude = (-90, 90),
+                                                z = (-1, 0))
 
 # With Oceananigans you can also define a `RectilinearGrid` for box domains or use the `LatitudeLongitudeGrid` for regional problems by 
 # initializing it with latitude and longitude bounds e.g. `longitude = (0, 60)` , `latitude = (-30, 30)`.
@@ -69,7 +70,6 @@ SpeedyWeather.set!(A, 1.0)
 A_ocean = Field{Center, Center, Center}(latitude_longitude_grid) 
 Oceananigans.set!(A_ocean, 1.0)
 
-
 # ## Models 
 #
 # Now that we have a grid, we can also construct a model! In SpeedyWeather.jl we have four models available: a `BarotropicModel`, a `ShallowWaterModel`, a `PrimitiveDryModel` and the full complexity `PrimitiveWetModel`. The model constructor takes in the discretization as an argument and then also allows for further configuration (more about that later): 
@@ -87,7 +87,7 @@ SpeedyWeather.run!(simulation, period=Day(10), output=true)
 # And just like that, we've run our first interactive atmospheric simulation! 
 
 # ## And what about Oceananigans? 
-# The analogous quick start to run a model is very similar. Again, as with SpeedyWeather we define the architecture, then grid with the resolution, then the model, then we initialize the `Simulation`, and finally we `run!` the model: 
+# The analogous quick start to run a (box) model is very similar. Again, as with SpeedyWeather we define the architecture, then grid with the resolution, then the model, then we initialize the `Simulation`, and finally we `run!` the model: 
 ## set the architecture
 arch = Oceananigans.CPU()
 
