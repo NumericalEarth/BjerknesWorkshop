@@ -230,18 +230,6 @@ set!(model, b = (x, z) -> N² * z)
 #
 #    Then the new state is mirrored to the device.
 #
-# A subtlety worth making explicit, because it is the kind that silently ruins coupled models: *does the iceberg
-# feel the hydrostatic pressure, and from where?* A Boussinesq solver subtracts the background hydrostatic pressure 
-# ``\rho_o g z`` once and for all — the pressure it computes is only the dynamic, perturbation part. But the dominant 
-# force on a floating body **is** the background hydrostatic pressure: its surface integral over the wetted area is 
-# Archimedes' force ``\rho_o g A_{sub}``, and its first moment is the righting (or, for our tall iceberg, capsizing) torque. 
-# Since the fluid solver cannot deliver it, step 2 restores it analytically. The *perturbation* pressure (the flow pushing back,
-# including the rigid-lid pressure that stands in for the missing surface elevation) reaches the iceberg implicitly through 
-# the penalization reaction of step 1, which in the ``\tau \to 0`` limit converges to the surface integral of the perturbation 
-# stresses plus the inertia of the enclosed fluid. What remains neglected is only the hydrostatic pressure of the density *anomalies* 
-# (``\sim N^2 H``, four orders of magnitude below the effective gravity ``g(1 - \rho_i/\rho_o)``) and the change of the waterline 
-# geometry by the real free surface.
-#
 # The reaction integrals of step 1 must also obey the GPU rules: a scalar `for` loop over a device array would be somewhere between 
 # catastrophically slow and illegal. Broadcasts and reductions, on the other hand, compile to device kernels on any backend, so we 
 # phrase the integrals as exactly that, over coordinate arrays built once, on the right architecture, before the run:
@@ -358,6 +346,7 @@ run!(simulation)
 using CairoMakie
 
 ζ_timeseries = FieldTimeSeries("capsizing_iceberg.jld2", "ζ")
+b_timeseries = FieldTimeSeries("capsizing_iceberg.jld2", "b")
 times = ζ_timeseries.times
 
 history_times = [datum[1] for datum in iceberg_history]
@@ -369,8 +358,6 @@ function berg_corners(xc, zc, θ)
     return [Point2f(xc + c * ξ - s * η, zc + s * ξ + c * η) for (ξ, η) in corners]
 end
 
-xζ, _, zζ = nodes(ζ_timeseries[1])
-
 n = Observable(1)
 
 title = @lift begin
@@ -380,7 +367,8 @@ title = @lift begin
              times[$n], rad2deg(iceberg_history[i][4]))
 end
 
-ζₙ = @lift interior(ζ_timeseries[$n], :, 1, :)
+ζₙ = @lift ζ_timeseries[$n]
+bₙ = @lift b_timeseries[$n]
 
 outline = @lift begin
     i = searchsortedfirst(history_times, times[$n])
@@ -389,11 +377,15 @@ outline = @lift begin
     berg_corners(xc, zc, θ)
 end
 
-fig = Figure(size = (1000, 400))
+fig = Figure(size = (1000, 750))
 ax = Axis(fig[1, 1]; title, xlabel = "x [m]", ylabel = "z [m]", aspect = DataAspect())
-hm = heatmap!(ax, xζ, zζ, ζₙ, colormap = :balance, colorrange = (-0.2, 0.2))
+hm = heatmap!(ax, ζₙ, colormap = :balance, colorrange = (-0.2, 0.2))
 lines!(ax, outline, color = :black, linewidth = 2)
 Colorbar(fig[1, 2], hm, label = "vorticity [s⁻¹]")
+ax = Axis(fig[2, 1]; title, xlabel = "x [m]", ylabel = "z [m]", aspect = DataAspect())
+hm = heatmap!(ax, bₙ, colormap = :thermal, colorrange = (-0.2, 0.2))
+lines!(ax, outline, color = :black, linewidth = 2)
+Colorbar(fig[1, 2], hm, label = "buoyancy [m s⁻²]")
 ylims!(ax, -Lz, 50)
 
 CairoMakie.record(fig, "capsizing_iceberg.mp4", 1:length(times), framerate = 12) do i
@@ -409,7 +401,7 @@ nothing #hide
 # ``\epsilon > 1`` configuration. It is possible to notice that the capsize also *propels* the berg
 # horizontally — momentum conservation working on the asymmetric roll, an effect well documented in the
 # laboratory — while the stirred, displaced water slumps back through the stratification (look at the
-# buoyancy field in the saved output).
+# buoyancy field).
 #
 # And the tilt history, the quantitative summary of the event:
 
