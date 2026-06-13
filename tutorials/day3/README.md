@@ -47,45 +47,12 @@ Then in Jupyter open `02_differentiable_oceananigans.ipynb` with the **"Julia
 
 Two details that matter:
 
-- **Stay on Julia 1.11.** Use `module load Julia/1.11` — or just `module load
-  Julia`, which defaults to 1.11, the same module the rest of the workshop examples
-  use. **Reactant currently does not work on Julia 1.12**, so don't reach for
-  juliaup (1.12.x on this node); on top of breaking Reactant, a patch mismatch
-  against the pinned 1.11.7 env produces an `incompatible header` precompile cache
-  miss → every notebook start recompiles everything from scratch.
+- **Stay on Julia 1.11.** Use `module load Julia/1.11` because Reactant currently does not work on Julia 1.12**
 - **`-O0`** (the second arg to `installkernel` above). Without it, compiling the
   Reactant/Enzyme time-stepping loop is *extremely* slow — at `-O2` the traced-loop
   compile was still going after ~19 minutes; at `-O0` it finishes in ~2.6 minutes.
   This bakes `-O0` into the kernel's `argv`; the environment-check cell reports the
   optimization level so you can confirm it took effect.
-
-### What the optimization level does
-
-`-O0` / `-O1` / `-O2` / `-O3` is a Julia *startup* flag that sets how hard Julia's
-own compiler (LLVM) optimizes the native code it generates. Lower is faster to
-compile but produces slower machine code; higher is the reverse. Julia's default is
-`-O2`.
-
-The reason `-O0` is a near-free win *here* is that the expensive numerics don't run
-as Julia-compiled code at all — Reactant traces the model and hands it to **XLA**,
-which does its own optimization of the actual time-stepping kernels independent of
-Julia's `-O`. So Julia's optimization level mainly affects the **host-side tracing
-and compilation** (building the XLA program, the Enzyme reverse pass), which is
-pure overhead you pay once. Turning it down to `-O0` slashes that overhead with
-negligible effect on the science runtime.
-
-To experiment, each `installkernel` call writes a separate kernelspec you can pick
-in Jupyter — so you can register kernels at a different optimization level (e.g.
-`installkernel("Julia", "-O2")`) or, after `module load Julia/<version>`, under a
-different Julia version. (The model itself needs Julia 1.11, since Reactant doesn't
-work on 1.12 yet, but `installkernel` is the same mechanism for any version/flags
-you want to compare.) The environment-check cell prints both the Julia version and
-the optimization level so you always know which you're on.
-
-The first markdown/code cell after `## Packages` is an **environment check** that
-prints the Julia version, the active project, the optimization level (want `0`),
-and the pinned package versions — so you can confirm your setup matches the table
-above before running.
 
 ## Running as a plain script (this works)
 
