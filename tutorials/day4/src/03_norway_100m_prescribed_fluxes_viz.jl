@@ -193,10 +193,13 @@ nothing #hide
 
 using Oceananigans.AbstractOperations: @at
 
-LXu, LYu, LZu = location(u_xy)
-LXv, LYv, LZv = location(v_xy)
-ū = Field{LXu, LYu, LZu}(u_xy.grid)
-v̄ = Field{LXv, LYv, LZv}(v_xy.grid)
+## `u_xy`/`v_xy` are surface slices: each frame is a single-level field whose grid
+## still carries the full vertical extent. Build the accumulators from a frame
+## (`similar`) so they share the slice's location *and* its single-level shape —
+## allocating on `u_xy.grid` would make a full-depth 3-D field that the 2-D land/sea
+## masks below could not condition.
+ū = similar(u_xy[1]); fill!(ū, 0)
+v̄ = similar(v_xy[1]); fill!(v̄, 0)
 for i in 1:Nt
     ū .+= u_xy[i]
     v̄ .+= v_xy[i]
@@ -204,7 +207,9 @@ end
 ū ./= Nt
 v̄ ./= Nt
 
-tke = Field{Center, Center, Center}(u_xy.grid)
+## A center-located single-level field to hold the TKE (materialize one snapshot to
+## get the right location/shape, then zero it and accumulate the time mean).
+tke = Field(@at (Center, Center, Center) (u_xy[1] - ū)^2); fill!(tke, 0)
 for i in 1:Nt
     eᵢ = @at (Center, Center, Center) ((u_xy[i] - ū)^2 + (v_xy[i] - v̄)^2) / 2
     tke .+= eᵢ
