@@ -15,7 +15,6 @@ include(joinpath(@__DIR__, "01c_dataloaders.jl"))
 # Here, we set everything needed for our dataloaders and some general configuration
 
 zarr_path  = "/cluster/projects/nn9984k/speedy-data/era5-roughness.zarr" # preprocessed store
-#zarr_path  = "/p/projects/ou/labs/ai/max/era5-roughness.zarr"  # preprocessed store
 batchsize  = 4096
 split      = 0.9        # fraction of samples used for training
 seed       = 0          # RNG seed for reproducible init & shuffles
