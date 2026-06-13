@@ -38,13 +38,6 @@ using ClimaSeaIce.Rheologies: ElastoViscoPlasticRheology
 using Dates, Printf, CUDA
 using Oceananigans.OrthogonalSphericalShellGrids: RotatedLatitudeLongitudeGrid
 
-# `regrid_bathymetry` crops the source bathymetry to the grid's geographic extent through
-# `x_domain`/`y_domain`, which Oceananigans defines only for lat–lon grids. A rotated grid stores the
-# *true geographic* node coordinates, so its bounding box is just their extrema (temporary local patch):
-import Oceananigans.Grids: x_domain, y_domain
-x_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.λᶠᶠᵃ))
-y_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.φᶠᶠᵃ))
-
 arch = GPU()   # CPU() also works, at reduced resolution
 
 # ## A grid for the Arctic cap
@@ -60,8 +53,8 @@ arch = GPU()   # CPU() also works, at reduced resolution
 # so the plotting later needs no regridding. Since the slab ocean has no vertical structure we use a single
 # vertical level, enough for the bathymetry to mark land from ocean.
 
-Nx, Ny = 180, 180
-δ = 35   # half-width of the cap, in rotated degrees
+Nx, Ny = 720, 720
+δ = 25   # half-width of the cap, in rotated degrees
 z = (-10meters, 0)
 
 underlying_grid = RotatedLatitudeLongitudeGrid(arch;
@@ -72,8 +65,12 @@ underlying_grid = RotatedLatitudeLongitudeGrid(arch;
                                                halo = (5, 5, 1),
                                                z)
 
-bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = Inf)
+# Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
 
+dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+
+bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
+bottom_height = regrid_bathymetry(underlying_grid, bathymetry; minimum_depth = 15)
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height))
 
 # ## The slab ocean
@@ -96,7 +93,7 @@ ocean = SlabOcean(grid; depth = 50)
 
 date = DateTime(1993, 2, 1)   # late-winter Arctic, near the seasonal ice maximum
 
-set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date))
+set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date, dir_kw...))
 
 # ## The sea-ice model
 #
@@ -125,19 +122,18 @@ dynamics = SeaIceMomentumEquation(grid;
                                   top_momentum_stress = atmosphere_ice_stress,
                                   bottom_momentum_stress = ocean_ice_stress,
                                   rheology = ElastoViscoPlasticRheology(),
-                                  solver = SplitExplicitSolver(grid; substeps = 120))
+                                  solver = SplitExplicitSolver(grid; substeps = 100))
 
-sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
+sea_ice = sea_ice_simulation(grid;
                              advection = WENO(order = 7),
                              dynamics,
-                             timestepper = :ForwardEuler,
                              bottom_heat_boundary_condition)
 
 # We start the ice from the ECCO state estimate for the same date — a realistic January–February pack —
 # rather than from open water, so the simulation begins near the seasonal maximum and we watch it melt back
 # through the spring and summer:
 
-ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date)
+ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date, dir_kw...)
 set!(sea_ice.model, ecco_ice)
 
 # ## The prescribed atmosphere
@@ -146,8 +142,8 @@ set!(sea_ice.model, ecco_ice)
 # downwelling radiation. The turbulent fluxes that actually cool the ice are computed interactively from
 # similarity theory, using the evolving ice-surface temperature:
 
-atmosphere = JRA55PrescribedAtmosphere(arch)
-radiation  = JRA55PrescribedRadiation(arch)
+atmosphere = JRA55PrescribedAtmosphere(arch; dir_kw...)
+radiation  = JRA55PrescribedRadiation(arch; dir_kw...)
 
 # ## The coupled model
 #
@@ -157,7 +153,7 @@ radiation  = JRA55PrescribedRadiation(arch)
 
 arctic = OceanSeaIceModel(ocean, sea_ice; atmosphere, radiation)
 
-simulation = Simulation(arctic; Δt = 15minutes, stop_time = 180days)
+simulation = Simulation(arctic; Δt = 30minutes, stop_time = 180days)
 
 wall_time = Ref(time_ns())
 
@@ -257,6 +253,7 @@ drift = @lift begin
     speed = @. ifelse(ice, hypot(uc, vc), NaN)
     (; east, north, speed)
 end
+
 speedₙ = @lift $drift.speed
 arrow_east  = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.east[i, j]  / s : NaN) for (i, j) in anchors]
 arrow_north = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.north[i, j] / s : NaN) for (i, j) in anchors]
@@ -279,11 +276,11 @@ function surface_panel!(column, field, name; colorrange, colormap)
     return ax
 end
 
-surface_panel!(1, hₙ, "ice thickness [m]"; colorrange = (0, 4), colormap = Reverse(:blues))
-surface_panel!(3, ℵₙ, "ice concentration"; colorrange = (0, 1), colormap = :ice)
+surface_panel!(1, hₙ, "ice thickness [m]"; colorrange = (0,   1), colormap = Reverse(:blues))
+surface_panel!(3, ℵₙ, "ice concentration"; colorrange = (0.5, 1), colormap = :ice)
 
 # Speed is masked to the ice (NaN over open water), with the rotated unit drift vectors overlaid as arrows:
-ax_speed = surface_panel!(5, speedₙ, "ice speed [m s⁻¹]"; colorrange = (0, 0.4), colormap = :amp)
+ax_speed = surface_panel!(5, speedₙ, "ice speed [m s⁻¹]"; colorrange = (0, 1.0), colormap = :amp)
 arrows2d!(ax_speed, arrow_longitude, arrow_latitude, arrow_east, arrow_north;
           lengthscale = 2.6, color = :black, tipwidth = 7, tiplength = 8, shaftwidth = 1.6)
 

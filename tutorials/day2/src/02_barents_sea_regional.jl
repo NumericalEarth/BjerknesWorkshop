@@ -63,7 +63,11 @@ underlying_grid = LatitudeLongitudeGrid(arch;
                                         z,
                                         halo = (7, 7, 7))
 
-bottom_height = regrid_bathymetry(underlying_grid;
+# Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
+dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+
+bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
+bottom_height = regrid_bathymetry(underlying_grid, bathymetry;
                                   minimum_depth = 15,
                                   interpolation_passes = 25,
                                   major_basins = 1)
@@ -115,11 +119,11 @@ dates   = DateTime(1993, 1, 1) : Day(1) : DateTime(1993, 3, 1)
 dataset = GLORYSDaily()
 region  = BoundingBox(longitude=(0, 80), latitude=(55, 85))
 
-Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region), grid, inpainting=100, time_indices_in_memory=length(dates))
-Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region), grid, inpainting=100, time_indices_in_memory=length(dates))
-uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=length(dates))
-vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region), grid, inpainting=100, time_indices_in_memory=length(dates))
-ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region), grid, inpainting=100, time_indices_in_memory=length(dates))
+Tᵉˣᵗ = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
+Sᵉˣᵗ = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
+uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
+vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
+ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 nothing #hide
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
@@ -218,10 +222,10 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 # velocity to GLORYS while the interior spins up its own flow. Therefore, to avoid mismatches, a ~20-minute velocity sponge keeps the
 # near-boundary interior matched to the prescribed boundary and holds max|w| at the GLORYS-consistent floor.
 
-FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
-Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
-Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
-FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
+FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region, dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
+Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region, dir_kw...), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region, dir_kw...), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
+FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region, dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 
 # ## The ocean component
 #
@@ -261,8 +265,8 @@ sea_ice = sea_ice_simulation(grid, ocean; dynamics=nothing)
 # concentration to the ice; one `MetadataSet` feeds both models, each picking up the variables it owns:
 
 set!(ocean.model, T = Tᵉˣᵗ[1], S = Sᵉˣᵗ[1])
-set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset=ECCO4Monthly()),
-                    ℵ = Metadatum(:sea_ice_concentration, date=dates[1], dataset=ECCO4Monthly()))
+set!(sea_ice.model, h = Metadatum(:sea_ice_thickness;     date=dates[1], dataset=ECCO4Monthly(), dir_kw...),
+                    ℵ = Metadatum(:sea_ice_concentration; date=dates[1], dataset=ECCO4Monthly(), dir_kw...))
 
 # ## The atmosphere and the coupled model
 #
@@ -271,9 +275,9 @@ set!(sea_ice.model, h = Metadatum(:sea_ice_thickness,     date=dates[1], dataset
 # climate model run under the OMIP protocol. `EarthSystemModel` owns the components and every interface
 # between them — each exchanged flux is a `Field` you can inspect and output; there is no hidden coupler:
 
-atmosphere    = JRA55PrescribedAtmosphere(arch)
-radiation     = JRA55PrescribedRadiation(arch)
-land          = JRA55PrescribedLand(arch)
+atmosphere    = JRA55PrescribedAtmosphere(arch; dir_kw...)
+radiation     = JRA55PrescribedRadiation(arch; dir_kw...)
+land          = JRA55PrescribedLand(arch; dir_kw...)
 coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 # Sixty days, watching the pack thin and the ice edge retreat from its mid-winter extent:

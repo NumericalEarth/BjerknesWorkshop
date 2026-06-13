@@ -318,7 +318,11 @@ end
 # working directory (tutorials/dayN/) and references them with `![](file)`. These bypass the
 # cached-artifact Results section; the references are base64-embedded at render time. A source is skipped
 # until every asset it references exists, so a page only publishes once its movie has been produced.
-const INLINE_ASSET_DAYS = (2,)
+const INLINE_ASSET_DAYS = (1, 2)
+
+# Individual sources that inline-embed their own assets even outside INLINE_ASSET_DAYS — the global-ocean
+# sim moved to day 4 but, like the day-1/2 examples, embeds the movie it writes in its working directory:
+const INLINE_ASSET_SOURCES = ("09_global_ocean.jl",)
 
 function _inline_assets_ready(source::AbstractString, assetdir::AbstractString)
     for m in eachmatch(r"!\[[^\]]*\]\(([^)]+)\)", read(source, String))
@@ -337,10 +341,7 @@ function render_day(day::Int)
     rm(outdir; force = true, recursive = true)   # drop stale pages from earlier structures
     mkpath(outdir)
 
-    inline = day in INLINE_ASSET_DAYS
     assetdir = joinpath(REPO_ROOT, "tutorials", "day$day")
-    postprocess = inline ? embed_local_assets(assetdir) ∘ demote_example_blocks :
-                           strip_local_images ∘ demote_example_blocks
 
     pages = String[]
     files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)))
@@ -349,8 +350,16 @@ function render_day(day::Int)
         # helper (03a) — they are includes / data prep, not standalone pages.
         startswith(f, "00_") && continue
         startswith(f, "03a_") && continue
+        # 04_gpu_computing is retained as a script but dropped from the day-1 lineup.
+        f == "04_gpu_computing.jl" && continue
 
         source = joinpath(srcdir, f)
+
+        # Inline-embed a source's own figures/movies for whole INLINE_ASSET_DAYS, or for individual
+        # INLINE_ASSET_SOURCES (the global-ocean sim moved to day 4 but still embeds its movie):
+        inline = (day in INLINE_ASSET_DAYS) || (f in INLINE_ASSET_SOURCES)
+        postprocess = inline ? embed_local_assets(assetdir) ∘ demote_example_blocks :
+                               strip_local_images ∘ demote_example_blocks
 
         if inline
             ready, missing_ref = _inline_assets_ready(source, assetdir)
@@ -400,7 +409,7 @@ write_summary_pages!(case_registry(REPO_ROOT); root = REPO_ROOT)
 function _nav_for_day(day::Int)
     pages = get(day_pages, day, String[])
     isempty(pages) && return nothing
-    label = day == 1 ? "Day 1 — GPU computing" :
+    label = day == 1 ? "Day 1 — Julia and ocean modeling" :
             day == 2 ? "Day 2 — One day in the high-latitude ocean" :
             day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
             day == 4 ? "Day 4 — Boundary heterogeneity & turbulence" :
