@@ -276,11 +276,11 @@ function surface_panel!(column, field, name; colorrange, colormap)
     return ax
 end
 
-surface_panel!(1, hₙ, "ice thickness [m]"; colorrange = (0, 4), colormap = Reverse(:blues))
-surface_panel!(3, ℵₙ, "ice concentration"; colorrange = (0, 1), colormap = :ice)
+surface_panel!(1, hₙ, "ice thickness [m]"; colorrange = (0,   1), colormap = Reverse(:blues))
+surface_panel!(3, ℵₙ, "ice concentration"; colorrange = (0.5, 1), colormap = :ice)
 
 # Speed is masked to the ice (NaN over open water), with the rotated unit drift vectors overlaid as arrows:
-ax_speed = surface_panel!(5, speedₙ, "ice speed [m s⁻¹]"; colorrange = (0, 0.4), colormap = :amp)
+ax_speed = surface_panel!(5, speedₙ, "ice speed [m s⁻¹]"; colorrange = (0, 1.0), colormap = :amp)
 arrows2d!(ax_speed, arrow_longitude, arrow_latitude, arrow_east, arrow_north;
           lengthscale = 2.6, color = :black, tipwidth = 7, tiplength = 8, shaftwidth = 1.6)
 
