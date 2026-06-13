@@ -88,8 +88,14 @@
 #    `(features, batch)` mini-batches ready for [Lux.jl](https://lux.csail.mit.edu/).
 # 2. [`01d_training.jl`](01d_training.md) — train the MLP offline (AdamW, early stopping on a
 #    validation split) and save the trained weights with JLD2.
-# 3. [`01e_parameterization.jl`](01e_parameterization.md) (run via
-#    [`01f_run_parameterization.jl`](01f_run_parameterization.md)) — wrap the trained network
-#    as a `LearnedSurfaceRoughness <: SpeedyWeather.AbstractSurfaceRoughness` and run
-#    it **online**, replacing the constant boundary condition with a learned one.
+# 3. [`01e_parameterization.jl`](01e_parameterization.md) — wrap the trained network
+#    as a `LearnedSurfaceRoughness <: SpeedyWeather.AbstractSurfaceRoughness`, the
+#    column-based parameterization that replaces the constant boundary condition.
+# 4. [`01f_run_parameterization.jl`](01f_run_parameterization.md) — run it
+#    inside a SpeedyWeather simulation and compare the learned roughness to ERA5.
+# 5. [`01g_run_pangaea.jl`](01g_run_pangaea.md) — apply the very same network to a
+#    **Pangaea** supercontinent, demonstrating the spatial generalisation we were after.
+# 6. [`01h_run_parameterization_gpu.jl`](01h_run_parameterization_gpu.md) — OPTIONAL: recast the
+#    scheme as a **global** parameterization that evaluates the network batched over all
+#    grid points, so it runs more efficently on **GPU**.
 
