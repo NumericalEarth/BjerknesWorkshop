@@ -40,6 +40,7 @@ using NumericalEarth
 using JLD2
 using Printf
 using Random
+using Dates
 
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
@@ -261,7 +262,7 @@ source_metadata = (; source = TOPO_SOURCE,
                      Lx = Float64(Lx), Ly = Float64(Ly), Δ = Float64(Δ),
                      smoothing_length = Float64(smoothing_length),
                      taper_width = Float64(taper_width),
-                     created = string(ThursdayLES.now()))
+                     created = string(now()))
 
 # ## Save the artifact
 
