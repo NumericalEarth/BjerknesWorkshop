@@ -353,8 +353,7 @@ history_times = [datum[1] for datum in iceberg_history]
 
 function berg_corners(xc, zc, θ)
     s, c = sincos(θ)
-    corners = [(-width/2, -height/2), (width/2, -height/2),
-               (width/2, height/2), (-width/2, height/2), (-width/2, -height/2)]
+    corners = [(-width/2, -height/2), (width/2, -height/2), (width/2, height/2), (-width/2, height/2), (-width/2, -height/2)]
     return [Point2f(xc + c * ξ - s * η, zc + s * ξ + c * η) for (ξ, η) in corners]
 end
 
@@ -382,10 +381,11 @@ ax = Axis(fig[1, 1]; title, xlabel = "x [m]", ylabel = "z [m]", aspect = DataAsp
 hm = heatmap!(ax, ζₙ, colormap = :balance, colorrange = (-0.2, 0.2))
 lines!(ax, outline, color = :black, linewidth = 2)
 Colorbar(fig[1, 2], hm, label = "vorticity [s⁻¹]")
+ylims!(ax, -Lz, 50)
 ax = Axis(fig[2, 1]; title, xlabel = "x [m]", ylabel = "z [m]", aspect = DataAspect())
-hm = heatmap!(ax, bₙ, colormap = :thermal, colorrange = (-0.2, 0.2))
+hm = heatmap!(ax, bₙ, colormap = :thermal, colorrange = (-0.02, 0.0))
 lines!(ax, outline, color = :black, linewidth = 2)
-Colorbar(fig[1, 2], hm, label = "buoyancy [m s⁻²]")
+Colorbar(fig[2, 2], hm, label = "buoyancy [m s⁻²]")
 ylims!(ax, -Lz, 50)
 
 CairoMakie.record(fig, "capsizing_iceberg.mp4", 1:length(times), framerate = 12) do i
