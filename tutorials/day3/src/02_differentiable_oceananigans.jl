@@ -33,12 +33,7 @@
 # * an idealized **mid-latitude westerly zonal wind stress**;
 # * a **heat flux** that loosely approximates the observed buoyancy fluxes of the
 #   Southern Ocean.
-#
-# ![Drake Passage](assets/drake_passage.png)
-#
-# *The Drake Passage — the gap between South America and the Antarctic Peninsula that the
-# ACC must squeeze through. We idealize this as a re-entrant channel with a ridge-and-gap
-# barrier standing in for the passage. (Map: Geo Swan, Wikimedia Commons, public domain.)*
+
 
 # ## Packages
 #
@@ -62,6 +57,20 @@ using Printf
 using Statistics
 using FileIO, JLD2
 using CairoMakie
+
+#nb # ## Environment check
+#nb #
+#nb # This notebook is known to run **only** against the pinned `tutorials/day3`
+#nb # environment on the workshop's **Julia 1.11.7** kernel, launched with `-O0`
+#nb # (see `tutorials/day3/README.md`). The exact same code runs fine as a plain
+#nb # script but currently **fails inside the Jupyter kernel** at the grid-build cell
+#nb # below. The cell prints the versions and kernel flags so we can compare setups when
+#nb # checking reproducibility — please paste this output back when you try to reproduce.
+#nb @info "Julia $(VERSION) — active project: $(Base.active_project())"
+#nb @info "Optimization level (want -O0): " * string(Base.JLOptions().opt_level)
+#nb using Pkg
+#nb Pkg.status(["Oceananigans", "Reactant", "Enzyme", "ReactantCore"])
+#nb @info "OceananigansReactantExt loaded? " Base.get_extension(Oceananigans, :OceananigansReactantExt)
 
 # ## Configuration
 #
