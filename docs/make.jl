@@ -151,9 +151,9 @@ const _RESULTS_SPEC = Dict(
         movies = ["norway_100m_prescribed_fluxes.mp4"],
     ),
     "intro_atmosphere" => (
-        title = "Intro: 2D atmospheric free convection",
-        figures = ["intro_atmosphere_convection_final.png"],
-        movies = ["intro_atmosphere_convection.mp4"],
+        title = "Intro: a first taste of the atmosphere",
+        figures = ["thermal_bubble.png", "free_convection.png", "lee_waves.png", "mountain_clouds.png"],
+        movies = ["thermal_bubble.mp4", "free_convection.mp4", "lee_waves.mp4", "mountain_clouds.mp4"],
     ),
     "intro_coupled" => (
         title = "Intro: 2D coupled air–sea convection",

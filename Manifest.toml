@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "b97b43555b89aae082bc81720f77594daa327eb2"
+project_hash = "3e467afda93b79bb2ecf9e1bc6e0dc84286bf42e"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -357,6 +357,12 @@ git-tree-sha1 = "34d9873079e4cb3d0c62926a225136824677073f"
 uuid = "55437552-ac27-4d47-9aa3-63184e8fd398"
 version = "1.0.0"
 
+[[deps.ClimaParams]]
+deps = ["Dates", "TOML"]
+git-tree-sha1 = "7196fbc2ea333b1966581103ba19b88d376314fb"
+uuid = "5c42b081-d73a-476f-9059-fd94b934656c"
+version = "1.0.17"
+
 [[deps.ClimaSeaIce]]
 deps = ["Adapt", "JLD2", "KernelAbstractions", "Oceananigans", "RootSolvers", "SeawaterPolynomials"]
 git-tree-sha1 = "21ae7461383ecdfe4978c0abf0fad6a0bbec20d5"
@@ -368,6 +374,19 @@ deps = ["Static", "StaticArrayInterface"]
 git-tree-sha1 = "05ba0d07cd4fd8b7a39541e31a7b0254704ea581"
 uuid = "fb6a15b2-703c-40df-9091-08a04967cfa9"
 version = "0.1.13"
+
+[[deps.CloudMicrophysics]]
+deps = ["ClimaParams", "DocStringExtensions", "ForwardDiff", "InteractiveUtils", "LazyArtifacts", "LogExpFunctions", "RootSolvers", "SpecialFunctions", "StaticArrays", "Thermodynamics", "UnrolledUtilities"]
+git-tree-sha1 = "a094c3d33cee64cb8ac2420bd7b22298f7b1f958"
+uuid = "6a9e3e04-43cd-43ba-94b9-e8782df3c71b"
+version = "0.35.0"
+
+    [deps.CloudMicrophysics.extensions]
+    EmulatorModelsExt = ["DataFrames", "MLJ"]
+
+    [deps.CloudMicrophysics.weakdeps]
+    DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+    MLJ = "add582a8-e3ab-11e8-2d5e-e98b27df1bc7"
 
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
@@ -2257,12 +2276,10 @@ deps = ["ForwardDiff", "Random", "RootSolvers"]
 git-tree-sha1 = "91f5f9fd020b8bfa04710ee9bec1310c65072eb0"
 uuid = "b60c26fb-14c3-4610-9d3e-2d17fe7ff00c"
 version = "1.2.1"
+weakdeps = ["ClimaParams"]
 
     [deps.Thermodynamics.extensions]
     CreateParametersExt = "ClimaParams"
-
-    [deps.Thermodynamics.weakdeps]
-    ClimaParams = "5c42b081-d73a-476f-9059-fd94b934656c"
 
 [[deps.ThreadingUtilities]]
 deps = ["ManualMemory"]
@@ -2351,6 +2368,15 @@ version = "1.28.0"
     Latexify = "23fbe1c1-3f47-55db-b15f-69d7ec21a316"
     NaNMath = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
     Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[[deps.UnrolledUtilities]]
+git-tree-sha1 = "a9ebeb4308eaacfe49f71594c0fe38c0c655734f"
+uuid = "0fe1646c-419e-43be-ac14-22321958931b"
+version = "0.1.9"
+weakdeps = ["StaticArrays"]
+
+    [deps.UnrolledUtilities.extensions]
+    UnrolledUtilitiesStaticArraysExt = "StaticArrays"
 
 [[deps.UnsafeAtomics]]
 git-tree-sha1 = "0f30765c32d66d58e41f4cb5624d4fc8a82ec13b"

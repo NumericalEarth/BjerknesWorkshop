@@ -182,9 +182,16 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 # T(x, y, z=0) = T_\mathrm{cold} + \Delta T\,\exp\!\Big(-\frac{(y - L_y/2)^2}{2\sigma^2}\Big)
 # ```
 #
-# with `ΔT ≈ 3 K` and `σ ≈ 1 km` (a ≈ 2 km-wide warm filament), the anomaly decaying
+# with `ΔT ≈ 3 K` and `σ ≈ 0.6 km` (a ≈ 1.4 km-wide warm filament), the anomaly decaying
 # over the top `δᵥ = 20 m`. Below the mixed-layer depth `h` the water is stratified at
 # `N²`. Salinity is a uniform 35 g kg⁻¹.
+#
+# **Why narrow?** A tight filament carries a *sharp* lateral buoyancy gradient, and
+# mixed-layer instability grows faster the sharper the front (its growth rate scales
+# with `M² = ∂_y b`). A broad, gentle filament sits quiescent for ~10 inertial-hours
+# before it even begins to roll up; this one goes unstable in a few hours, so the
+# spin-up below can be short and still hand the coupler an eddying — but not yet
+# homogenized — ocean.
 #
 # **This front is baroclinically unstable.** A surface-trapped lateral buoyancy
 # gradient on an `f`-plane carries available potential energy that frontal
@@ -215,7 +222,7 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 
 T_cold = 17       # °C, background SST (mid-latitude)
 ΔT     = 3        # K = °C, filament warm anomaly
-σ      = 1000     # m, filament half-width scale (≈ 2 km full width)
+σ      = 600      # m, filament half-width scale (≈ 1.4 km full width — a tight ribbon)
 h      = 40       # m, initial ocean mixed-layer depth
 N²     = 1e-4     # s⁻², interior stratification (buoyancy frequency²)
 S₀     = 35       # g/kg, uniform salinity
@@ -246,20 +253,25 @@ uᵒᵢ(x, y, z) = -(g_oce * α_T / f_oce) * ∂yG(y) * δᵥ * (exp(z / δᵥ) 
 
 # ## Spin up the ocean alone: let the front go unstable *before* coupling
 #
-# Mixed-layer baroclinic instabilities need ≈ 1–2 inertial periods to reach finite
-# amplitude — far longer than we want to integrate the full coupled system. The ocean
-# alone, though, is small (≈ 0.9 M cells), so we run it **standalone for 24 hours**:
-# no surface fluxes, just the balanced front releasing its available potential energy
-# into a field of submesoscale eddies. The coupled simulation then starts from this
-# *already-eddying* ocean, and every expensive coupled minute is spent on the
-# interesting regime. (For larger setups the same trick works with a coarse ocean
+# Mixed-layer baroclinic instability needs time to reach finite amplitude — far
+# longer than we want to integrate the full coupled system. The ocean alone, though,
+# is small (≈ 0.9 M cells), so we run it **standalone for 10 hours**: no surface
+# fluxes, just the balanced front releasing its available potential energy into a
+# field of submesoscale eddies. With the tight filament above, the instability rolls
+# up within a few hours; by 10 h the front has shed a handful of eddies but is *not
+# yet* mixed away — the surface still carries the warm ribbon and its sharp flanks.
+# Run it much longer (≈ a day) and the eddies homogenize the filament, erasing the
+# very heterogeneity the coupled run is meant to feel. So we stop early, in the
+# eddies-formed-but-still-heterogeneous window. The coupled simulation then starts
+# from this *already-eddying* ocean, and every expensive coupled minute is spent on
+# the interesting regime. (For larger setups the same trick works with a coarse ocean
 # spin-up, cached to disk.)
 
 spinup = ocean_simulation(ocean_grid; model = :nonhydrostatic,
                           coriolis = FPlane(f = f_oce))
 set!(spinup.model, T = Tᵒᵢ, S = S₀, u = uᵒᵢ)
 
-spinup.stop_time = 24hours
+spinup.stop_time = 10hours
 conjure_time_step_wizard!(spinup, cfl = 1.0)
 
 spinup_wall = Ref(time_ns())
@@ -278,7 +290,7 @@ u_sp, v_sp, w_sp = spinup.model.velocities
 ζ_sp = Field(∂x(v_sp) - ∂y(u_sp), indices = (:, :, Nz_o:Nz_o))
 spinup.output_writers[:surface] = JLD2Writer(spinup.model,
     (; T = view(spinup.model.tracers.T, :, :, Nz_o), ζ = ζ_sp);
-    filename = "warm_filament_spinup.jld2", schedule = TimeInterval(30minutes),
+    filename = "warm_filament_spinup.jld2", schedule = TimeInterval(20minutes),
     overwrite_existing = true)
 
 run!(spinup)

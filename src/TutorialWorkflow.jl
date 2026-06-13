@@ -529,16 +529,25 @@ function case_registry(root::AbstractString = pwd())
         description = "Breeze terrain-following LES over coastal Norway (Lofoten) with prescribed land/ocean fluxes.",
     ))
     push!(cases, TutorialCase(
-        day = 4, name = "Intro: 2D atmospheric free convection",
+        day = 4, name = "Intro: a first taste of the atmosphere (bubble → convection → mountains → drizzle)",
         slug = "intro_atmosphere",
         source = joinpath(DAY4_SRC, "05_intro_atmosphere_convection.jl"),
         generated_script = joinpath(DAY4_SCRIPTS, "05_intro_atmosphere_convection.jl"),
         output_root = joinpath("output", "day4", "intro_atmosphere"),
-        required_outputs = ["flat_convection.jld2", "agnesi_convection.jld2"],
+        required_outputs = [
+            "thermal_bubble.jld2",
+            "free_convection_anelastic.jld2",
+            "free_convection_acoustic.jld2",
+            "agnesi_lee_waves.jld2",
+            "mountain_clouds.jld2",
+        ],
         workdir = :artifacts,
-        parameters = (Lx = 8_000, Lz = 4_000, Nx = 256, Nz = 128, stop_hours = 2, Q = 300),
+        parameters = (Lx = 24_000, Lz = 8_000, Nx = 384, Nz = 160,
+                      Ly = 12_000, Nx3 = 192, Ny3 = 96, Nz3 = 128,
+                      stop_hours = 2, T0_offset = 5, T0_offset_moist = 8,
+                      U_convection = 5, U_mountain = 10, h0 = 600, q0 = 9.5e-3),
         critical = false,
-        description = "Intro: 2D Breeze atmosphere free convection with a surface heat flux and light wind stress.",
+        description = "Intro mega-tutorial: thermal bubble (anelastic), free convection (anelastic vs split-explicit compressible), Agnesi lee waves (terrain-following), and a 3D Gaussian mountain with one-moment warm-rain clouds and drizzle.",
     ))
     push!(cases, TutorialCase(
         day = 4, name = "Intro: 2D coupled air–sea convection",
@@ -570,7 +579,8 @@ function case_registry(root::AbstractString = pwd())
         ],
         workdir = :artifacts,
         parameters = (Lx = 12_000, Ly = 6_000, Lz_a = 3_000, Lz_o = 120,
-                      Nx = 192, Ny = 96, Nz_a = 96, Nz_o = 48, stop_hours = 1),
+                      Nx = 192, Ny = 96, Nz_a = 96, Nz_o = 48,
+                      stop_hours = 2, spinup_hours = 10, filament_sigma = 600),
         critical = false,
         description = "Flagship coupled LES: a warm SST filament organizes a marine cloud street overhead (3D Breeze atmosphere + nonhydrostatic ocean).",
     ))
