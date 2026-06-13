@@ -9,7 +9,7 @@
 # applying it to a planet Earth with Pangaea still existing!
 #
 # Here we do exactly that: we repeat the simulation of
-# [`run_parameterization.jl`](run_parameterization.jl), but with **Pangaea**, using the
+# [`01f_run_parameterization.jl`](01f_run_parameterization.md), but with **Pangaea**, using the
 # boundary conditions provided by
 # [PlanetPangaea.jl](https://github.com/SpeedyWeather/PlanetPangaea.jl) (credit to Greg
 # Munday / U Oxford).
@@ -47,7 +47,7 @@ readdir(pangaea_dir)
 
 # ## Import the trained model
 #
-# Exactly as in [`run_parameterization.jl`](run_parameterization.jl): `training.jl`
+# Exactly as in [`01f_run_parameterization.jl`](01f_run_parameterization.md): `01d_training.jl`
 # saved the Lux network, its trained parameters, the test-mode states and the
 # normalisation statistics of the dataloaders. Note that the network was trained
 # purely on ERA5 — present-day Earth — and will now be asked about a Triassic

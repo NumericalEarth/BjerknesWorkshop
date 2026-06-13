@@ -107,11 +107,3 @@ heatmap!(ax2, lon360, lat, log10.(z₀_era5); colorrange = clims)
 Colorbar(fig[:, 2], hm, label = "log₁₀ surface roughness [m]")
 CairoMakie.save("surface_roughness_comparison.png", fig)   ## qualified: JLD2 also exports `save`
 fig
-
-# ## Outlook: running on the GPU
-#
-# The column-wise scheme above is not GPU-ready yet: all columns share a single
-# `land_input_buffer` (a data race in a parallel kernel) and `Lux.apply` of a
-# full `Chain` cannot be called from inside a GPU kernel. For the GPU we would
-# instead evaluate the network batched over all grid points at once, as a global
-# parameterization — that's the next (optional step).

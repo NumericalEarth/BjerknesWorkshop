@@ -43,7 +43,7 @@
 # We take in ERA5 data for all variables from 2022-2025 at its native resolution at 
 # a roughly weekly temporal resolution (with an included drift to sample all hours 
 # of the day). The pre-processing from the spatiatemporal fields was already done in 
-# `run_preprocessing.jl` and `preprocessing.jl` that you can find in the repository. 
+# [`01b_preprocessing.jl`](01b_preprocessing.md) that you can find in the repository.
 #
 # For the preprocessing, we 
 # * Merged the downloaded 3-hourly ERA5 data 

@@ -84,12 +84,12 @@
 # The remaining literate scripts walk through the full offline-learn / online-apply
 # loop:
 #
-# 1. [`dataloaders.jl`](dataloaders.jl) — read that Zarr store and serve normalised
+# 1. [`01c_dataloaders.jl`](01c_dataloaders.md) — read that Zarr store and serve normalised
 #    `(features, batch)` mini-batches ready for [Lux.jl](https://lux.csail.mit.edu/).
-# 2. [`training.jl`](training.jl) — train the MLP offline (AdamW, early stopping on a
+# 2. [`01d_training.jl`](01d_training.md) — train the MLP offline (AdamW, early stopping on a
 #    validation split) and save the trained weights with JLD2.
-# 3. [`parameterization.jl`](parameterization.jl) (run via
-#    [`run_parameterization.jl`](run_parameterization.jl)) — wrap the trained network
+# 3. [`01e_parameterization.jl`](01e_parameterization.md) (run via
+#    [`01f_run_parameterization.jl`](01f_run_parameterization.md)) — wrap the trained network
 #    as a `LearnedSurfaceRoughness <: SpeedyWeather.AbstractSurfaceRoughness` and run
 #    it **online**, replacing the constant boundary condition with a learned one.
 

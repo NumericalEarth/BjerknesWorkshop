@@ -1,6 +1,6 @@
 # # Preprocessing: global NetCDF fields -> column-wise Zarr store prepared for dataloaders
 #
-# You can savely ignore this file / notebook. This ist just here for completness of the example. 
+# You can safely ignore this file / notebook. This is just here for completeness of the example.
 # We already prepared and preprocessed the data for you. The raw ERA5 files are not saved on the 
 # server. Just skip ahead to the next notebook. 
 #
@@ -36,27 +36,6 @@ Base.@kwdef struct NetCDFVar{L}
     name::String
     level::L = nothing
 end
-
-"""
-    load_variable(path, name; level=nothing) -> Array{Float32}
-
-Read a variable from a NetCDF file as a dense `Float32` array. `_FillValue` /
-`missing` entries are converted to `NaN` so they can be filtered later. If `level`
-is given and the field is 4D, that level (or range of levels) is selected.
-"""
-function load_variable(path::AbstractString, name::AbstractString; level = nothing)
-    arr = NCDataset(path) do ds
-        Array(ds[name])                      # (lat, lon, [level], time)
-    end
-    arr = to_float32_nan(arr)
-
-    if level !== nothing && ndims(arr) == 4
-        arr = arr[:, :, level, :]            # Integer level -> drops the level dim
-    end
-    return arr
-end
-
-load_field(v::NetCDFVar) = load_variable(v.path, v.name; level = v.level)
 
 """
     load_var_slice(ds, name, tidx; level=nothing) -> Array{Float32}
@@ -156,7 +135,7 @@ end
 
 """
     preprocess_to_zarr(inputs, target, zarr_path; years=nothing, time_name="valid_time",
-                       time_stride=1, chunk_samples=2^22, landmask=nothing,
+                       time_stride=61, chunk_samples=2^22, landmask=nothing,
                        landmask_threshold=0.5, overwrite=true, compressor=..., verbose=true)
 
 Build the column-wise dataset from a big multi-year NetCDF file and persist it as a

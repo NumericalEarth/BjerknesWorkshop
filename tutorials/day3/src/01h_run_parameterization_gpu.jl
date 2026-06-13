@@ -1,11 +1,9 @@
 # # Running the learned parameterization on the GPU
 #
 # The column-wise `LearnedSurfaceRoughness` from `parameterization.jl` is not
-# GPU-compatible: all columns share a single input buffer (a data race in a
-# parallel kernel) and `Lux.apply` of a full `Chain` cannot be called from
-# inside a GPU kernel. On the GPU, SpeedyWeather fuses all column
-# parameterizations into one kernel over the grid points, so the network would
-# have to run per-point inside that kernel.
+# GPU-compatible: This is mainly because Lux NN can't be called within kernel easily 
+# but also all columns share a single input buffer (a data race in a
+# parallel kernel) and `Lux.apply`. 
 #
 # SpeedyWeather offers a second kind of parameterization for exactly this
 # situation: a [global parameterization](https://speedyweather.github.io/SpeedyWeatherDocumentation/dev/parameterizations).
@@ -15,11 +13,9 @@
 # `(7, npoints)` matrix, evaluate the network batched in a single
 # `Lux.apply`, and write the result back with array broadcasts.
 
-import Pkg
-Pkg.activate(".")
-
 using CUDA, cuDNN              # load the GPU stack first
 using SpeedyWeather, Lux, JLD2, Adapt
+using MLDataDevices: gpu_device
 
 # ## The global scheme
 #
