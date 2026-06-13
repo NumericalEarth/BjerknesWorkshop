@@ -409,8 +409,8 @@ write_summary_pages!(case_registry(REPO_ROOT); root = REPO_ROOT)
 function _nav_for_day(day::Int)
     pages = get(day_pages, day, String[])
     isempty(pages) && return nothing
-    label = day == 1 ? "Day 1 — Julia and ocean modeling" :
-            day == 2 ? "Day 2 — One day in the high-latitude ocean" :
+    label = day == 1 ? "Day 1 — Julia and interactive Earth system modeling" :
+            day == 2 ? "Day 2 — Realistic simulations using Julia" :
             day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
             day == 4 ? "Day 4 — Boundary heterogeneity & turbulence" :
             "Day $day"
