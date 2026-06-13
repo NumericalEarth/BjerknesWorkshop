@@ -87,8 +87,8 @@ vertical_mixing = CATKEVerticalDiffusivity(minimum_tke=1e-7)
 # keyword arguments, with the objects you already know:
 
 free_surface       = SplitExplicitFreeSurface(grid; substeps = 70)
-momentum_advection = WENOVectorInvariant()
-tracer_advection   = WENO(order = 7)
++momentum_advection = WENOVectorInvariant(time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
++tracer_advection   = WENO(order=7, time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
 
 ocean = ocean_simulation(grid; momentum_advection, tracer_advection, free_surface, closure = vertical_mixing)
 
@@ -135,7 +135,7 @@ radiation     = JRA55PrescribedRadiation(arch; ocean_surface, dir_kw...)
 
 coupled_model = OceanSeaIceModel(ocean, sea_ice; atmosphere, land, radiation)
 
-simulation = Simulation(coupled_model; Δt = 30minutes, stop_time = 365days)
+simulation = Simulation(coupled_model; Δt = 20minutes, stop_time = 365days)
 
 # A year at one degree takes a few hours on a single modern GPU. The progress callback keeps us honest while it
 # runs:
@@ -163,14 +163,15 @@ add_callback!(simulation, progress, TimeInterval(5days))
 #
 # Surface fields only, daily — the `indices` trick from the baroclinic channel, at planetary scale:
 
-ocean_outputs = merge(ocean.model.tracers, ocean.model.velocities)
+𝒱 = @at((Center, Center, Center), sqrt(u^2 + v^2))
+ocean_outputs = merge(ocean.model.tracers, (; 𝒱))
 
 sea_ice_outputs = (h = sea_ice.model.ice_thickness,
                    ℵ = sea_ice.model.ice_concentration)
 
 ocean.output_writers[:surface] = JLD2Writer(ocean.model, ocean_outputs;
                                             filename = "global_ocean_surface.jld2",
-                                            indices = (:, :, grid.Nz),
+                                            indices = (:, :, grid.Nz-1),
                                             schedule = TimeInterval(1days),
                                             overwrite_existing = true)
 
@@ -189,11 +190,10 @@ run!(simulation)
 
 using CairoMakie
 
-uo = FieldTimeSeries("global_ocean_surface.jld2", "u"; backend = OnDisk())
-vo = FieldTimeSeries("global_ocean_surface.jld2", "v"; backend = OnDisk())
-To = FieldTimeSeries("global_ocean_surface.jld2", "T"; backend = OnDisk())
-hi = FieldTimeSeries("global_sea_ice_surface.jld2", "h"; backend = OnDisk())
-ℵi = FieldTimeSeries("global_sea_ice_surface.jld2", "ℵ"; backend = OnDisk())
+Uo = FieldTimeSeries("global_ocean_surface.jld2", "𝒱")
+To = FieldTimeSeries("global_ocean_surface.jld2", "T")
+hi = FieldTimeSeries("global_sea_ice_surface.jld2", "h")
+ℵi = FieldTimeSeries("global_sea_ice_surface.jld2", "ℵ")
 
 times = To.times
 
@@ -201,10 +201,10 @@ land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
 
 n = Observable(length(times))
 
-title = @lift "global ocean and sea ice — day " * string(round(Int, times[$n] / day))
+title = @lift "global ocean and sea ice — day " * string(round(Int, times[$n] / days))
 
 speedₙ = @lift begin
-    s = @. sqrt(interior(uo[$n], :, :, 1)^2 + interior(vo[$n], :, :, 1)^2)
+    s = interior(Uo[$n], :, :, 1))
     s[land_mask] .= NaN
     s
 end
@@ -222,7 +222,7 @@ iceₙ = @lift begin
     hℵ
 end
 
-fig = Figure(size = (1100, 1000))
+fig = Figure(size = (900, 1000))
 fig[1, :] = Label(fig, title, fontsize = 22, tellwidth = false)
 
 ax_s = Axis(fig[2, 1], title = "surface speed [m s⁻¹]")
@@ -234,10 +234,11 @@ hm_T = heatmap!(ax_T, Tₙ, colormap = :magma, colorrange = (-2, 30), nan_color 
 Colorbar(fig[3, 2], hm_T)
 
 ax_h = Axis(fig[4, 1], title = "sea ice volume per area [m]")
-hm_h = heatmap!(ax_h, iceₙ, colormap = Reverse(:blues), colorrange = (0, 4), nan_color = :lightgray)
+hm_h = heatmap!(ax_h, iceₙ, colormap = Reverse(:blues), colorrange = (0, 2), nan_color = :lightgray)
 Colorbar(fig[4, 2], hm_h)
 
 CairoMakie.record(fig, "global_ocean.mp4", 1:length(times), framerate = 12) do i
+    @info "doing step $i"
     n[] = i
 end
 nothing #hide
@@ -251,12 +252,9 @@ nothing #hide
 #
 # ## Where to go from here
 #
-# - **Resolution.** The same script at `Nx, Ny = 1440, 600` is the quarter-degree, eddy-permitting
-#   configuration — provided you also *remove* `eddy_closure` (the resolved eddies object to being
-#   parameterized on top). That configuration is the subject of the distributed tutorial next door.
-# - **Regional.** Cut a Nordic Seas domain with `LatitudeLongitudeGrid` (or a rotated
-#   `RotatedLatitudeLongitudeGrid` centered on the pole) and the same components — see the Arctic experiment in
-#   the NumericalEarth repository.
-# - **Interactive atmosphere.** A prognostic atmosphere can replace `JRA55PrescribedAtmosphere`, and the same
-#   `OceanSeaIceModel` becomes a small coupled ESM. It is, indeed, easier than you think.
+# - **Resolution.** The same script at `Nx, Ny, Nz = 5760, 2880, 100` is the sixteenth-degree, eddy-resolving
+#   configuration. That configuration is a good candidate to test distributed computing (`arch = Distributed(GPU)``)
+# - **Prognostic atmosphere.** A prognostic atmosphere can replace `JRA55PrescribedAtmosphere`, and with 
+#   `coupled_model = EarthSystemModel(; ocean, sea_ice, atmosphere, land, radiation)`, this simulation becomed
+#    a small coupled ESM. (you can try using SpeedyWeather)
 #

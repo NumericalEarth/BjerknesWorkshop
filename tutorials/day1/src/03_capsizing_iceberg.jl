@@ -54,8 +54,8 @@
 #
 # A 1.2 km × 300 m slice of quiescent, stratified fjord water. The model is a `NonhydrostaticModel` — at
 # these scales the hydrostatic approximation would be exactly wrong. The architecture is chosen once, here;
-# the float type comes from the grid, and every device-side constant below is converted through it (Apple
-# GPUs, for instance, only speak `Float32`):
+# the float type changes the precision of the simulation (Float64 or Float32), and every device-side constant
+# below is converted through it (Apple GPUs, for instance, only speak `Float32`):
 
 using Oceananigans
 using Oceananigans.Units
@@ -63,13 +63,9 @@ using Oceananigans.Architectures: on_architecture
 using Printf
 
 arch = CPU()
-## arch = GPU()                                    # NVIDIA
-## using Metal; arch = GPU(Metal.MetalBackend())   # Apple (expect a long first-time
-##                                                 # kernel compilation; FT must then
-##                                                 # be Float32)
+Oceananigans.defaults.FloatType = Float64          
 
-FT = Float64                              # Float32 on Metal, and faster everywhere
-
+FT = Oceananigans.defaults.FloatType                                       
 Lx = 1200
 Lz = 300
 Nx, Nz = 512, 128
@@ -92,41 +88,40 @@ grid = RectilinearGrid(arch, FT,
 # - a 6-element **device array** `state` holding `(x_c, z_c, θ, U, W, Ω)`: a snapshot the kernels can read,
 #   refreshed by the callback with one `copyto!` per time step — 24 bytes of traffic, irrelevant next to
 #   anything else the model does.
-#
-# This host-truth/device-mirror pattern is not a workaround but *the* standard idiom for coupling scalar
-# dynamics (a rigid body, a controller, an ice-sheet point model) to a GPU-resident fluid:
 
 mutable struct Iceberg
-    xc :: FT        # center position [m]
-    zc :: FT
-    θ  :: FT        # tilt angle [rad]
-    U  :: FT        # translational velocity [m s⁻¹]
-    W  :: FT
-    Ω  :: FT        # angular velocity [s⁻¹]
+    xc :: FT    # x-center position [m]
+    zc :: FT    # z-center position [m]
+    θ  :: FT    # tilt angle [rad]
+    U  :: FT    # translational velocity in x [m s⁻¹]
+    W  :: FT    # translational velocity in z [m s⁻¹]
+    Ω  :: FT    # angular velocity [s⁻¹]
 end
 
 const ρₒ = 1025  # water density [kg m⁻³]
 const ρᵢ = 917   # ice density [kg m⁻³]
-const g  = 9.81
+const g  = 9.81  # gravitational acceleration [m s⁻²]
 
 width  = 70.0
 height = 200.0
 τ      = 2.0     # penalization timescale [s] — see the trade-off discussion above
 
-# A width-to-height ratio of 0.35 — well below the 0.75 stability threshold. Floating at hydrostatic
-# equilibrium the berg's center sits at ``z_c = (1/2 - \rho_i/\rho_o) H`` below the waterline. We start from
-# an *almost vertical* position, misaligned by only 2°: the instability needs nothing more than a seed, and
-# watching it grow from nearly nothing is half the lesson:
+# The width-to-height ratio of 0.35, well below the 0.75 stability threshold. Floating at hydrostatic
+# equilibrium the iceberg's center sits at ``z_c = (1/2 - \rho_i/\rho_o) H`` below the waterline. We start from
+# an *almost vertical* position, misaligned by only 1°: the instability is then seeded and it will grow in time
+# until the iceberg is fully capsized.
+#
+# Note that `mutable` structures are convenient but not GPU-compatible. To allow the simulation to run on GPUs we
+# extract the iceberg's state and populate a GPU-compatible array. We will need to remember to update the state
+# at each timestep!
 
 zc_equilibrium = (1/2 - ρᵢ/ρₒ) * height
 
-iceberg = Iceberg(0, zc_equilibrium, deg2rad(2), 0, 0, 0)
+iceberg = Iceberg(0, zc_equilibrium, deg2rad(1), 0, 0, 0)
+state   = on_architecture(arch, FT[iceberg.xc, iceberg.zc, iceberg.θ, iceberg.U, iceberg.W, iceberg.Ω])
 
-state = on_architecture(arch, FT[iceberg.xc, iceberg.zc, iceberg.θ,
-                                 iceberg.U,  iceberg.W,  iceberg.Ω])
-
-# The mask: rotate into the berg frame ``(\xi, \eta)`` — the lab coordinates rotated by ``-\theta`` about the
-# center — and take a smoothed box indicator, a product of two soft steps:
+# The mask: rotate into the iceberg frame ``(\xi, \eta)`` of reference (just the coordinates rotated by ``-\theta`` 
+# about the center). We take a smoothed box indicator, a product of two soft steps:
 #
 # ```math
 # \chi = \sigma\!\left(\frac{W/2 - |\xi|}{\lambda}\right)\,\sigma\!\left(\frac{H/2 - |\eta|}{\lambda}\right),
@@ -152,9 +147,9 @@ nothing #hide
 # ## The penalization forcing
 #
 # Two `Forcing`s relax `u` and `w` toward the rigid-body motion. The `parameters` are an immutable named
-# tuple — scalars converted to the grid's float type, plus the device `state` array. When the model launches
-# its kernels, Oceananigans `adapt`s the parameters for the device, and the `state` array arrives as a device
-# pointer the kernel can legally read:
+# tuple containing scalars converted to the grid's float type, plus the device `state` array (which we will 
+# need to update as we time step!). When the model launches its kernels, Oceananigans `adapt`s the parameters 
+# for the device, and the `state` array arrives as a device pointer the kernel can legally read:
 
 forcing_parameters = (; state, width = FT(width), height = FT(height), τ = FT(τ), λ = FT(λ))
 
@@ -175,11 +170,10 @@ w_forcing = Forcing(w_penalization, field_dependencies = :w, parameters = forcin
 nothing #hide
 
 # The model: a strongly stratified fjord (``N^2 = 10^{-4}`` s⁻², a buoyancy period of ~10 minutes), so the
-# capsize-stirred water mass slumps back as gravity currents and, on longer runs than ours, radiates internal
-# waves:
-
-# (Note `WENO(FT, ...)`: numerics objects carry their own float type, independently from the grid — forget it
-# and a `Float64` sneaks into your `Float32` GPU kernels.)
+# capsize-stirred water mass slumps back as gravity currents 
+#
+# (Note `WENO(FT, ...)`: numerics objects carry their own float type, independently from the grid, but they
+# default to `Oceananigans.defaults.FloatType`.
 
 model = NonhydrostaticModel(grid;
                             advection = WENO(FT, order = 9),
@@ -192,8 +186,8 @@ set!(model, b = (x, z) -> N² * z)
 
 # ## The rigid-body dynamics
 #
-# Now the berg's side of the bargain, advanced by a `Callback` every iteration. The berg is a rigid body with
-# three degrees of freedom — its center ``(x_c, z_c)`` and tilt ``\theta`` — obeying Newton–Euler,
+# Now the iceberg's side of the dynamics, advanced by a `Callback` every iteration. The iceberg is a rigid body with
+# three degrees of freedom — its center ``(x_c, z_c)`` and tilt ``\theta`` obeying the following set of ODEs,
 #
 # ```math
 # m\,\dot{U} = F_x, \qquad m\,\dot{W} = F_z, \qquad I\,\dot{\Omega} = T, \qquad
@@ -210,7 +204,7 @@ set!(model, b = (x, z) -> N² * z)
 # three contributions, evaluated every iteration:
 #
 # 1. **Fluid reaction.** The penalization exerts ``-\rho_o \chi (\mathbf{u} - \mathbf{u}_{berg})/\tau`` per
-#    unit volume on the fluid; the berg feels the reaction, integrated over its area:
+#    unit volume on the fluid; the iceberg feels the reaction, integrated over its area:
 #
 #    ```math
 #    \mathbf{F}^{\mathrm{fluid}} = \frac{\rho_o}{\tau} \int \chi\,(\mathbf{u} - \mathbf{u}_{berg})\,dA,
@@ -236,23 +230,21 @@ set!(model, b = (x, z) -> N² * z)
 #
 #    Then the new state is mirrored to the device.
 #
-# A subtlety worth making explicit, because it is the kind that silently ruins coupled models: *does the berg
-# feel the hydrostatic pressure, and from where?* A Boussinesq solver subtracts the background hydrostatic
-# pressure ``\rho_o g z`` once and for all — the pressure it computes is only the dynamic, perturbation part.
-# But the dominant force on a floating body **is** the background hydrostatic pressure: its surface integral
-# over the wetted area is Archimedes' force ``\rho_o g A_{sub}``, and its first moment is the righting (or,
-# for our tall berg, capsizing) torque. Since the fluid solver cannot deliver it, step 2 restores it
-# analytically. The *perturbation* pressure — the flow pushing back, including the rigid-lid pressure that
-# stands in for the missing surface elevation — reaches the berg implicitly through the penalization reaction
-# of step 1, which in the ``\tau \to 0`` limit converges to the surface integral of the perturbation stresses
-# plus the inertia of the enclosed fluid. What remains neglected is only the hydrostatic pressure of the
-# density *anomalies* (``\sim N^2 H``, four orders of magnitude below the effective gravity
-# ``g(1 - \rho_i/\rho_o)``) and the change of the waterline geometry by the real free surface.
+# A subtlety worth making explicit, because it is the kind that silently ruins coupled models: *does the iceberg
+# feel the hydrostatic pressure, and from where?* A Boussinesq solver subtracts the background hydrostatic pressure 
+# ``\rho_o g z`` once and for all — the pressure it computes is only the dynamic, perturbation part. But the dominant 
+# force on a floating body **is** the background hydrostatic pressure: its surface integral over the wetted area is 
+# Archimedes' force ``\rho_o g A_{sub}``, and its first moment is the righting (or, for our tall iceberg, capsizing) torque. 
+# Since the fluid solver cannot deliver it, step 2 restores it analytically. The *perturbation* pressure (the flow pushing back,
+# including the rigid-lid pressure that stands in for the missing surface elevation) reaches the iceberg implicitly through 
+# the penalization reaction of step 1, which in the ``\tau \to 0`` limit converges to the surface integral of the perturbation 
+# stresses plus the inertia of the enclosed fluid. What remains neglected is only the hydrostatic pressure of the density *anomalies* 
+# (``\sim N^2 H``, four orders of magnitude below the effective gravity ``g(1 - \rho_i/\rho_o)``) and the change of the waterline 
+# geometry by the real free surface.
 #
-# The reaction integrals of step 1 must also obey the GPU rules: a scalar `for` loop over a device array
-# would be somewhere between catastrophically slow and illegal. Broadcasts and reductions, on the other hand,
-# compile to device kernels on any backend — so we phrase the integrals as exactly that, over coordinate
-# arrays built once, on the right architecture, before the run:
+# The reaction integrals of step 1 must also obey the GPU rules: a scalar `for` loop over a device array would be somewhere between 
+# catastrophically slow and illegal. Broadcasts and reductions, on the other hand, compile to device kernels on any backend, so we 
+# phrase the integrals as exactly that, over coordinate arrays built once, on the right architecture, before the run:
 
 u, v, w = model.velocities
 
@@ -287,7 +279,7 @@ function advance_iceberg!(sim)
     U, W, Ω        = FT(berg.U),  FT(berg.W),  FT(berg.Ω)
     Wᶠ, Hᶠ, λᶠ, τᶠ = FT(width),   FT(height),  FT(λ),     FT(τ)
 
-    ## 1. reaction to the penalization: broadcast + reduce (GPU-legal, CPU-fast)
+    ## 1. reaction to the penalization: broadcast + reduce
     uᵢ = interior(u, :, 1, :)
     Δu = @. berg_mask(Xᵘ, Zᵘ, xc, zc, θ, Wᶠ, Hᶠ, λᶠ) * (uᵢ - (U - Ω * (Zᵘ - zc)))
     Fx = ρₒ * dV / τ * sum(Δu)
@@ -321,6 +313,7 @@ function advance_iceberg!(sim)
     berg.zc += Δt * berg.W
     berg.θ  += Δt * berg.Ω
 
+    ## 4. update GPU-compatible state to new iceberg state
     copyto!(state, FT[berg.xc, berg.zc, berg.θ, berg.U, berg.W, berg.Ω])
 
     push!(iceberg_history, (time(sim), berg.xc, berg.zc, berg.θ))
@@ -328,14 +321,11 @@ function advance_iceberg!(sim)
 end
 nothing #hide
 
-# That is the entire implementation. It is worth pausing on what we did *not* do: no subclassing, no
-# registration with an interface, no recompilation of the package — and no CPU-only shortcuts: every line
-# that touches model data is a kernel, a broadcast, or a reduction, so the architecture at the top of the
-# script is a free choice.
+# That is the entire implementation. We can now run the case
 #
 # ## Run
 #
-# Three simulated minutes — from a 2° seed the berg leans imperceptibly for a while, then rolls over in a few
+# Three simulated minutes — from a 1° seed the berg leans imperceptibly for a while, then rolls over in a few
 # tens of seconds:
 
 simulation = Simulation(model, Δt = 0.1, stop_time = 3minutes)

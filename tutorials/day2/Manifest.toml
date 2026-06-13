@@ -335,9 +335,7 @@ version = "1.0.0"
 
 [[deps.ClimaSeaIce]]
 deps = ["Adapt", "JLD2", "KernelAbstractions", "Oceananigans", "RootSolvers", "SeawaterPolynomials"]
-git-tree-sha1 = "fa3589e1eaf318b74424843bba746c53478de776"
-repo-rev = "main"
-repo-url = "https://github.com/CliMA/ClimaSeaIce.jl.git"
+git-tree-sha1 = "21ae7461383ecdfe4978c0abf0fad6a0bbec20d5"
 uuid = "6ba0ff68-24e6-4315-936c-2e99227c95a4"
 version = "0.5.6"
 
@@ -481,8 +479,6 @@ version = "0.6.4"
 [[deps.CopernicusMarine]]
 deps = ["CondaPkg", "PythonCall"]
 git-tree-sha1 = "3a0c0996b79b3a538c132daa5cac73c10cbf2218"
-repo-rev = "add-netcdf-backend"
-repo-url = "https://github.com/NumericalEarth/CopernicusMarine.jl.git"
 uuid = "cd43e856-93a3-40c8-bc9e-6146cdce14fa"
 version = "0.1.2"
 
@@ -1642,11 +1638,11 @@ version = "1.3.0"
 
 [[deps.NumericalEarth]]
 deps = ["Accessors", "Adapt", "CFTime", "ClimaSeaIce", "CubedSphere", "DataDeps", "Dates", "Distances", "DocStringExtensions", "Downloads", "GPUArraysCore", "Glob", "ImageMorphology", "JLD2", "KernelAbstractions", "LibCURL", "MeshArrays", "NCDatasets", "Oceananigans", "OffsetArrays", "PrecompileTools", "Printf", "Scratch", "SeawaterPolynomials", "StaticArrays", "Statistics", "Thermodynamics", "ZipFile"]
-git-tree-sha1 = "78f1990aaca764927a0f53da50af9b7c7de03d25"
-repo-rev = "ss/merge-ocean-bcs"
+git-tree-sha1 = "25bc1b9f01a267a0befb934a7d07cc67d293fb77"
+repo-rev = "main"
 repo-url = "https://github.com/NumericalEarth/NumericalEarth.jl.git"
 uuid = "904d977b-046a-4731-8b86-9235c0d1ef02"
-version = "0.5.4"
+version = "0.5.5"
 
     [deps.NumericalEarth.extensions]
     NumericalEarthArchGDALExt = "ArchGDAL"
