@@ -141,10 +141,12 @@ function animate_field(data, filename; lon=axes(data, 1), lat=axes(data, 2),
     Colorbar(fig[1, 2], hm; label)
 
     ## here, we do the actual animation:
-    record(fig, filename, eachindex(time_steps); framerate) do t
+    anim = record(fig, filename, eachindex(time_steps); framerate) do t
         i_time[] = t
         ax.title = "$title, time step $(time_steps[t])"
     end
+
+    return anim
 end
 
 # Now we can animate the vorticity (rendering the animation might take a bit): 
@@ -298,7 +300,7 @@ model = PrimitiveWetModel(spectral_grid)
 ## 3. then, initialize the model
 simulation = SpeedyWeather.initialize!(model)
 
-## 4. and then run the model
+# 4. and then run the model
 n_days = 15
 SpeedyWeather.run!(simulation, period=Day(n_days), output=true)
 
