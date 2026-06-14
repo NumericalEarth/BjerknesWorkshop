@@ -300,7 +300,7 @@ model = PrimitiveWetModel(spectral_grid)
 ## 3. then, initialize the model
 simulation = SpeedyWeather.initialize!(model)
 
-## 4. and then run the model
+# 4. and then run the model
 n_days = 15
 SpeedyWeather.run!(simulation, period=Day(n_days), output=true)
 
