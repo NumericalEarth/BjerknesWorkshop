@@ -21,7 +21,6 @@ export DATA_DIR=/cluster/projects/nn9984k
 mkdir /cluster/work/projects/nn9984k/$USER
 cd /cluster/work/projects/nn9984k/$USER
 git clone https://github.com/NumericalEarth/BjerknesWorkshop.git
-cd /cluster/work/projects/nn9984k/$USER/BjerknesWorkshop/tutorials/day1
 export JULIA_DEPOT_PATH=/cluster/work/projects/nn9984k/$USER/julia_depot
 env -u LD_LIBRARY_PATH julia -e 'import Pkg; Pkg.add("IJulia")'
 env -u LD_LIBRARY_PATH julia -e 'using IJulia; installkernel("Julia 1.12 (clean env)", "-t 8"; env = Dict("LD_LIBRARY_PATH" => "/cluster/software/NRIS/neoverse_v2/software/Julia/1.12.2/lib"))'
