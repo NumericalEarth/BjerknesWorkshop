@@ -141,7 +141,7 @@ function animate_field(data, filename; lon=axes(data, 1), lat=axes(data, 2),
     Colorbar(fig[1, 2], hm; label)
 
     ## here, we do the actual animation:
-    anim = record(fig, filename, eachindex(time_steps); framerate) do t
+    anim = CairoMakie.record(fig, filename, eachindex(time_steps); framerate) do t
         i_time[] = t
         ax.title = "$title, time step $(time_steps[t])"
     end
@@ -292,7 +292,7 @@ using CUDA
 arch = CUDA.functional() ? SpeedyWeather.GPU() : SpeedyWeather.CPU()
 
 ## 1. define the resolution and grid, change what you like
-spectral_grid = SpectralGrid(trunc=256, nlayers=16, architecture=arch)
+spectral_grid = SpectralGrid(trunc=256, nlayers=8, architecture=arch)
 
 ## 2. create a model
 model = PrimitiveWetModel(spectral_grid)
