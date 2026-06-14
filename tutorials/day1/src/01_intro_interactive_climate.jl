@@ -299,7 +299,7 @@ model = PrimitiveWetModel(spectral_grid)
 simulation = SpeedyWeather.initialize!(model)
 
 ## 4. and then run the model
-n_days = 30
+n_days = 15
 SpeedyWeather.run!(simulation, period=Day(n_days), output=true)
 
 # How fast was that? The progress meter of the model's `feedback` component already
@@ -313,6 +313,8 @@ println("$n_days simulated days took $(round(elapsed, digits=1)) s, that's $(rou
 
 # Try to rerun this section with `arch = SpeedyWeather.CPU()` or with a different `trunc`
 # and compare: how much faster is the GPU, and how does the gap change with resolution?
+# We are currently in the middle of a revision to make the dynamical core faster on GPU, so hopefully it will 
+# even faster, next time you check ;). 
 
 # Then let's visualize the results at T256 (about 50 km grid spacing). Let's look at the last snapshot:
 
