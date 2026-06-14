@@ -304,17 +304,6 @@ simulation = SpeedyWeather.initialize!(model)
 n_days = 15
 SpeedyWeather.run!(simulation, period=Day(n_days), output=true)
 
-# How fast was that? The progress meter of the model's `feedback` component already
-# tracks the wallclock time of the run (it is reinitialized at the start of the time
-# stepping for benchmark accuracy), so we can read the elapsed time directly from it:
-
-pm = model.feedback.progress_meter.core
-elapsed = pm.tlast - pm.tinit             # wallclock time of the run in seconds
-sypd = (n_days / 365.25) * 86400 / elapsed  # simulated years per wallclock day
-println("$n_days simulated days took $(round(elapsed, digits=1)) s, that's $(round(sypd, digits=1)) simulated years per day.")
-
-# Try to rerun this section with `arch = SpeedyWeather.CPU()` or with a different `trunc`
-# and compare: how much faster is the GPU, and how does the gap change with resolution?
 # We are currently in the middle of a revision to make the dynamical core faster on GPU, so hopefully it will 
 # even faster, next time you check ;). 
 
