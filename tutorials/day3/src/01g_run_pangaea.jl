@@ -91,7 +91,7 @@ land_output_std  = stats.target_std[1]
 # grid.
 
 arch = SpeedyWeather.CPU()
-spectral_grid = SpectralGrid(trunc = 127, architecture = arch)
+spectral_grid = SpectralGrid(trunc = 65, architecture = arch)
 
 orography = EarthOrography(spectral_grid,
     path = joinpath(pangaea_dir, "orography.nc"), from_assets = false)

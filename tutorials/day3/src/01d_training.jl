@@ -232,7 +232,9 @@ result = train_model(model, train_loader, val_loader;
 (; ps, st, history) =  result 
 save_model(model_path, model, ps, st; stats, history)
 
-# and a  plot of the loss curve: 
+# Our dataset is actually so big that already within the first epoch we have
+# plateued. 
+# Let's plot the loss curves:
 
 using CairoMakie
 
@@ -246,7 +248,6 @@ if PLOT # hide it away in case we execute this on a compute node without graphic
     save(plot_path, fig)
 end 
 
-# The plot shows the train and validation loss per epoch, so convergence,
-# overfitting and the early-stopping point are easy to spot.
-#
-# Next, we'll integrate it in SpeedyWeather.jl and see if it works there as well!
+# As noted before, we directly plateuaed in the first epoch, the validation error didn't go up though. 
+# While this might look like a problem, we'll have a look how our results look like at inference time when 
+# we integreate it in SpeedyWeather.jl.
