@@ -67,7 +67,7 @@ surface_roughness = LearnedSurfaceRoughness(
 boundary_layer = BoundaryLayer(spectral_grid; surface_roughness)
 model = PrimitiveWetModel(spectral_grid; boundary_layer)
 simulation = initialize!(model)
-run!(simulation, period=Day(20))
+run!(simulation, period=Day(10))
 
 # As a quick sanity check, the range of the surface roughness our network
 # predicted over land (in meters, after undoing the log and the normalisation;
@@ -107,3 +107,7 @@ heatmap!(ax2, lon360, lat, log10.(z₀_era5); colorrange = clims)
 Colorbar(fig[:, 2], hm, label = "log₁₀ surface roughness [m]")
 CairoMakie.save("surface_roughness_comparison.png", fig)   ## qualified: JLD2 also exports `save`
 fig
+
+# This already looks good! You can also change the resolution of the simulation and retry it
+# to see how it changes the roughness. To run it on GPU we need to slightly adjust the parameterization though, 
+# we'll do that in the last (optional) notebook. Before that, we want to see how well it really generalizes what we learned! 
