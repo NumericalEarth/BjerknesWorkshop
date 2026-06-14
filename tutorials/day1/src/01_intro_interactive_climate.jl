@@ -141,10 +141,12 @@ function animate_field(data, filename; lon=axes(data, 1), lat=axes(data, 2),
     Colorbar(fig[1, 2], hm; label)
 
     ## here, we do the actual animation:
-    record(fig, filename, eachindex(time_steps); framerate) do t
+    anim = CairoMakie.record(fig, filename, eachindex(time_steps); framerate) do t
         i_time[] = t
         ax.title = "$title, time step $(time_steps[t])"
     end
+
+    return anim
 end
 
 # Now we can animate the vorticity (rendering the animation might take a bit): 
@@ -290,7 +292,7 @@ using CUDA
 arch = CUDA.functional() ? SpeedyWeather.GPU() : SpeedyWeather.CPU()
 
 ## 1. define the resolution and grid, change what you like
-spectral_grid = SpectralGrid(trunc=256, nlayers=16, architecture=arch)
+spectral_grid = SpectralGrid(trunc=256, nlayers=8, architecture=arch)
 
 ## 2. create a model
 model = PrimitiveWetModel(spectral_grid)
@@ -298,8 +300,8 @@ model = PrimitiveWetModel(spectral_grid)
 ## 3. then, initialize the model
 simulation = SpeedyWeather.initialize!(model)
 
-## 4. and then run the model
-n_days = 30
+# 4. and then run the model
+n_days = 15
 SpeedyWeather.run!(simulation, period=Day(n_days), output=true)
 
 # How fast was that? The progress meter of the model's `feedback` component already
@@ -313,6 +315,8 @@ println("$n_days simulated days took $(round(elapsed, digits=1)) s, that's $(rou
 
 # Try to rerun this section with `arch = SpeedyWeather.CPU()` or with a different `trunc`
 # and compare: how much faster is the GPU, and how does the gap change with resolution?
+# We are currently in the middle of a revision to make the dynamical core faster on GPU, so hopefully it will 
+# even faster, next time you check ;). 
 
 # Then let's visualize the results at T256 (about 50 km grid spacing). Let's look at the last snapshot:
 
