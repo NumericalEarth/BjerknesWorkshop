@@ -1,7 +1,29 @@
 # Bjerknes Workshop, setting up your environment
 
-The tutorials listed below 
+The tutorials listed below run either on your laptop or in the Olivia supercomputer.
+Please set up a running julia installation and environment in both. 
+To set up julia in your local enviroment check out
 
+```
+https://github.com/JuliaLang/juliaup
+```
+
+To set up on Olivia, use the following in your enviroment setup
+
+```
+module purge
+module load NRIS/GPU
+module load JupyterNotebook/7.4.7-GCCcore-14.3.0
+module load Julia
+export DATA_DIR=/cluster/projects/nn9984k
+mkdir /cluster/work/projects/nn9984k/$USER
+cd /cluster/work/projects/nn9984k/$USER
+git clone https://github.com/NumericalEarth/BjerknesWorkshop.git
+cd /cluster/work/projects/nn9984k/$USER/BjerknesWorkshop/tutorials/day1
+export JULIA_DEPOT_PATH=/cluster/work/projects/nn9984k/$USER/julia_depot
+env -u LD_LIBRARY_PATH julia -e 'import Pkg; Pkg.add("IJulia")'
+env -u LD_LIBRARY_PATH julia -e 'using IJulia; installkernel("Julia 1.12 (clean env)", "-t 8"; env = Dict("LD_LIBRARY_PATH" => "/cluster/software/NRIS/neoverse_v2/software/Julia/1.12.2/lib"))'
+```
 
 # Bjerknes Workshop tutorials — days 1 & 2
 
