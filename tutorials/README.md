@@ -1,3 +1,8 @@
+# Bjerknes Workshop, setting up your environment
+
+The tutorials listed below 
+
+
 # Bjerknes Workshop tutorials — days 1 & 2
 
 Literate.jl sources for the Monday GPU session and the Tuesday hands-on ocean / sea-ice
