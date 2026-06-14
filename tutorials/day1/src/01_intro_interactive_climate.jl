@@ -294,7 +294,7 @@ arch = CUDA.functional() ? SpeedyWeather.GPU() : SpeedyWeather.CPU()
 ## 1. define the resolution and grid, change what you like
 spectral_grid = SpectralGrid(trunc=256, nlayers=8, architecture=arch)
 
-## 2. create a model
+# 2. create a model
 model = PrimitiveWetModel(spectral_grid)
 
 ## 3. then, initialize the model
