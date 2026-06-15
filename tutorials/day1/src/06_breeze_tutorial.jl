@@ -23,62 +23,202 @@
 # renders the movies from that cached output at docs-build time.
 
 using Breeze
-## Breeze and Oceananigans both export bulk-flux names like `BulkDrag`;
-## import Breeze's explicitly to resolve the ambiguity.
-using Breeze: BulkDrag, BulkSensibleHeatFlux, BulkVaporFlux,
-              PolynomialCoefficient, FilteredSurfaceVelocities
-using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
-using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using Printf
 using Random
+using CairoMakie
 
-arch = GPU()
-Oceananigans.defaults.FloatType = Float64
-nothing #hide
+arch = CPU()
+Oceananigans.defaults.FloatType = Float32
 
-# ## The shared atmosphere
+Lx, Lz = 24kilometers, 8kilometers
+Nx, Nz = 384, 160
+
+grid = RectilinearGrid(arch;
+                       size = (Nx, Nz),
+                       halo = (5, 5),
+                       x = (-Lx/2, Lx/2),
+                       z = (0, Lz),
+                       topology = (Periodic, Flat, Bounded))
+
+# ## The background atmosphere
 #
-# Every act lives in the same background state: a dry, stably stratified
-# atmosphere with constant buoyancy frequency `N = 0.01 s⁻¹` over a 1000 hPa
-# surface at `θ₀ = 290 K`,
+# We build a stably stratified "background"
+# atmosphere with constant buoyancy frequency `N = 0.01 s⁻¹`
+# over a surface at `θ₀ = 290 K`,
 #
 # ```math
 # \bar θ (z) = θ_0 \, e^{N^2 z / g} .
 # ```
-#
-# The stratification is the antagonist of everything that follows: it is what the
-# bubble overshoots, what the surface heating must erode, and the medium the
-# mountain waves propagate in.
 
-p₀ = 1e5     # Pa, surface pressure
 θ₀ = 290     # K, surface potential temperature
 N² = 1e-4    # s⁻², stratification (N = 0.01 s⁻¹)
 g  = 9.81    # m s⁻², gravitational acceleration
 
+# Background stratified state
 θ̄(z) = θ₀ * exp(N² * z / g)
-nothing #hide
 
-# One advection scheme for all acts: 9th-order WENO, low dissipation without an
-# explicit diffusion operator.
-
+reference_state = ReferenceState(grid; potential_temperature = θ̄)
+dynamics = AnelasticDynamics(reference_state)
 advection = WENO(order = 9)
 
+model = AtmosphereModel(grid; dynamics, advection)
+
+Δθ = 10             # K, bubble amplitude
+r₀ = 1.5kilometers  # bubble radius
+z₀ = 2kilometers    # release height
+
+θ_bubble(x, z) = θ̄(z) + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
+set!(model, θ=θ_bubble)
+
+simulation = Simulation(model; Δt=1, stop_time=25minutes)
+conjure_time_step_wizard!(simulation, cfl=0.7)
+
+function progress(sim)
+    @info @sprintf("thermal bubble | iter: %d, t: %s, Δt: %s, max|w|: %.2e m s⁻¹",
+                   iteration(sim), prettytime(sim), prettytime(sim.Δt),
+                   maximum(abs, sim.model.velocities.w))
+    return nothing
+end
+
+add_callback!(simulation, progress, IterationInterval(200))
+
+θ = liquid_ice_potential_temperature(model)
+θ̄_field = Field{Nothing, Nothing, Center}(grid)
+set!(θ̄_field, θ̄)
+θ′ = θ - θ̄_field
+outputs = (; θ′, model.velocities...)
+
+bubble_ow = JLD2Writer(model, outputs; 
+                       filename = "thermal_bubble.jld2",
+                       schedule = TimeInterval(1minute),
+                       overwrite_existing = true)
+
+simulation.output_writers[:fields] = bubble_ow
+
+run!(simulation)
+
+θ′_ts = FieldTimeSeries("thermal_bubble.jld2", "θ′")
+Nt = length(θ′_ts)
+
+fig = Figure(size=(1200, 400), aspect=3)
+ax = Axis(fig[1, 1])
+
+n = Observable(1)
+θ′n = @lift θ′_ts[$n]
+heatmap!(ax, θ′n)
+
+record(fig, "thermal_bubble.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+    @info "Drawing frame $nn of $Nt..."
+    n[] = nn
+end
+
+# ## Free convection
+
+coefficient = PolynomialCoefficient(roughness_length = 1.5e-4)
+filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minutes)
+
+coefficient = 1e-3
+gustiness = 1e-1
+q_bottom_bc = BulkVaporFlux(; coefficient, gustiness, surface_temperature=θ₀)
+θ_bottom_bc = BulkSensibleHeatFlux(; coefficient, gustiness, surface_temperature=θ₀)
+u_bottom_bc = BulkDrag(; coefficient, gustiness)
+
+ρq_bcs = FieldBoundaryConditions(bottom=q_bottom_bc)
+ρθ_bcs = FieldBoundaryConditions(bottom=θ_bottom_bc)
+ρu_bcs = FieldBoundaryConditions(bottom=u_bottom_bc)
+
+boundary_conditions = (; ρq=ρq_bcs, ρθ=ρθ_bcs, ρu=ρu_bcs)
+model = AtmosphereModel(grid; dynamics, advection, boundary_conditions)
+
+θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
+set!(model, θ=θᵢ, u=5)
+
+simulation = Simulation(model; Δt=1, stop_time=1hour)
+conjure_time_step_wizard!(simulation, cfl=0.7)
+
+θ = liquid_ice_potential_temperature(model)
+θ′ = θ - θ̄_field
+outputs = (; θ′, model.velocities...)
+
+convection_ow = JLD2Writer(model, outputs; 
+                           filename = "free_convection.jld2",
+                           schedule = TimeInterval(1minute),
+                           overwrite_existing = true)
+
+
+simulation.output_writers[:fields] = convection_ow
+
+run!(simulation)
+
+# ## Terrain following
+
+h₀ = 600          # m, hill height
+a = 1kilometer   # hill half-width
+
+agnesi_hill(x) = h₀ / (1 + (x / a)^2)
+
+r = collect(range(0, Lz, length = Nz + 1))
+level_formulation = TwoLevelDecay(large_scale_height = Lz / 2,
+                                  small_scale_height = Lz / 8)
+
+z = TerrainFollowingVerticalDiscretization(r, formulation=level_formulation)
+
+agnesi_grid = RectilinearGrid(arch; z,
+                              size = (Nx, Nz),
+                              halo = (5, 5),
+                              x = (-Lx/2, Lx/2),
+                              topology = (Periodic, Flat, Bounded))
+
+materialize_terrain!(agnesi_grid, agnesi_hill)
+sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers)
+split_explicit_discretization = SplitExplicitTimeDiscretization(; sponge)
+
+dynamics = CompressibleDynamics(split_explicit_discretization;
+                                reference_potential_temperature = θ̄)
+
+model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
+
+θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
+set!(model, θ=θᵢ, u=10)
+
+simulation = Simulation(model; Δt=1, stop_time=2hour)
+conjure_time_step_wizard!(simulation, cfl=1)
+
+θ = liquid_ice_potential_temperature(model)
+θ′ = θ - θ̄_field
+outputs = (; θ′, model.velocities...)
+
+hilly_ow = JLD2Writer(model, outputs; 
+                      filename = "hilly_free_convection.jld2",
+                      schedule = TimeInterval(1minute),
+                      overwrite_existing = true)
+
+simulation.output_writers[:fields] = hilly_ow
+
+run!(simulation)
+
+θ′_ts = FieldTimeSeries("hilly_free_convection.jld2", "θ′")
+Nt = length(θ′_ts)
+
+fig = Figure(size=(1200, 400), aspect=3)
+ax = Axis(fig[1, 1])
+
+n = Observable(1)
+θ′n = @lift θ′_ts[$n]
+heatmap!(ax, θ′n)
+
+record(fig, "hilly_free_convection.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+    @info "Drawing frame $nn of $Nt..."
+    n[] = nn
+end
+
+#=
 # And one vertical slice for acts I–III: 24 km wide, 8 km tall, `Flat` in `y`.
 # Two-dimensional dynamics are a conceptual cartoon — 2D turbulence has no vortex
 # stretching — but they are cheap enough to run in minutes and rich enough to show
 # everything we want to point at. Act V goes 3D.
-
-Lx = 24kilometers
-Lz = 8kilometers
-
-Nx = 384
-Nz = 160
-
-flat_grid = RectilinearGrid(arch; size = (Nx, Nz), halo = (5, 5),
-                            x = (-Lx/2, Lx/2), z = (0, Lz),
-                            topology = (Periodic, Flat, Bounded))
 
 # ## The shared surface: bulk fluxes from a warm sea
 #
@@ -105,15 +245,7 @@ T₀ = θ₀ + 5   # K, prescribed sea surface temperature
 Uᵍ = 1e-2     # m s⁻¹, gustiness floor for the bulk formulae
 
 function surface_fluxes(grid; moisture = false, surface_temperature = T₀)
-    coefficient = PolynomialCoefficient(roughness_length = 1.5e-4)
-    filtered_velocities = FilteredSurfaceVelocities(grid; filter_timescale = 10minutes)
-    bulk(Flux) = FieldBoundaryConditions(bottom =
-        Flux(; coefficient, gustiness = Uᵍ, surface_temperature, filtered_velocities))
-
-    bcs = (; ρθ = bulk(BulkSensibleHeatFlux), ρu = bulk(BulkDrag))
-    moisture || return bcs
-    return merge(bcs, (; ρv = bulk(BulkDrag), ρqᵉ = bulk(BulkVaporFlux)))
-end
+   end
 nothing #hide
 
 # ## The shared initial state and driver
@@ -135,25 +267,6 @@ nothing #hide
 # we can compare the formulations' cost.
 
 function evolve!(model, name; stop_time, cfl, outputs, save_interval = 1minute)
-    simulation = Simulation(model; Δt = 1.0, stop_time)
-    conjure_time_step_wizard!(simulation, cfl = cfl)
-    Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
-
-    wall_clock = Ref(time_ns())
-    function progress(sim)
-        elapsed = 1e-9 * (time_ns() - wall_clock[])
-        @info @sprintf("[%s] iter %d, t %s, Δt %s, wall %s, max|w| %.2e m s⁻¹",
-                       name, iteration(sim), prettytime(sim), prettytime(sim.Δt),
-                       prettytime(elapsed), maximum(abs, sim.model.velocities.w))
-        return nothing
-    end
-    add_callback!(simulation, progress, IterationInterval(200))
-
-    simulation.output_writers[:fields] = JLD2Writer(model, outputs;
-        filename = "$name.jld2", schedule = TimeInterval(save_interval),
-        overwrite_existing = true)
-
-    run!(simulation)
     wall = simulation.run_wall_time
     @info @sprintf("[%s] done: %s wall over %d iterations", name, prettytime(wall), iteration(simulation))
     return wall
@@ -172,20 +285,6 @@ nothing #hide
 # constraint `∇·(ρ̄ 𝐮) = 0`, and pressure comes from an elliptic solve at every
 # substep. The reference state carries the background density profile `ρ̄(z)`
 # that lets thin warm bubbles accelerate correctly through a deep atmosphere.
-
-reference_state = ReferenceState(flat_grid, ThermodynamicConstants();
-                                 surface_pressure = p₀,
-                                 potential_temperature = θ̄)
-
-model = AtmosphereModel(flat_grid; dynamics = AnelasticDynamics(reference_state), advection)
-
-Δθᵇ = 5             # K, bubble amplitude
-r₀ = 1.5kilometers  # bubble radius
-z₀ = 2kilometers    # release height
-
-bubbleᵢ(x, z) = θ̄(z) + Δθᵇ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
-
-set!(model, θ = bubbleᵢ)
 
 evolve!(model, "thermal_bubble"; stop_time = 25minutes, cfl = 0.7,
         save_interval = 15seconds,
@@ -485,3 +584,4 @@ nothing #hide
 #     Two-dimensional dynamics suppress vortex stretching, so treat those
 #     structures as schematic. Act V and the later case studies are genuine 3D
 #     LES.
+#     =#
