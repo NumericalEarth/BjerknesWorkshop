@@ -9,7 +9,7 @@
 - **Breeze.jl** — [repo](https://github.com/NumericalEarth/Breeze.jl) · [docs](https://numericalearth.github.io/BreezeDocumentation/dev/)
 - **Terrarium.jl** — [repo](https://github.com/NumericalEarth/Terrarium.jl) · [docs](https://numericalearth.github.io/Terrarium.jl/dev/)
 
-## setting up your Julia environment
+## Setting up your Julia environment
 
 The tutorials listed below run either on your laptop or in the Olivia supercomputer.
 Please set up a running julia installation and environment in both. 
