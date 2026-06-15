@@ -1,5 +1,8 @@
 # # A Breeze tutorial: thermal bubbles to cloudy hills
 #
+# Documentation for Breeze is available at
+# [numericalearth.github.io/BreezeDocumentation](https://numericalearth.github.io/BreezeDocumentation/dev/).
+#
 # This tutorial introduces Breeze using four experiments:
 #
 # | Part | What's new                              | Dynamics                    |
@@ -25,13 +28,23 @@ using Printf
 using Random
 using CairoMakie
 using CUDA
-using Base64
+
+# It pays to *be careful* about which versions are actually in play. We print the
+# environment status *after* the `using` statements on purpose: only then will
+# `Pkg.status` annotate any package whose loaded version differs from the resolved
+# one, e.g. `Breeze v0.6.0 [loaded: v0.5.3]`. That bracketed note means a stale
+# version is still loaded in this session (Julia can't hot-swap a loaded package) —
+# if you see it, restart the kernel so the resolved version is the one in memory.
+
+Pkg.status()
 
 arch = GPU()
 Oceananigans.defaults.FloatType = Float32
 
 # A small helper that base64-embeds a finished `.mp4` in an HTML5 `<video>` tag,
 # so the animation plays inline in the notebook (no external file serving needed).
+
+using Base64
 
 mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
                              "src=\"data:video/mp4;base64,", base64encode(read(path)),
@@ -46,8 +59,7 @@ mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
 # halo of five cells. (Crank `Nx, Nz` back up for a crisper movie.)
 
 Lx, Lz = 24kilometers, 8kilometers
-#Nx, Nz = 384, 160
-Nx, Nz = 128, 64
+Nx, Nz = 384, 160
 
 grid = RectilinearGrid(arch;
                        size = (Nx, Nz),
@@ -61,24 +73,40 @@ grid = RectilinearGrid(arch;
 # The first three parts use **anelastic** dynamics. The atmosphere is compressible,
 # but sound waves are energetically irrelevant to convection and would force a tiny
 # time step, so the anelastic approximation filters them: each field splits into a
-# static, horizontally-uniform **reference profile** (overbar) plus a small
+# static, horizontally-uniform **reference profile** plus a small
 # **perturbation** (prime),
 #
 # ```math
-# ρ = \bar ρ(z) + ρ', \qquad p = \bar p(z) + p', \qquad |ρ'| \ll \bar ρ ,
+# ρ = ρ_r(z) + ρ', \qquad p = \bar p(z) + p', \qquad |ρ'| \ll ρ_r ,
 # ```
 #
-# with the reference state in hydrostatic balance, `d\bar p/dz = -\bar ρ g`. Mass
-# continuity becomes the **anelastic constraint** `∇·(\bar ρ \, 𝐮) = 0` — dropping
-# `∂ρ'/∂t` is what removes the acoustic modes — and `p'` is diagnostic, from an
-# elliptic solve enforcing that constraint.
+# with the reference state in hydrostatic balance, ``d\bar p/dz = -ρ_r g``. Mass
+# conservation reads
+#
+# ```math
+# \frac{∂ρ}{∂t} + ∇·(ρ \, 𝐮) = 0 ,
+# ```
+#
+# and dropping ``∂ρ'/∂t`` — which is what removes the acoustic modes — leaves the
+# **anelastic constraint**
+#
+# ```math
+# ∇·(ρ_r \, 𝐮) = 0 ,
+# ```
+#
+# while ``p'`` is then diagnostic, from an elliptic solve enforcing that constraint.
 #
 # The reference column is fixed by a single function, the **reference potential
 # temperature** `\bar θ(z)`: with a surface pressure, hydrostatic balance and the
 # ideal-gas law then close `\bar p(z)`, `\bar T(z)`, and the background density
-# `\bar ρ(z)`. So handing `ReferenceState` a `\bar θ(z)` is what produces `\bar ρ(z)`.
-# We take a constant buoyancy frequency `N`, which (since `N^2 = (g/\bar θ)\,d\bar θ/dz`)
-# makes `\bar θ` exponential,
+# ``ρ_r(z)``. So handing `ReferenceState` a `\bar θ(z)` is what produces ``ρ_r(z)``.
+# We take a constant buoyancy frequency ``N``. Since
+#
+# ```math
+# N^2 = \frac{g}{\bar θ} \frac{d\bar θ}{dz} ,
+# ```
+#
+# ``\bar θ`` is exponential,
 #
 # ```math
 # \bar θ(z) = θ_0 \, e^{N^2 z / g} ,
@@ -98,12 +126,26 @@ advection = WENO(order = 9)
 
 model = AtmosphereModel(grid; dynamics, advection)
 
+# Notice that `AtmosphereModel` solves the governing equations in **conservative
+# (flux) form**: the prognostic variables are the *densities* of momentum, heat, and
+# moisture — ``ρ𝐮``, ``ρθ``, ``ρq^v``, ``ρe`` — rather than the velocities and
+# potential temperature themselves. This is visible in the model's printed summary
+# above, where the advected quantities are listed as `ρθ` and `ρqᵛ` and the forcing
+# entries act on `ρu`, `ρv`, `ρw`, `ρθ`, `ρqᵛ`, and `ρe`. Diagnostics such as
+# `liquid_ice_potential_temperature(model)` recover the familiar primitive variables
+# (e.g. ``θ = ρθ / ρ``) on demand.
+#
+# For the full conservative-form governing equations and the details of the anelastic
+# approximation, see the
+# [anelastic dynamics](https://numericalearth.github.io/BreezeDocumentation/dev/anelastic_dynamics/)
+# page of the Breeze documentation.
+
 # ## Part I — a dry thermal bubble
 #
 # A warm perturbation `θ' = θ - \bar θ(z)` feels a buoyancy
 #
 # ```math
-# b = -g \, \frac{ρ'}{\bar ρ} = g \, \frac{θ'}{\bar θ}
+# b = -g \, \frac{ρ'}{ρ_r} = g \, \frac{θ'}{\bar θ}
 # ```
 #
 # (exact in the anelastic system, where buoyancy is evaluated at the reference
@@ -125,8 +167,10 @@ set!(model, θ=θ_bubble)
 
 # Let's visualize the initial condition:
 
-heatmap(liquid_ice_potential_temperature(model))
-display(current_figure())
+fig = Figure(size=(1200, 400), aspect=3)
+ax = Axis(fig[1, 1])
+heatmap!(ax, liquid_ice_potential_temperature(model))
+display(fig)
 
 # A CFL wizard adapts the time step as the bubble accelerates; with Runge–Kutta
 # time stepping and WENO advection the conventional anelastic stability target is
@@ -180,7 +224,7 @@ n = Observable(1)
 θ′n = @lift θ′_ts[$n]
 heatmap!(ax, θ′n)
 
-record(fig, "thermal_bubble.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+CairoMakie.record(fig, "thermal_bubble.mp4", 1:Nt; framerate = 24, compression = 28) do nn
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
@@ -219,7 +263,7 @@ model = AtmosphereModel(grid; dynamics, advection, boundary_conditions)
 θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
 set!(model, θ=θᵢ, u=5)
 
-simulation = Simulation(model; Δt=1, stop_time=10minutes)
+simulation = Simulation(model; Δt=1, stop_time=2hours)
 conjure_time_step_wizard!(simulation, cfl=0.7)
 
 function progress(sim)
@@ -246,13 +290,48 @@ simulation.output_writers[:fields] = convection_ow
 
 run!(simulation)
 
+# ### The movie
+#
+# We plot two fields side by side: the potential-temperature perturbation `θ′` and the
+# vertical velocity `w`. Both are signed, so both use the diverging `:balance` colormap
+# over a symmetric, frame-fixed range. The `w` panel makes the convective structure
+# explicit — narrow, vigorous updrafts punching up between broader, gentler downdrafts —
+# which is exactly what we will contrast against the terrain-forced flow in Part III.
+
+θ′_ts = FieldTimeSeries("free_convection.jld2", "θ′")
+w_ts  = FieldTimeSeries("free_convection.jld2", "w")
+Nt = length(θ′_ts)
+θ′max = maximum(abs, θ′_ts[Nt])
+wmax  = maximum(abs, w_ts)
+
+fig = Figure(size=(1200, 700))
+axθ = Axis(fig[1, 1], title="potential temperature perturbation θ′ (K)")
+axw = Axis(fig[2, 1], title="vertical velocity w (m s⁻¹)")
+
+n = Observable(1)
+θ′n = @lift θ′_ts[$n]
+wn  = @lift w_ts[$n]
+hmθ = heatmap!(axθ, θ′n, colormap = :balance, colorrange = (-θ′max, θ′max))
+hmw = heatmap!(axw, wn,  colormap = :balance, colorrange = (-wmax, wmax))
+Colorbar(fig[1, 2], hmθ)
+Colorbar(fig[2, 2], hmw)
+
+CairoMakie.record(fig, "free_convection.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+    @info "Drawing frame $nn of $Nt..."
+    n[] = nn
+end
+
+mp4_html("free_convection.mp4")
+
 # ## Part III — the same convection, now over a hill
 #
-# Why introduce a second dynamical core? Because in Breeze the *compressible* core
-# is the one that speaks terrain. The anelastic pressure solve needs a separable,
-# regular geometry; the split-explicit compressible substepper handles the
-# terrain-following metric terms at acoustic cost. So we put a hill in the way —
-# the Witch of Agnesi,
+# Next we illustrate how to simulate flows over terrain using **terrain-following
+# coordinates**, which warp the grid so that it conforms to the underlying topography.
+# This warping renders the box-grid anelastic pressure solver invalid: we would either
+# need a new anelastic solver built for the warped geometry, or we have to solve the
+# equations a different way. We take the latter route and switch to a **fully
+# compressible** formulation, which substeps the fast acoustic dynamics to accelerate
+# the solve. So we put a hill in the way — the Witch of Agnesi,
 #
 # ```math
 # h(x) = \frac{h_0}{1 + x^2 / a^2} ,
@@ -261,8 +340,8 @@ run!(simulation)
 # the classic bell of mountain-wave theory. The grid's vertical coordinate follows
 # the terrain near the ground and decays back to flat aloft (`TwoLevelDecay`).
 
-h₀ = 600          # m, hill height
-a = 1kilometer   # hill half-width
+h₀ = 1000          # m, hill height
+a = 5kilometers   # hill half-width (a gentle slope keeps the flow stable)
 
 agnesi_hill(x) = h₀ / (1 + (x / a)^2)
 
@@ -287,8 +366,8 @@ materialize_terrain!(agnesi_grid, agnesi_hill)
 # stays stable up to an advective Courant number of one, so the wizard targets
 # `cfl = 1`. A compressible model carries density as a prognostic field, so we
 # initialize it from the terrain-following hydrostatic reference. The warm surface
-# and bulk fluxes are reused verbatim from Part II; the wind rises to `u = 10
-# m s⁻¹` so the flow clears the crest.
+# and bulk fluxes are reused verbatim from Part II; a light mean wind of `u = 2
+# m s⁻¹` drifts the convection over the hill.
 
 sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers)
 split_explicit_discretization = SplitExplicitTimeDiscretization(acoustic_cfl=0.5; sponge)
@@ -298,10 +377,16 @@ dynamics = CompressibleDynamics(split_explicit_discretization;
 
 model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
 
+# The printed summary now reports `dynamics: CompressibleDynamics` on the
+# terrain-following grid, while the prognostic variables stay in conservative form
+# (`ρu`, `ρθ`, …) just as in the anelastic parts. With the model built, we initialize
+# the compressible state from the terrain-following hydrostatic reference density, add
+# a light wind, and run the simulation in the next block.
+
 θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
-set!(model, ρ=ρᵢ, θ=θᵢ, u=10)
+set!(model, ρ=ρᵢ, θ=θᵢ, u=2)
 
 simulation = Simulation(model; Δt=1, stop_time=2hour)
 conjure_time_step_wizard!(simulation, cfl=1)
@@ -313,7 +398,7 @@ function progress(sim)
     return nothing
 end
 
-add_callback!(simulation, progress, IterationInterval(10))
+add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
 θ′ = θ - θ̄_field
@@ -330,19 +415,30 @@ run!(simulation)
 
 # ### The movie
 #
-# Same recipe as Part I: a `θ′` heatmap of every saved frame, embedded inline.
+# The same two-panel layout as Part II — `θ′` above, `w` below, both `:balance` over a
+# fixed symmetric range. Compare the `w` panel here against the flat case: the terrain
+# organizes the vertical velocity, anchoring ascent over the hill rather than letting
+# the plumes wander freely.
 
 θ′_ts = FieldTimeSeries("hilly_free_convection.jld2", "θ′")
+w_ts  = FieldTimeSeries("hilly_free_convection.jld2", "w")
 Nt = length(θ′_ts)
+θ′max = maximum(abs, θ′_ts[Nt])
+wmax  = maximum(abs, w_ts)
 
-fig = Figure(size=(1200, 400), aspect=3)
-ax = Axis(fig[1, 1])
+fig = Figure(size=(1200, 700))
+axθ = Axis(fig[1, 1], title="potential temperature perturbation θ′ (K)")
+axw = Axis(fig[2, 1], title="vertical velocity w (m s⁻¹)")
 
 n = Observable(1)
 θ′n = @lift θ′_ts[$n]
-heatmap!(ax, θ′n)
+wn  = @lift w_ts[$n]
+hmθ = heatmap!(axθ, θ′n, colormap = :balance, colorrange = (-θ′max, θ′max))
+hmw = heatmap!(axw, wn,  colormap = :balance, colorrange = (-wmax, wmax))
+Colorbar(fig[1, 2], hmθ)
+Colorbar(fig[2, 2], hmw)
 
-record(fig, "hilly_free_convection.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+CairoMakie.record(fig, "hilly_free_convection.mp4", 1:Nt; framerate = 24, compression = 28) do nn
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
@@ -371,15 +467,28 @@ model = AtmosphereModel(agnesi_grid; microphysics, dynamics, advection, boundary
 θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
-set!(model, ρ=ρᵢ, θ=θᵢ, u=10)
+# A humid initial state primes the flow for condensation: we set the relative humidity
+# to 90% (`ℋ = 0.9`), which Breeze converts to a vapor mixing ratio `qᵗ = ℋ qᵛ⁺` from
+# the local saturation value `qᵛ⁺`. Orographic lifting over the hill, plus the surface
+# vapor flux, then nudge parcels past saturation — cloud liquid forms, and rains once
+# it exceeds the autoconversion threshold. We also raise the wind to `u = 10 m s⁻¹` so
+# the flow climbs the hill vigorously.
+
+set!(model, ρ=ρᵢ, θ=θᵢ, u=10, ℋ=0.9)
 
 simulation = Simulation(model; Δt=1, stop_time=1hour)
 conjure_time_step_wizard!(simulation, cfl=1)
 
+# `qᶜˡ` is the specific cloud-liquid mixing ratio and `qʳ` the specific rain mixing
+# ratio, read straight off the model's microphysical fields.
+
+qᶜˡ = model.microphysical_fields.qᶜˡ
+qʳ  = model.microphysical_fields.qʳ
+
 function progress(sim)
-    @info @sprintf("hilly cloud physics | iter: %d, t: %s, Δt: %s, max|w|: %.2e m s⁻¹",
+    @info @sprintf("hilly cloud physics | iter: %d, t: %s, Δt: %s, max|w|: %.2e m s⁻¹, max qᶜˡ: %.2e, max qʳ: %.2e",
                    iteration(sim), prettytime(sim), prettytime(sim.Δt),
-                   maximum(abs, sim.model.velocities.w))
+                   maximum(abs, sim.model.velocities.w), maximum(qᶜˡ), maximum(qʳ))
     return nothing
 end
 
@@ -387,7 +496,7 @@ add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
 θ′ = θ - θ̄_field
-outputs = (; θ′, model.velocities...)
+outputs = (; θ′, model.velocities..., qᶜˡ, qʳ)
 
 cloudy_ow = JLD2Writer(model, outputs;
                        filename = "hilly_cloud_physics.jld2",
@@ -399,18 +508,40 @@ simulation.output_writers[:fields] = cloudy_ow
 run!(simulation)
 
 # ### The movie
+#
+# Now there is something to *see*: the vertical velocity `w` lifting air over the hill,
+# the cloud liquid `qᶜˡ` that condenses where parcels pass saturation, and the rain
+# `qʳ` that falls out below. Clouds use the sequential `:dense` colormap and rain the
+# `:amp` colormap, each over a fixed range; `w` keeps the diverging `:balance` map.
 
-θ′_ts = FieldTimeSeries("hilly_cloud_physics.jld2", "θ′")
-Nt = length(θ′_ts)
+w_ts   = FieldTimeSeries("hilly_cloud_physics.jld2", "w")
+qᶜˡ_ts = FieldTimeSeries("hilly_cloud_physics.jld2", "qᶜˡ")
+qʳ_ts  = FieldTimeSeries("hilly_cloud_physics.jld2", "qʳ")
+Nt = length(w_ts)
 
-fig = Figure(size=(1200, 400), aspect=3)
-ax = Axis(fig[1, 1])
+wmax   = maximum(abs, w_ts)
+qᶜˡmax = max(1e-6, maximum(qᶜˡ_ts))
+qʳmax  = max(1e-6, maximum(qʳ_ts))
+
+fig = Figure(size=(1000, 900))
+axw = Axis(fig[1, 1], title="vertical velocity w (m s⁻¹)")
+axc = Axis(fig[2, 1], title="cloud liquid qᶜˡ (kg kg⁻¹)")
+axr = Axis(fig[3, 1], title="rain qʳ (kg kg⁻¹)")
 
 n = Observable(1)
-θ′n = @lift θ′_ts[$n]
-heatmap!(ax, θ′n)
+wn   = @lift w_ts[$n]
+qᶜˡn = @lift qᶜˡ_ts[$n]
+qʳn  = @lift qʳ_ts[$n]
 
-record(fig, "hilly_cloud_physics.mp4", 1:Nt; framerate = 24, compression = 28) do nn
+hmw = heatmap!(axw, wn,   colormap = :balance, colorrange = (-wmax, wmax))
+hmc = heatmap!(axc, qᶜˡn, colormap = :dense,   colorrange = (0, qᶜˡmax))
+hmr = heatmap!(axr, qʳn,  colormap = :amp,     colorrange = (0, qʳmax))
+
+Colorbar(fig[1, 2], hmw)
+Colorbar(fig[2, 2], hmc)
+Colorbar(fig[3, 2], hmr)
+
+CairoMakie.record(fig, "hilly_cloud_physics.mp4", 1:Nt; framerate = 24, compression = 28) do nn
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
