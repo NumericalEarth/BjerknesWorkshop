@@ -84,9 +84,9 @@ Every tutorial is rendered (with figures and movies) at
 - [Implementing new physics: a capsizing iceberg](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/03_capsizing_iceberg/)
 - [Hydrostatic ocean modelling: internal tides over a sill](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/04_optional_hydrostatic_internal_tide/) *(optional)*
 - [GPU computing in Julia: from arrays to a turbulence solver](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/05_optional_gpu_computing/) *(optional)*
-- [A first taste of the atmosphere (Breeze)](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/06_breeze_tutorial/) — thermal bubble → free convection → split-explicit compressible → mountain lee waves → clouds & drizzle over a 3D mountain
 
 ### Day 2 — High-latitude ocean & sea ice
+- [Introduction to Breeze](https://numericalearth.github.io/BjerknesWorkshopDocs/day2/03_breeze_tutorial/) — thermal bubble → free convection → split-explicit compressible → mountain lee waves → clouds & drizzle over a 3D mountain
 - [Sea ice in the Arctic: a pan-Arctic simulation](https://numericalearth.github.io/BjerknesWorkshopDocs/day2/01_arctic_sea_ice/)
 - [The Barents Sea: a regional coupled ocean–sea ice simulation](https://numericalearth.github.io/BjerknesWorkshopDocs/day2/02_barents_sea_regional/)
 

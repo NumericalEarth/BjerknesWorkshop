@@ -1,3 +1,6 @@
+# Manifest
+Manifest.toml
+
 # Documentation build output and generated pages
 docs/build/
 docs/src/day1/*.md
@@ -40,3 +43,7 @@ tutorials/day2/CondaPkg.toml
 *.jld2
 docs/src/day*/*.png
 docs/src/day*/*.mp4
+
+# random stuff
+*.swp
+*.DS_Store
