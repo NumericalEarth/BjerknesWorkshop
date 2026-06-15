@@ -1,5 +1,14 @@
 # Bjerknes Workshop
 
+## Tools & docs
+
+- **Install Julia** — [installer](https://julialang.org/install/) · [docs](https://docs.julialang.org/)
+- **Oceananigans.jl** — [repo](https://github.com/CliMA/Oceananigans.jl) · [docs](https://clima.github.io/OceananigansDocumentation/stable/)
+- **SpeedyWeather.jl** — [repo](https://github.com/SpeedyWeather/SpeedyWeather.jl) · [docs](https://speedyweather.github.io/SpeedyWeatherDocumentation/stable/)
+- **NumericalEarth.jl** — [repo](https://github.com/NumericalEarth/NumericalEarth.jl) · [docs](https://numericalearth.github.io/NumericalEarthDocumentation/stable/)
+- **Breeze.jl** — [repo](https://github.com/NumericalEarth/Breeze.jl) · [docs](https://numericalearth.github.io/BreezeDocumentation/dev/)
+- **Terrarium.jl** — [repo](https://github.com/NumericalEarth/Terrarium.jl) · [docs](https://numericalearth.github.io/Terrarium.jl/dev/)
+
 ## setting up your Julia environment
 
 The tutorials listed below run either on your laptop or in the Olivia supercomputer.
