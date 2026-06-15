@@ -1,4 +1,4 @@
-# # A first taste of the atmosphere: from a thermal bubble to clouds over a hill
+# # A Breeze tutorial: from a thermal bubble to clouds over a hill
 #
 # *Four experiments in atmospheric fluid dynamics, each adding exactly one idea.
 # We start with the simplest thing that moves — a warm bubble rising through
@@ -19,6 +19,15 @@
 # When only one ingredient changes at a time, every difference you see in the
 # movies has exactly one cause. Each part runs a short two-dimensional simulation;
 # Parts I, III, and IV render their output as a movie that plays inline below.
+#
+# ## Environment management
+#
+# We begin by instantiating the environment:
+
+using Pkg
+Pkg.instantiate()
+
+# and then we can get onto to building the environment,
 
 using Breeze
 using Oceananigans: Oceananigans
