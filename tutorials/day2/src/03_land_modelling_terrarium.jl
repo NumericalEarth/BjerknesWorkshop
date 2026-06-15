@@ -70,10 +70,11 @@
 # ```
 #
 # where the heat flux obeys **Fourier's law** $j_h = -\kappa_h\,\partial_z T$ and the
-# energy–temperature closure $U = C\,(T - T_\text{ref}) + \rho_w L_\text{sl}\,\theta_w$
-# carries the **latent heat of freeze/thaw** of pore water (so the *apparent* heat capacity
-# $\tilde C = \partial U / \partial T$ splits into sensible and latent parts). Soil water and
-# carbon are part of the state but inert in this configuration (static `NoFlow` hydrology,
+# energy–temperature closure $U = C\,(T - T_\text{ref}) + \rho_w L_\text{sl}\,\theta_w(T)$
+# carries the sensible heat and the **latent heat** of freeze/thaw of pore water. Therein 
+# $\rho_w$ is the density of water, $L_\text{sl}$ is the latent heat of fusion, $\theta_w(T)$ 
+# is the liquid water fraction with its soil freezing characteristic curve.
+# Soil and Soil water and carbon are part of the state but inert in this configuration (static `NoFlow` hydrology,
 # constant carbon density).
 
 import Pkg
@@ -174,19 +175,20 @@ soil = SoilEnergyWaterCarbon(eltype(column_grid); hydrology = SoilHydrology(elty
 terrarium_model = LandModel(column_grid; initializer = SoilInitializer(eltype(column_grid)), vegetation = nothing, soil)
 land = SpeedyWeather.LandModel(spectral_grid, terrarium_model; timestepper = ForwardEuler(eltype(column_grid)), Δt = 300.0)
 
-# Here the soil is a [`SoilEnergyWaterCarbon`](@ref) process. Two caveats for this run: soil
-# **water** is *declared but static*, because [`SoilHydrology`](@ref) defaults to `NoFlow`
-# (immobile water, no tendency). Passing `RichardsEq()` instead integrates the
-# **Richardson–Richards** equation for variably saturated flow,
+# Here the soil is a [`SoilEnergyWaterCarbon`](@ref) process — energy, water and carbon. Two
+# things to note for this run. Soil **water** is *static*: [`SoilHydrology`](@ref) defaults to
+# `NoFlow`, which holds the water content fixed in time. Switching to `RichardsEq()` instead
+# lets water actually move, by solving the **Richardson–Richards** equation — essentially the
+# water analogue of the heat equation above. It conserves soil water as it flows under
+# capillary suction and gravity:
 #
 # ```math
 # \phi\,\frac{\partial \xi(\psi)}{\partial t} = \frac{\partial}{\partial z}\!\left[\kappa_w \frac{\partial (\psi + z)}{\partial z}\right] + F_w
 # ```
 #
-# (porosity $\phi$, saturation $\xi$, matric potential $\psi$, hydraulic conductivity
-# $\kappa_w$; van Genuchten / Brooks–Corey retention) — though that path is not yet fully
-# stable. Soil **carbon** is held at a constant density (`ConstantSoilCarbonDensity`);
-# dynamic biogeochemistry is not yet active.
+# where $\xi$ is how full the pore space is (the saturation) and the $+\,z$ adds gravity to
+# the flow. That solver isn't fully stable yet in the coupled run, so we keep `NoFlow` here. Soil **carbon** is
+# held at a constant density; dynamic biogeochemistry is not active yet.
 
 # The land component plugs into a full primitive-equation atmosphere from SpeedyWeather.jl,
 # sharing the same land–sea mask:
