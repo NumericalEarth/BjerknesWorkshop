@@ -19,3 +19,4 @@ Terrarium = "80418d68-07fa-499d-ae2b-c12e531f5cd8"
 
 [compat]
 julia = "1.10"
+SpeedyWeather = "0.21.1"

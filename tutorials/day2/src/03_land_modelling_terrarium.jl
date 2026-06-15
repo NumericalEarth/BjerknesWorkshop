@@ -19,7 +19,7 @@
 #
 # ## Why build on Oceananigans?
 #
-# Because Oceananigans' finite-volume operators are GPU-compatible and differentiable
+# Because Oceananigans' finite-volume operators and solvers are GPU-compatible and differentiable
 # out of the box, Terrarium inherits both capabilities almost for free. The payoff is
 # performance that scales from a single column to millions of grid cells:
 #
@@ -36,6 +36,13 @@
 # Vertically, each column is discretized into $N_i$ **layers** spanning the subsurface.
 # The physics is expressed as **kernel functions** that run
 # over the grid through a **device interface**, so the exact same code runs on CPU or GPU.
+#
+# Underlying everything is a strict modeling philosophy: every process is written as a
+# continuous-time PDE, $\partial_t u = G(u) + F$ (a differentiable tendency $G$ plus a
+# forcing $F$), discretized with finite-volume operators and advanced by a timestepper.
+# For atmosphere and ocean GCMs that is standard practice; for land models it sadly often
+# is not — many are a patchwork of ad-hoc, instantaneous update rules rather than
+# consistent differential equations (see [Mathematical formulation](https://numericalearth.github.io/Terrarium.jl/dev/introduction/mathematical_formulation/)).
 #
 # Three abstractions tie this together (see [Basic concepts](https://numericalearth.github.io/Terrarium.jl/dev/introduction/basic_concepts/)):
 #
@@ -54,14 +61,29 @@
 # The smallest useful model is a [`SoilModel`](@ref) on a [`ColumnGrid`](@ref): one (or
 # more) laterally independent vertical columns. Here we use 10 exponentially spaced soil
 # layers, in single precision, on the CPU.
+#
+# A [`SoilModel`](@ref) advances **subsurface heat conduction**: soil temperature follows
+# the energy-conservation form of the heat equation (vertical fluxes only),
+#
+# ```math
+# \frac{\partial U(T,\theta)}{\partial t} = \frac{\partial}{\partial z}\!\left[\kappa_h \frac{\partial T}{\partial z}\right] + F_h
+# ```
+#
+# where the heat flux obeys **Fourier's law** $j_h = -\kappa_h\,\partial_z T$ and the
+# energy–temperature closure $U = C\,(T - T_\text{ref}) + \rho_w L_\text{sl}\,\theta_w$
+# carries the **latent heat of freeze/thaw** of pore water (so the *apparent* heat capacity
+# $\tilde C = \partial U / \partial T$ splits into sensible and latent parts). Soil water and
+# carbon are part of the state but inert in this configuration (static `NoFlow` hydrology,
+# constant carbon density).
 
 using Terrarium
 
 grid = ColumnGrid(CPU(), Float32, ExponentialSpacing(N = 10))
 model = SoilModel(grid)
 
-# We prescribe a constant 1 °C surface temperature, pick the [`ForwardEuler`](@ref)
-# timestepper, and run for 10 days:
+# We prescribe a constant 1 °C surface temperature — the upper boundary condition, with a
+# constant geothermal heat flux at the base — pick the [`ForwardEuler`](@ref) timestepper,
+# and run for 10 days:
 
 bcs = PrescribedSurfaceTemperature(:T_ub, 1.0)
 integrator = initialize(model, ForwardEuler(eltype(grid)); boundary_conditions = bcs)
@@ -149,6 +171,20 @@ soil = SoilEnergyWaterCarbon(eltype(column_grid); hydrology = SoilHydrology(elty
 terrarium_model = LandModel(column_grid; initializer = SoilInitializer(eltype(column_grid)), vegetation = nothing, soil)
 land = SpeedyWeather.LandModel(spectral_grid, terrarium_model; timestepper = ForwardEuler(eltype(column_grid)), Δt = 300.0)
 
+# Here the soil is a [`SoilEnergyWaterCarbon`](@ref) process. Two caveats for this run: soil
+# **water** is *declared but static*, because [`SoilHydrology`](@ref) defaults to `NoFlow`
+# (immobile water, no tendency). Passing `RichardsEq()` instead integrates the
+# **Richardson–Richards** equation for variably saturated flow,
+#
+# ```math
+# \phi\,\frac{\partial \xi(\psi)}{\partial t} = \frac{\partial}{\partial z}\!\left[\kappa_w \frac{\partial (\psi + z)}{\partial z}\right] + F_w
+# ```
+#
+# (porosity $\phi$, saturation $\xi$, matric potential $\psi$, hydraulic conductivity
+# $\kappa_w$; van Genuchten / Brooks–Corey retention) — though that path is not yet fully
+# stable. Soil **carbon** is held at a constant density (`ConstantSoilCarbonDensity`);
+# dynamic biogeochemistry is not yet active.
+
 # The land component plugs into a full primitive-equation atmosphere from SpeedyWeather.jl,
 # sharing the same land–sea mask:
 
@@ -163,26 +199,26 @@ model_coupled = SpeedyWeather.PrimitiveWetModel(
 simulation = SpeedyWeather.initialize!(model_coupled)
 
 # We advance the coupled model in short chunks, capturing a snapshot at each step of the
-# **surface soil moisture** (top-layer saturation — a Terrarium land variable, living on the
-# masked land grid) and the **surface relative vorticity** (lowest atmospheric layer — a
+# **surface soil temperature** (uppermost soil layer — a Terrarium land variable, living on
+# the masked land grid) and the **surface relative vorticity** (lowest atmospheric layer — a
 # SpeedyWeather diagnostic). The masked land field is mapped back onto the full ring grid
 # with `RingGrids.Field`; ocean points become `NaN` and plot as blank.
 
 using CairoMakie
 
 nframes = 20
-moisture_frames, vorticity_frames = Matrix{Float32}[], Matrix{Float32}[]
+soiltemp_frames, vorticity_frames = Matrix{Float32}[], Matrix{Float32}[]
 for _ in 1:nframes
     SpeedyWeather.run!(simulation, period = Hour(6))
     land_state = simulation.variables.prognostic.land.terrarium
-    sat_top = interior(land_state.saturation_water_ice)[:, :, end:end]              # surface saturation
+    T_top = interior(land_state.temperature)[:, :, end:end]                          # uppermost soil layer (°C)
     ## map the masked land columns back onto the full ring grid; ocean points come back as NaN
-    push!(moisture_frames, Float32.(Matrix(RingGrids.Field(CPU(), sat_top, column_grid)[:, 1, 1])))
+    push!(soiltemp_frames, Float32.(Matrix(RingGrids.Field(CPU(), T_top, column_grid)[:, 1, 1])))
     push!(vorticity_frames, Float32.(Matrix(simulation.variables.grid.vorticity[:, end])))  # lowest layer
 end
 
 ## stack the per-step snapshots into (lon, lat, time) arrays for animation
-moisture, vorticity = stack(moisture_frames), stack(vorticity_frames)
+soil_temperature, vorticity = stack(soiltemp_frames), stack(vorticity_frames)
 
 # Longitude/latitude axes shared by both panels, read from the full ring grid:
 ζ_ref = simulation.variables.grid.vorticity[:, end]
@@ -214,14 +250,14 @@ function animate_field(data, filename; lon = axes(data, 1), lat = axes(data, 2),
     return anim
 end
 
-# **Surface soil moisture** over land (ocean masked out). Saturation lies in [0, 1], so we pass
-# a sequential colormap and range rather than the symmetric default:
+# **Surface soil temperature** over land (ocean masked out). Driven by the coupled
+# atmosphere's surface fluxes, the uppermost soil layer warms and cools over the run:
 
-animate_field(moisture, "soil_moisture.mp4"; lon = lond, lat = latd,
-              label = "Surface soil moisture (saturation)", title = "Surface soil moisture",
-              colormap = :viridis, colorrange = (0, 1))
+animate_field(soil_temperature, "soil_temperature.mp4"; lon = lond, lat = latd,
+              label = "Surface soil temperature [°C]", title = "Surface soil temperature",
+              colormap = :balance, colorrange = (-30, 30))
 
-# ![Surface soil moisture animation](soil_moisture.mp4)
+# ![Surface soil temperature animation](soil_temperature.mp4)
 
 # **Surface relative vorticity** of the coupled atmosphere — the synoptic weather systems
 # evolving above the land. Here `animate_field`'s defaults (symmetric range, `:balance`) make
@@ -232,6 +268,18 @@ animate_field(vorticity, "vorticity.mp4"; lon = lond, lat = latd,
 
               
 # ![Surface vorticity animation](vorticity.mp4)
+
+# ## Beyond this example: other Terrarium processes
+#
+# This example exercises soil heat — and, in the coupled run, the land–atmosphere flux
+# exchange — while leaving most of Terrarium's process catalog at defaults or disabled
+# (`vegetation = nothing`, `NoFlow` hydrology). Terrarium also implements:
+#
+# - **Variably saturated soil flow** — Richardson–Richards with van Genuchten / Brooks–Corey curves and texture-based pedotransfer functions.
+# - **Surface energy balance** — albedo, shortwave/longwave radiation, turbulent (aerodynamic) sensible/latent fluxes, and a prognostic skin temperature.
+# - **Surface hydrology** — canopy interception, evapotranspiration, infiltration, and surface runoff.
+# - **Vegetation / terrestrial carbon** — photosynthesis, stomatal conductance, autotrophic respiration, phenology, root distribution, plant-available water, and dynamic vegetation carbon.
+# - **Snow** — a degree-day melt scheme (contributions to improve it are very welcome!).
 
 # ## Where to go next: Terrarium's documentation
 #
