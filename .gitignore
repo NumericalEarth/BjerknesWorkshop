@@ -35,3 +35,8 @@ tutorials/day2/CondaPkg.toml
 
 # ...but day1 commits its CondaPkg.toml so the numpy interop example is reproducible.
 !tutorials/day1/CondaPkg.toml
+
+# simulation output / render leftovers
+*.jld2
+docs/src/day*/*.png
+docs/src/day*/*.mp4

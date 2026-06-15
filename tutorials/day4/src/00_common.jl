@@ -21,77 +21,22 @@
 module ThursdayLES
 
 using Printf
-using Dates
 using CUDA
 using Oceananigans
 
-export RunConfig, output_name, slice_name, movie_name, figure_name, write_once!,
-       choose_architecture, gpu_report,
+export write_once!,
+       gpu_report,
        smooth_step, top_hat, lead_mask, edge_taper,
-       memory_report, format_gib, run_stamp
+       memory_report, format_gib, bilinear
 
-# ## Output, movie, and figure paths
-#
-# `RunConfig` is a tiny bookkeeping struct: a case name plus the on-disk layout.
-# Output filenames embed the case name so the cases never clobber each other.
+# Each case writes its output with a plain, descriptive filename (e.g.
+# `"free_convection.jld2"`) into the current working directory — exactly as a
+# standalone Oceananigans/Breeze script would. The deployment workflow runs each
+# case from its own artifacts directory, so those bare filenames land there with
+# no path bookkeeping; run a case by hand and the files appear next to you.
 
-# When the deployment workflow drives a case it sets `CASE_OUTPUT_DIR` to a
-# per-run artifacts directory; every output, movie, and figure then lands there.
-# Run standalone (no env var) and the defaults reproduce the original
-# `thursday/{output,movies,figures}` layout. `run_class` is accepted and ignored
-# so the gallery source (which passes `run_class = ...`) constructs cleanly.
-
-_case_output_root() = get(ENV, "CASE_OUTPUT_DIR", "")
-
-_default_output_dir() = (r = _case_output_root(); isempty(r) ? joinpath("thursday", "output") : r)
-_default_movie_dir()  = (r = _case_output_root(); isempty(r) ? joinpath("thursday", "movies")  : r)
-_default_figure_dir() = (r = _case_output_root(); isempty(r) ? joinpath("thursday", "figures") : r)
-
-Base.@kwdef struct RunConfig
-    case_name  :: String
-    output_dir :: String = _default_output_dir()
-    movie_dir  :: String = _default_movie_dir()
-    figure_dir :: String = _default_figure_dir()
-    run_class  :: Symbol = Symbol(get(ENV, "RUN_CLASS", "production"))
-end
-
-RunConfig(case_name::String; kw...) = RunConfig(; case_name, kw...)
-
-function output_name(config::RunConfig, label = nothing; ext = "jld2")
-    mkpath(config.output_dir)
-    stem = isnothing(label) ? config.case_name : string(config.case_name, "_", label)
-    return joinpath(config.output_dir, string(stem, ".", ext))
-end
-
-slice_name(config::RunConfig; ext = "jld2") = output_name(config, "slices"; ext)
-
-function movie_name(config::RunConfig, label; ext = "mp4")
-    mkpath(config.movie_dir)
-    return joinpath(config.movie_dir, string(label, ".", ext))
-end
-
-function figure_name(config::RunConfig, label; ext = "png")
-    mkpath(config.figure_dir)
-    return joinpath(config.figure_dir, string(label, ".", ext))
-end
-
-# ## Architecture selection
-#
-# Production runs are GPU runs. We probe CUDA at runtime and fall back to CPU so
-# the scripts still construct on a head node with no device. Importing CUDA at
-# module scope (not inside the function) avoids a world-age error when querying it.
-
-function choose_architecture()
-    if CUDA.functional()
-        CUDA.allowscalar(false)
-        return GPU()
-    else
-        @warn "CUDA not functional; running on CPU."
-        return CPU()
-    end
-end
-
-# A one-shot device report for the top of a run log. No-op (with a note) on CPU.
+# A one-shot device report for the top of a run log. (The cases construct their
+# architecture directly with `GPU()` — every Thursday run is a GPU run.)
 
 function gpu_report()
     if CUDA.functional()
@@ -147,6 +92,29 @@ end
     return tx * ty
 end
 
+# ## Gridded-data lookup
+#
+# `bilinear(arr, xs, ys)` returns a function `(x, y) -> value` that bilinearly
+# interpolates the array `arr` defined on the (sorted, evenly spaced) coordinate
+# vectors `xs`, `ys`, clamping to the domain edges. The Norway case uses it to
+# evaluate cached topography / land-mask arrays at arbitrary grid points — both
+# when carving the terrain (simulation) and when reconstructing the static fields
+# for the figures (visualization).
+
+function bilinear(arr, xs, ys)
+    x0, x1 = first(xs), last(xs); y0, y1 = first(ys), last(ys)
+    nx, ny = length(xs), length(ys)
+    dx = (x1 - x0) / (nx - 1); dy = (y1 - y0) / (ny - 1)
+    return function (x, y)
+        fx = clamp((x - x0) / dx, 0, nx - 1 - 1e-6)
+        fy = clamp((y - y0) / dy, 0, ny - 1 - 1e-6)
+        i = floor(Int, fx) + 1; j = floor(Int, fy) + 1
+        tx = fx - (i - 1); ty = fy - (j - 1)
+        @inbounds (arr[i, j]   * (1 - tx) * (1 - ty) + arr[i+1, j]   * tx * (1 - ty) +
+                   arr[i, j+1] * (1 - tx) * ty       + arr[i+1, j+1] * tx * ty)
+    end
+end
+
 # ## Memory accounting
 #
 # Before committing to a grid we estimate the device memory a run will use.
@@ -163,12 +131,6 @@ function memory_report(Nx, Ny, Nz; FT = Float32, nfields = 8, working_multiplier
 end
 
 format_gib(x) = @sprintf("%.2f GiB", x)
-
-# A tiny reproducibility stamp for the end of a run log.
-
-function run_stamp(config::RunConfig)
-    return (; case = config.case_name, finished = string(now()), host = gethostname())
-end
 
 end # module ThursdayLES
 

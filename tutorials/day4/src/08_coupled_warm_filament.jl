@@ -58,6 +58,7 @@ using NumericalEarth
 using Oceananigans
 using Oceananigans: Oceananigans
 using Oceananigans.Units
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using Printf
 using Random
 
@@ -66,8 +67,7 @@ using .ThursdayLES
 
 Random.seed!(1994)
 
-config = RunConfig("08_coupled_warm_filament")
-arch = choose_architecture()
+arch = GPU()
 gpu_report()
 Oceananigans.defaults.FloatType = Float64  # coupled: ESM clock is Float64, component grids must match
 FT = Float64
@@ -88,15 +88,15 @@ nothing #hide
 # refine to e.g. 768 × 384 × 192 (atmosphere) / 768 × 384 × 96 (ocean) at
 # ≈ 15–30 m horizontal resolution.
 
-const Lx   = 12kilometers   # along-wind (cloud-street axis)
-const Ly   = 6kilometers    # cross-wind (across the filament)
-const Lz_a = 3kilometers    # atmosphere depth
-const Lz_o = 120meters      # ocean depth
+Lx   = 12kilometers   # along-wind (cloud-street axis)
+Ly   = 6kilometers    # cross-wind (across the filament)
+Lz_a = 3kilometers    # atmosphere depth
+Lz_o = 120meters      # ocean depth
 
-const Nx   = 192
-const Ny   = 96
-const Nz_a = 96             # atmosphere vertical cells
-const Nz_o = 48             # ocean vertical cells
+Nx   = 192
+Ny   = 96
+Nz_a = 96             # atmosphere vertical cells
+Nz_o = 48             # ocean vertical cells
 
 memory_report(Nx, Ny, Nz_a; FT, nfields = 8)
 
@@ -122,9 +122,9 @@ ocean_grid = RectilinearGrid(arch; size = (Nx, Ny, Nz_o), halo = (5, 5, 5),
 # `f = 1e-4 s⁻¹`.
 
 atmosphere = atmosphere_simulation(atmos_grid;
-                                   potential_temperature = FT(288),
+                                   potential_temperature = 288,
                                    closure = SmagorinskyLilly(),
-                                   coriolis = FPlane(f = FT(1e-4)))
+                                   coriolis = FPlane(f = 1e-4))
 
 # ### Initial atmospheric state
 #
@@ -137,25 +137,25 @@ atmosphere = atmosphere_simulation(atmos_grid;
 # `set!` acts on the wrapped `atmosphere.model`. `qᵗ` is the total-water mass fraction
 # (the moist prognostic variable).
 
-const U₀    = FT(5)       # m s⁻¹ mean wind, along x (the cloud-street axis)
-const θ_bl  = FT(288)     # K, well-mixed boundary-layer potential temperature (= reference)
-const zᵢ    = FT(1000)    # m, initial inversion height (boundary-layer top)
-const Δθᵢ   = FT(6)       # K, capping-inversion strength (θ jump at zᵢ)
-const Γθ    = FT(4e-3)    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
-const qᵗ_bl = FT(9e-3)    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
-const qᵗ_ft = FT(2e-3)    # kg/kg, dry free troposphere above the inversion
-const zδ    = FT(600)     # m, perturbation seeding depth
-const δθ    = FT(0.05)    # K, thermal perturbation amplitude
-const δu    = FT(0.05)    # m s⁻¹, velocity perturbation amplitude
+U₀    = 5       # m s⁻¹ mean wind, along x (the cloud-street axis)
+θ_bl  = 288     # K, well-mixed boundary-layer potential temperature (= reference)
+hᵢ    = 1000    # m, initial inversion height (boundary-layer top)
+Δθᵢ   = 6       # K, capping-inversion strength (θ jump at hᵢ)
+Γθ    = 4e-3    # K m⁻¹, stable free-tropospheric θ lapse above the inversion
+qᵗ_bl = 9e-3    # kg/kg, moist mixed-layer total water (RH ≈ 85% → cloud base in the BL)
+qᵗ_ft = 2e-3    # kg/kg, dry free troposphere above the inversion
+zδ    = 600     # m, perturbation seeding depth
+δθ    = 0.05    # K, thermal perturbation amplitude
+δu    = 0.05    # m s⁻¹, velocity perturbation amplitude
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 
-## A well-mixed, moist boundary layer capped by an inversion at zᵢ, with a stable,
+## A well-mixed, moist boundary layer capped by an inversion at hᵢ, with a stable,
 ## dry free troposphere above. The warm filament heats and moistens this layer; thermals
 ## rise to their lifting condensation level (a few hundred metres up), saturate into
-## cloud, and are capped near zᵢ — organizing into wind-aligned cloud streets.
-θᵢ(x, y, z) = (z < zᵢ ? θ_bl : θ_bl + Δθᵢ + Γθ * (z - zᵢ)) + δθ * ϵ() * (z < zδ)
-qᵢ(x, y, z) = z < zᵢ ? qᵗ_bl : qᵗ_ft
+## cloud, and are capped near hᵢ — organizing into wind-aligned cloud streets.
+θᵢ(x, y, z) = (z < hᵢ ? θ_bl : θ_bl + Δθᵢ + Γθ * (z - hᵢ)) + δθ * ϵ() * (z < zδ)
+qᵢ(x, y, z) = z < hᵢ ? qᵗ_bl : qᵗ_ft
 uᵢ(x, y, z) = U₀ + δu * ϵ() * (z < zδ)
 vᵢ(x, y, z) = δu * ϵ() * (z < zδ)
 
@@ -170,25 +170,44 @@ set!(atmosphere.model, θ = θᵢ, u = uᵢ, v = vᵢ, qᵗ = qᵢ)
 # fluxes by hand. We add a mid-latitude `FPlane` so the ocean response feels rotation.
 
 ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
-                         coriolis = FPlane(f = FT(1e-4)))
+                         coriolis = FPlane(f = 1e-4))
 
 # ### Initialize the WARM SST FILAMENT — the ocean's living boundary
 #
-# The filament is a warm band centered in `y`, uniform along the wind (`x`), riding on
-# a mixed layer over a stratified interior. The surface temperature is
+# The filament is a warm band centered in `y`, uniform along the wind (`x`), trapped
+# in the upper part of a mixed layer over a stratified interior. The surface
+# temperature is
 #
 # ```math
 # T(x, y, z=0) = T_\mathrm{cold} + \Delta T\,\exp\!\Big(-\frac{(y - L_y/2)^2}{2\sigma^2}\Big)
 # ```
 #
-# with `ΔT ≈ 3 K` and `σ ≈ 1 km` (a ≈ 2 km-wide warm filament). Below a mixed-layer
-# depth `h` the water is stratified at `N²`, so the warm anomaly sits in a
-# well-mixed surface layer that the coupled fluxes can erode and deepen. Salinity is a
-# uniform 35 g kg⁻¹. The warm filament is the **boundary feature** the atmosphere
-# reads and the cloud street traces.
+# with `ΔT ≈ 3 K` and `σ ≈ 0.6 km` (a ≈ 1.4 km-wide warm filament), the anomaly decaying
+# over the top `δᵥ = 20 m`. Below the mixed-layer depth `h` the water is stratified at
+# `N²`. Salinity is a uniform 35 g kg⁻¹.
 #
-# We add a tiny random thermal perturbation in the mixed layer to seed ocean
-# convection once surface cooling begins.
+# **Why narrow?** A tight filament carries a *sharp* lateral buoyancy gradient, and
+# mixed-layer instability grows faster the sharper the front (its growth rate scales
+# with `M² = ∂_y b`). A broad, gentle filament sits quiescent for ~10 inertial-hours
+# before it even begins to roll up; this one goes unstable in a few hours, so the
+# spin-up below can be short and still hand the coupler an eddying — but not yet
+# homogenized — ocean.
+#
+# **This front is baroclinically unstable.** A surface-trapped lateral buoyancy
+# gradient on an `f`-plane carries available potential energy that frontal
+# (mixed-layer) instabilities convert into **submesoscale eddies** — but they take
+# inertial periods (`2π/f ≈ 17 h`), not minutes, to grow. Rather than burn expensive
+# *coupled* hours waiting, we **spin the ocean up alone first** (next section): the
+# filament is initialized in **thermal-wind balance**, with an along-front jet
+#
+# ```math
+# f \,\partial_z u = -\partial_y b, \qquad
+# u(y, z) = -\frac{g\,α\,δᵥ}{f}\, \partial_y G(y) \left(e^{z/δᵥ} - e^{-H/δᵥ}\right),
+# ```
+#
+# so the instability grows directly out of the balanced state instead of being lost to
+# geostrophic adjustment. A tiny random thermal perturbation seeds it (and later, the
+# convection under the coupled surface cooling).
 #
 # !!! warning "Units: the ocean is in °C, the atmosphere is in K"
 #     The ocean uses the TEOS-10 equation of state, whose conservative temperature
@@ -201,33 +220,85 @@ ocean = ocean_simulation(ocean_grid; model = :nonhydrostatic,
 #     pressure — and returns a *negative* interface humidity, which drives a runaway
 #     spurious-condensation instability. Keep the ocean in °C.
 
-const T_cold = FT(17)       # °C, background SST (mid-latitude)
-const ΔT     = FT(3)        # K = °C, filament warm anomaly
-const σ      = FT(1000)     # m, filament half-width scale (≈ 2 km full width)
-const h      = FT(40)       # m, initial ocean mixed-layer depth
-const N²     = FT(1e-4)     # s⁻², interior stratification (buoyancy frequency²)
-const S₀     = FT(35)       # g/kg, uniform salinity
+T_cold = 17       # °C, background SST (mid-latitude)
+ΔT     = 3        # K = °C, filament warm anomaly
+σ      = 600      # m, filament half-width scale (≈ 1.4 km full width — a tight ribbon)
+h      = 40       # m, initial ocean mixed-layer depth
+N²     = 1e-4     # s⁻², interior stratification (buoyancy frequency²)
+S₀     = 35       # g/kg, uniform salinity
 
 ## Convert an interior buoyancy frequency to a temperature lapse rate via a constant
 ## thermal expansion coefficient α ≈ 2e-4 K⁻¹ and g ≈ 9.81 m s⁻²: dT/dz = N²/(g α).
-const α_T    = FT(2e-4)     # K⁻¹, thermal expansion (for the initial T profile only)
-const g_oce  = FT(9.81)     # m s⁻²
-const dTdz   = N² / (g_oce * α_T)   # K/m, interior temperature gradient
+α_T    = 2e-4     # K⁻¹, thermal expansion (for the initial T profile only)
+g_oce  = 9.81     # m s⁻²
+dTdz   = N² / (g_oce * α_T)   # K/m, interior temperature gradient
 
-const y_c    = FT(Ly / 2)   # filament center in y
-const δT_o   = FT(0.01)     # K, ocean mixed-layer perturbation amplitude
+y_c    = Ly / 2   # filament center in y
+δT_o   = 0.01     # K, ocean mixed-layer perturbation amplitude
+δᵥ     = 20       # m, vertical trapping scale of the filament's warm anomaly
+f_oce  = 1e-4     # s⁻¹, ocean f-plane (matches the atmosphere)
 
-## Warm filament at the surface, mixed to depth h, stratified below.
-function Tᵢ(x, y, z)
-    filament = ΔT * exp(-(y - y_c)^2 / (2 * σ^2))
-    mixed    = T_cold + filament
-    ## Below the mixed layer (z < -h) decay toward a stratified interior.
-    stratified = mixed + dTdz * (z + h)   # z + h ≤ 0 below the mixed layer
-    T = z > -h ? mixed : stratified
-    return T + δT_o * (rand(FT) - FT(0.5)) * (z > -h)
+## The filament's horizontal structure and its y-derivative (for the balanced jet).
+G(y)  = ΔT * exp(-(y - y_c)^2 / (2σ^2))
+∂yG(y) = -(y - y_c) / σ^2 * G(y)
+
+## Surface-trapped warm filament over a mixed layer and stratified interior, with a
+## small random perturbation to seed the frontal instability (and, later, convection).
+T_background(z) = T_cold + (z > -h ? 0.0 : dTdz * (z + h))
+Tᵒᵢ(x, y, z) = T_background(z) + G(y) * exp(z / δᵥ) + δT_o * (rand() - 0.5) * (z > -h)
+
+## The thermal-wind-balanced along-front jet: f ∂z u = -∂y b with b ≈ g α T′,
+## integrated from the (quiescent) bottom. Peaks at ≈ 0.7 m s⁻¹ on the filament flanks.
+uᵒᵢ(x, y, z) = -(g_oce * α_T / f_oce) * ∂yG(y) * δᵥ * (exp(z / δᵥ) - exp(-Lz_o / δᵥ))
+
+# ## Spin up the ocean alone: let the front go unstable *before* coupling
+#
+# Mixed-layer baroclinic instability needs time to reach finite amplitude — far
+# longer than we want to integrate the full coupled system. The ocean alone, though,
+# is small (≈ 0.9 M cells), so we run it **standalone for 10 hours**: no surface
+# fluxes, just the balanced front releasing its available potential energy into a
+# field of submesoscale eddies. With the tight filament above, the instability rolls
+# up within a few hours; by 10 h the front has shed a handful of eddies but is *not
+# yet* mixed away — the surface still carries the warm ribbon and its sharp flanks.
+# Run it much longer (≈ a day) and the eddies homogenize the filament, erasing the
+# very heterogeneity the coupled run is meant to feel. So we stop early, in the
+# eddies-formed-but-still-heterogeneous window. The coupled simulation then starts
+# from this *already-eddying* ocean, and every expensive coupled minute is spent on
+# the interesting regime. (For larger setups the same trick works with a coarse ocean
+# spin-up, cached to disk.)
+
+spinup = ocean_simulation(ocean_grid; model = :nonhydrostatic,
+                          coriolis = FPlane(f = f_oce))
+set!(spinup.model, T = Tᵒᵢ, S = S₀, u = uᵒᵢ)
+
+spinup.stop_time = 10hours
+conjure_time_step_wizard!(spinup, cfl = 1.0)
+
+spinup_wall = Ref(time_ns())
+function spinup_progress(sim)
+    elapsed = 1e-9 * (time_ns() - spinup_wall[])
+    u, v, w = sim.model.velocities
+    @info @sprintf("[spinup] Iter %d, t %s, Δt %s, wall %s, max|u| %.2f, max|w| %.2e m/s",
+                   iteration(sim), prettytime(sim), prettytime(sim.Δt),
+                   prettytime(elapsed), maximum(abs, u), maximum(abs, w))
+    return nothing
 end
+add_callback!(spinup, spinup_progress, IterationInterval(200))
 
-set!(ocean.model, T = Tᵢ, S = S₀)
+## Track the front's breakup: SST and surface vertical vorticity every 30 minutes.
+u_sp, v_sp, w_sp = spinup.model.velocities
+ζ_sp = Field(∂x(v_sp) - ∂y(u_sp), indices = (:, :, Nz_o:Nz_o))
+spinup.output_writers[:surface] = JLD2Writer(spinup.model,
+    (; T = view(spinup.model.tracers.T, :, :, Nz_o), ζ = ζ_sp);
+    filename = "warm_filament_spinup.jld2", schedule = TimeInterval(20minutes),
+    overwrite_existing = true)
+
+run!(spinup)
+@info "Ocean spin-up complete — initializing the coupled ocean from the eddying state."
+
+## Hand the spun-up state to the coupled ocean.
+set!(ocean.model, T = spinup.model.tracers.T, S = spinup.model.tracers.S,
+     u = u_sp, v = v_sp, w = w_sp)
 
 # ## Couple them
 #
@@ -240,15 +311,14 @@ model = AtmosphereOceanModel(atmosphere, ocean)
 
 # ## Simulation
 #
-# The coupled model is stepped by a single outer `Simulation`. A fixed 5 s step is
-# comfortable for this grid (the atmosphere's ≈ 31 m vertical surface cell and
-# ≈ 62 m horizontal cells, with U₀ = 5 m s⁻¹ and convective velocities of order
-# 1 m s⁻¹, give CFL well below 1). We integrate **1 hour** for first validation —
-# long enough to spin up a recognizable cloud street and start eroding the filament.
-# A production run would integrate several hours (e.g. `stop_time = 6hours`) to watch
-# the filament measurably erode and the ocean mixed layer deepen.
+# The coupled model is stepped by a single outer `Simulation`. We integrate
+# **2 hours** of coupled time — the cloud street organizes within the first hour, and
+# the second hour shows it riding over the (pre-spun-up) eddying SST field while the
+# coupled fluxes erode the filament. A longer production run (e.g. `stop_time =
+# 6hours`) would watch the eddies stir the filament apart under the storm of its own
+# making.
 
-simulation = Simulation(model; Δt = 2, stop_time = 1hour)
+simulation = Simulation(model; Δt = 2, stop_time = 2hours)
 
 wall_clock = Ref(time_ns())
 function progress(sim)
@@ -332,134 +402,21 @@ Q_latent   = ao_fluxes.latent_heat
 flux_outputs = (; Q_sensible, Q_latent)
 
 simulation.output_writers[:atmosphere] = JLD2Writer(atmosphere.model, atmos_outputs;
-    filename = output_name(config, "atmosphere"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_atmosphere.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:ocean] = JLD2Writer(ocean.model, ocean_outputs;
-    filename = output_name(config, "ocean"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_ocean.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 simulation.output_writers[:fluxes] = JLD2Writer(atmosphere.model, flux_outputs;
-    filename = output_name(config, "fluxes"), schedule = TimeInterval(30seconds),
+    filename = "warm_filament_fluxes.jld2", schedule = TimeInterval(30seconds),
     overwrite_existing = true)
 
 # ## Go time
 run!(simulation)
 
-# ## Visualization
-#
-# A multi-panel figure tells the coupled story in one frame:
-#
-# - top-left: the **cloud street** — near-surface cloud liquid `qˡ(x, y)` (the band of
-#   cloud over the warm filament, leaning downwind);
-# - top-right: near-surface vertical velocity `w(x, y)` (the convective updrafts);
-# - middle-left: **SST** `T(x, y)` (the warm filament, being eroded);
-# - middle-right: the **air–sea sensible heat flux** `Q(x, y)` (localized over the
-#   filament);
-# - bottom-left: across-filament atmospheric transect `w(y, z)` (the rising plume);
-# - bottom-right: across-filament ocean transect `w(y, z)` (the sinking response).
-#
-# We build a movie from the time series and save the final frame.
-
-using CairoMakie
-_safelim(x, fallback) = (m = maximum(abs, x); isfinite(m) && m > 0 ? m : fallback)
-
-atmos_file = output_name(config, "atmosphere")
-ocean_file = output_name(config, "ocean")
-flux_file  = output_name(config, "fluxes")
-
-if isfile(atmos_file) && isfile(ocean_file)
-    qˡxy = FieldTimeSeries(atmos_file, "qˡ_xy")
-    wxy  = FieldTimeSeries(atmos_file, "w_xy")
-    wyz  = FieldTimeSeries(atmos_file, "w_yz")
-    Txy  = FieldTimeSeries(ocean_file, "T_xy")
-    woyz = FieldTimeSeries(ocean_file, "w_yz")
-
-    times = qˡxy.times
-    Nt = length(times)
-
-    xa, ya, _  = nodes(qˡxy)
-    _,  yaz, za = nodes(wyz)
-    xo, yo, _  = nodes(Txy)
-    _,  yoz, zo = nodes(woyz)
-
-    xkm  = xa  ./ 1e3
-    ykm  = ya  ./ 1e3
-    yazkm = yaz ./ 1e3
-    xokm = xo  ./ 1e3
-    yokm = yo  ./ 1e3
-    yozkm = yoz ./ 1e3
-
-    Qfields = isfile(flux_file)
-    if Qfields
-        Qts = FieldTimeSeries(flux_file, "Q_sensible")
-        xq, yq, _ = nodes(Qts)
-        xqkm = xq ./ 1e3
-        yqkm = yq ./ 1e3
-    end
-
-    n = Observable(Nt)
-    qln = @lift interior(qˡxy[$n], :, :, 1) .* 1e3   # g/kg
-    wn  = @lift interior(wxy[$n], :, :, 1)
-    Tn  = @lift interior(Txy[$n], :, :, 1)
-    wyzn = @lift interior(wyz[$n], 1, :, :)
-    woyzn = @lift interior(woyz[$n], 1, :, :)
-    title = @lift "A warm filament writes a cloud street — t = " * prettytime(times[$n])
-
-    ## Color limits from the final frame.
-    qlmax = _safelim(interior(qˡxy[Nt]) .* 1e3, 1.0)
-    wlim  = _safelim(interior(wxy[Nt]), 1e-3)
-    wyzlim = _safelim(interior(wyz[Nt]), 1e-3)
-    woyzlim = _safelim(interior(woyz[Nt]), 1e-5)
-    Tmin = minimum(interior(Txy[Nt]))
-    Tmax = (m=maximum(interior(Txy[Nt])); isfinite(m) ? m : 1.0)
-
-    fig = Figure(size = (1300, 1100))
-    Label(fig[0, 1:4], title, fontsize = 18, tellwidth = false)
-
-    axq = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "y (km)",
-               title = "cloud liquid qˡ at z ≈ 800 m (g kg⁻¹) — the cloud street")
-    axw = Axis(fig[1, 3], xlabel = "x (km)", ylabel = "y (km)",
-               title = "near-surface w (m s⁻¹)")
-    axT = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "y (km)",
-               title = "SST T (°C) — the warm filament")
-    axF = Axis(fig[2, 3], xlabel = "x (km)", ylabel = "y (km)",
-               title = "sensible heat flux Q (W m⁻²)")
-    axwa = Axis(fig[3, 1], xlabel = "y (km)", ylabel = "z (m)",
-                title = "atmosphere transect w (m s⁻¹)")
-    axwo = Axis(fig[3, 3], xlabel = "y (km)", ylabel = "z (m)",
-                title = "ocean transect w (m s⁻¹)")
-
-    hmq = heatmap!(axq, xkm, ykm, qln, colormap = :dense, colorrange = (0, qlmax))
-    hmw = heatmap!(axw, xkm, ykm, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    hmT = heatmap!(axT, xokm, yokm, Tn, colormap = :thermal, colorrange = (Tmin, Tmax))
-    hmwa = heatmap!(axwa, yazkm, za, wyzn, colormap = :balance, colorrange = (-wyzlim, wyzlim))
-    hmwo = heatmap!(axwo, yozkm, zo, woyzn, colormap = :balance, colorrange = (-woyzlim, woyzlim))
-
-    Colorbar(fig[1, 2], hmq)
-    Colorbar(fig[1, 4], hmw)
-    Colorbar(fig[2, 2], hmT)
-    Colorbar(fig[3, 2], hmwa)
-    Colorbar(fig[3, 4], hmwo)
-
-    if Qfields
-        Qn = @lift interior(Qts[$n], :, :, 1)
-        Qmax = _safelim(interior(Qts[Nt]), 1.0)
-        hmF = heatmap!(axF, xqkm, yqkm, Qn, colormap = :balance, colorrange = (-Qmax, Qmax))
-        Colorbar(fig[2, 4], hmF)
-    end
-
-    save(figure_name(config, "coupled_warm_filament_final"), fig)
-
-    if Nt > 1
-        record(fig, movie_name(config, "coupled_warm_filament"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-        @info "Wrote movie" movie_name(config, "coupled_warm_filament")
-    end
-end
-
-@info "Case 08 complete" run_stamp(config)...
+@info "Case 08 complete"
 nothing #hide
 
 # ## References
@@ -495,3 +452,4 @@ nothing #hide
 #     extended (see the production grid/time notes above). The point is the **two-way
 #     coupling**: an evolving ocean feature writing organized convection into the
 #     atmosphere, while the atmosphere erodes the feature.
+

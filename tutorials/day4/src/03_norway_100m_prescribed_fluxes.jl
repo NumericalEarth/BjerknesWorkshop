@@ -1,4 +1,4 @@
-# # Fjords as boundary conditions: 100 m atmospheric flow over coastal Lofoten
+# # Steep island mountains as boundary conditions: 100 m coupled air–land flow over Lofoten
 #
 # *Boundary heterogeneity writes turbulence into the fluid — case 3 of 3.*
 #
@@ -8,51 +8,44 @@
 # *directly from the sea* — the highest, Higravstinden, reaches 1161 m, and dozens
 # of summits stand 600–1300 m above steep, narrow fjords such as Trollfjord. There
 # is essentially no coastal plain to soften the transition: the ocean meets a wall
-# of rock cut by fjord gaps. That geometry, plus the land/sea flux contrast, is the
-# entire forcing of this experiment.
+# of rock cut by fjord gaps. That geometry, **plus the land/sea surface contrast**,
+# is the entire forcing of this experiment.
 #
-# ## Why this terrain produces interesting flow
+# ## Two kinds of boundary heterogeneity, at once
 #
-# The single number that organizes stratified flow over a peak is the
-# **nondimensional mountain height** `M = N h / U` (an inverse Froude number;
-# Smith 1989, Bauer et al. 2000). For our peaks (`h ≈ 1100` m), free-tropospheric
-# stratification `N ≈ 0.0122 s⁻¹` (`N² = 1.5e-4`), and inflow `U = 12 m/s`, we get
-# **M ≈ 1.35** — squarely in the nonlinear regime where the flow does *all four* of
-# the things we want to show at once:
+# This case layers two heterogeneities the atmosphere must respond to:
 #
-#   - **Flow splitting / windward stagnation** — incoming air cannot all go over the
-#     ridges, so it splits and runs around the islands.
-#   - **Gap / fjord jets** — the split flow is funneled and accelerated through the
-#     fjords (Bernoulli acceleration in orographic descent), the high-latitude cousin
-#     of Greenland tip and barrier jets (Doyle & Shapiro 1999; Moore & Renfrew 2005),
-#     where observed jets reach tens of m/s.
-#   - **Lee eddies / vortex shedding** — wakes and counter-rotating vortex pairs form
-#     downstream of the islands.
-#   - **Gravity / mountain waves** — the fraction of flow that *does* climb the ridges
-#     launches vertically propagating mountain waves, with vertical wavelength
-#     `λ_z = 2π U / N ≈ 6 km`, which is why the domain is 12 km deep with a 4 km sponge
-#     to absorb them before they reflect off the top.
+#  1. **Orography.** The single number that organizes stratified flow over a peak is
+#     the **nondimensional mountain height** `M = N h / U` (an inverse Froude number;
+#     Smith 1989, Bauer et al. 2000). For our peaks (`h ≈ 1100` m), free-tropospheric
+#     stratification `N ≈ 0.0122 s⁻¹` (`N² = 1.5e-4`), and inflow `U = 12 m/s`, we get
+#     **M ≈ 1.35** — the nonlinear regime with flow splitting / windward stagnation,
+#     **gap / fjord jets** (Bernoulli acceleration; the high-latitude cousin of the
+#     Greenland tip jet — Doyle & Shapiro 1999), lee eddies / vortex shedding, and
+#     vertically propagating **mountain waves** (`λ_z = 2π U / N ≈ 6 km`, which is why
+#     the domain is 12 km deep with a 4 km sponge).
 #
-# Keep `M` in roughly 1–2: too small (weak `N` or fast `U`) and everything just flows
-# over with weak wakes; too large (strong `N` or slow `U`) and the flow blocks
-# completely and the over-mountain waves disappear. `M` is *sensitive near this
-# transition* and depends on the effective (resolution-limited) peak height — see the
-# resolution note below.
+#  2. **Surface moisture.** Rather than *prescribe* the surface fluxes, we couple the
+#     atmosphere to a **land-surface model** (`AtmosphereLandModel`) whose surface
+#     wetness varies in space: the **fjords and sea are wet** (saturated), the **land
+#     is dry**. In a winter marine cold-air-outbreak regime — cold air over a warmer
+#     surface — the wet water bodies lose heat as strong *latent + sensible* flux and
+#     light up convective plumes, while the dry land exchanges far less. The fluxes
+#     are *computed by Monin–Obukhov similarity theory from the instantaneous surface
+#     state*, so the wet/dry pattern (and its interaction with the terrain jets) is an
+#     emergent boundary condition, not a number we typed in.
 #
 # This case depends on Breeze's **terrain-following coordinates** and **acoustic
-# substepping** (the `glw/terrain-following-substepping` branch — the "PR #712
-# equivalent"). It loads a cached topography artifact produced by
-# `03a_prepare_norway_topography.jl`; it does **not** download or reproject DEM
-# data live. We run a single dry configuration sized for one H100.
+# substepping**, and on NumericalEarth's **`AtmosphereLandModel`** coupling. It loads a
+# cached topography artifact produced by `03a_prepare_norway_topography.jl` (real
+# Kartverket DTM); it does **not** download or reproject DEM data live.
 
 using Breeze
-using Breeze: BulkDrag
+using NumericalEarth
 using Oceananigans
 using Oceananigans.Units
 using Oceananigans.Grids: xnode, ynode
-using Breeze.TerrainFollowingDiscretization: TerrainFollowingVerticalDiscretization,
-                                             TwoLevelDecay, SlopeInsideInterpolation,
-                                             materialize_terrain!
+using CUDA   # provides Oceananigans' no-argument `GPU()` architecture
 using JLD2
 using Printf
 using Random
@@ -60,26 +53,29 @@ using Random
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
 
-# Per-phase wall-clock timing with a forced flush, for visibility into the
-# (compile-dominated) startup of this large compressible terrain run.
-const _t0 = Ref(time_ns())
+## Per-phase wall-clock timing with a forced flush, for visibility into the
+## (compile-dominated) startup of this large compressible terrain run.
+_t0 = Ref(time_ns())
 checkpoint(msg) = (@info @sprintf("⏱ %-26s %8.1f s", msg, 1e-9 * (time_ns() - _t0[])); flush(stderr))
 
 Random.seed!(100)
 
-config = RunConfig("03_norway_100m")
-arch = choose_architecture()
+arch = GPU()
 gpu_report()
+## The coupled `EarthSystemModel` clock follows the atmosphere; we run the whole
+## stack in Float32 (the terrain compressible solver's native precision).
 Oceananigans.defaults.FloatType = Float32
 FT = Float32
 nothing #hide
 
 # ## Load the cached topography
 #
-# Produced by `03a`. If it is missing, run that source first (the synthetic
-# fallback needs no network or GDAL).
+# Produced by `03a` from the real Kartverket DTM (or a synthetic Lofoten fallback).
+# `land_mask` is 1 over land, 0 over water — we use its complement as the
+# **fjord/sea (wet) fraction**.
 
-const topo_path = joinpath("thursday", "data", "norway_lofoten_100m_topography.jld2")
+repo_root = get(ENV, "THURSDAY_REPO_ROOT", pwd())
+topo_path = joinpath(repo_root, "thursday", "data", "norway_lofoten_100m_topography.jld2")
 isfile(topo_path) || error("Missing topography artifact $topo_path — run 03a_prepare_norway_topography.jl first.")
 
 topo = load(topo_path)
@@ -88,81 +84,46 @@ h_data = topo["h"]
 land_data = topo["land_mask"]
 @info "Loaded topography" topo_path size_h = size(h_data) source = topo["source_metadata"].source
 
-# A bilinear interpolation of the cached arrays, evaluated on the CPU by
-# `materialize_terrain!` and for building static output fields.
-
-function bilinear(arr, xs, ys)
-    x0, x1 = first(xs), last(xs); y0, y1 = first(ys), last(ys)
-    nx, ny = length(xs), length(ys)
-    dx = (x1 - x0) / (nx - 1); dy = (y1 - y0) / (ny - 1)
-    return function (x, y)
-        fx = clamp((x - x0) / dx, 0, nx - 1 - 1e-6)
-        fy = clamp((y - y0) / dy, 0, ny - 1 - 1e-6)
-        i = floor(Int, fx) + 1; j = floor(Int, fy) + 1
-        tx = fx - (i - 1); ty = fy - (j - 1)
-        @inbounds (arr[i, j]   * (1 - tx) * (1 - ty) + arr[i+1, j]   * tx * (1 - ty) +
-                   arr[i, j+1] * (1 - tx) * ty       + arr[i+1, j+1] * tx * ty)
-    end
-end
-
+## `bilinear` (from ThursdayLES) interpolates the cached arrays on the CPU when
+## carving the terrain and building the surface land/water fields.
 h_fun    = bilinear(h_data, xt, yt)
 land_fun = bilinear(land_data, xt, yt)
 
 # ## Grid and terrain-following vertical coordinate
 #
-# 100 km × 100 km × 12 km at ~200 m resolution: 512 × 512 × 128 ≈ 34 million cells.
-# This still resolves the O(1–3 km) fjord gaps with several cells across, so the gap
-# jets, windward flow splitting, and lee eddies are present. We run at half the 100 m
-# "production" resolution but for a long **90 min** of simulated time, because the
-# terrain wakes and lee-vortex shedding take tens of minutes to develop — a longer,
-# slightly coarser run shows far more flow evolution than a short ultra-fine one.
-#
-# !!! note "Performance"
-#     The full 100 m production grid (1000×1000×160 ≈ 160 M cells) also runs on one
-#     H100 (≈ 14 GiB; ~6.5 s model build) — practical only because the terrain
-#     reference-state (Exner) build was moved from a per-cell scalar host loop to a
-#     GPU column kernel in Breeze (without that fix it took *hours*). Set
-#     `Nx = Ny = 1000, Nz = 160` for a production rendering; coarsen to 256×256×64
-#     for a quick teaching run.
+# 100 km × 100 km × 12 km. We use Breeze's built-in `PiecewiseStretchedDiscretization`
+# to build the vertical coordinate — fine ~120 m cells through the boundary layer and
+# lower troposphere where the convection and gap jets live, coarsening to ~800 m aloft
+# where only the mountain waves matter — instead of hand-coding a stretching formula.
+# The faces are then wrapped in a `TerrainFollowingVerticalDiscretization`, whose
+# `TwoLevelDecay` relaxes the terrain-following surfaces back to flat with height so
+# the coordinate is smooth under the sponge.
 
-const Lx = 100kilometers
-const Ly = 100kilometers
-const Lz = 12kilometers
+Lx = 100kilometers
+Ly = 100kilometers
+Lz = 12kilometers
 
-## ~200 m grid run long (34M cells). Production: 1000×1000×160; quick: 256×256×64.
-const Nx = 512
-const Ny = 512
-const Nz = 128
+## ~200 m horizontal grid for a long run (≈34 M cells). Production: 1000×1000;
+## quick teaching run: 256×256.
+Nx = 512
+Ny = 512
 
-function stretched_z_faces(Lz, Nz; stretching = 1.1)
-    σ(k) = (k - 1) / Nz
-    return [Lz * expm1(stretching * σ(k)) / expm1(stretching) for k in 1:Nz+1]
-end
+z_faces = PiecewiseStretchedDiscretization(z  = [0, 3000, 6000, Int(Lz)],
+                                           Δz = [120, 120, 400, 800])
+Nz = length(z_faces) - 1
 
-r_faces = stretched_z_faces(Lz, Nz)
-z_faces = TerrainFollowingVerticalDiscretization(r_faces;
-                  formulation = TwoLevelDecay(large_scale_height = Lz / 2,
-                                              small_scale_height = Lz / 8))
+z_coord = TerrainFollowingVerticalDiscretization(z_faces;
+              formulation = TwoLevelDecay(large_scale_height = Lz / 2,
+                                          small_scale_height = Lz / 8))
 
 memory_report(Nx, Ny, Nz; FT, nfields = 6)
 
 grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
-                       x = (-Lx/2, Lx/2), y = (-Ly/2, Ly/2), z = z_faces,
+                       x = (-Lx/2, Lx/2), y = (-Ly/2, Ly/2), z = z_coord,
                        topology = (Periodic, Periodic, Bounded))
 
-# Carve the terrain into the grid. The outer rim was tapered to flat in `03a`, so
-# the periodic boundaries see a clean buffer; the central ≈70 km is the science window.
-#
-# **Terrain data.** The cached topography (built by `03a`) comes from real DEMs. Use
-# **Copernicus GLO-30** (30 m global DSM; WGS84/EPSG:4326 horizontal, EGM2008 vertical)
-# — over Norway it is itself infilled with Kartverket data, so it is both globally
-# consistent and locally faithful. For maximum fidelity, source the native
-# **Kartverket DTM** from hoydedata.no (down to 1 m LiDAR). Reproject to **UTM zone 33N
-# (EPSG:32633)** — the correct projected CRS for Lofoten's longitudes (~13–16°E) — to
-# get metric x/y for the 100 km box, resample to the grid (bilinear/cubic), and taper
-# the outer rim flat (done in `03a`). Note the DSM-vs-DTM and EGM2008-geoid-vs-ellipsoid
-# distinctions can bias peak heights by tens of meters — small for 1100 m peaks but
-# worth confirming.
+## Carve the real terrain into the grid. The outer rim was tapered to flat in `03a`,
+## so the periodic boundaries see a clean buffer; the central ≈70 km is the science window.
 checkpoint("start")
 materialize_terrain!(grid, (x, y) -> h_fun(x, y))
 @info "Terrain materialized into grid."
@@ -171,25 +132,18 @@ checkpoint("terrain materialized")
 # ## Compressible dynamics with acoustic substepping
 #
 # Terrain-following compressible dynamics use a split-explicit time discretization
-# with acoustic substeps and an upper sponge to absorb vertically propagating waves.
+# with acoustic substeps and an upper sponge to absorb the vertically propagating
+# mountain waves before they reflect off the model top. The free-tropospheric
+# stratification `N²` sets `M = N h / U`; staying near `M ≈ 1.35` keeps enough flow
+# going *over* the ridges to launch waves while splitting the rest through the fjords.
 
-const θ₀ = FT(285)          # K, surface reference potential temperature
-const p₀ = FT(1e5)          # Pa
-## Stratification sets M = N h / U. N² = 1.5e-4 ⇒ N ≈ 0.0122 s⁻¹; with h ≈ 1100 m and
-## U = 12 m/s this gives M ≈ 1.35 — firmly in the Smith (1989) / Bauer et al. (2000)
-## nonlinear regime (wave breaking + windward stagnation/flow splitting + lee vortices).
-## High-latitude winter is often more stable, so 1.5–2.5e-4 is defensible; staying below
-## M ≈ 2 keeps enough flow going *over* the ridges to launch mountain waves.
-const N² = FT(1.5e-4)       # s⁻², free-tropospheric stratification (N ≈ 0.0122 s⁻¹)
-const g  = FT(9.81)
-const cₚ = FT(1004)
+θ₀ = 272          # K, cold-airmass surface potential temperature (the inflow)
+p₀ = 1e5          # Pa
+N² = 1.5e-4       # s⁻², free-tropospheric stratification (N ≈ 0.0122 s⁻¹)
+g  = 9.81
 
 potential_temperature_profile(z) = θ₀ * exp(N² * z / g)
 
-## Hydrostatic mountain-wave vertical wavelength λ_z = 2π U / N ≈ 6.2 km (U = 12, N = 0.0122).
-## The 12 km domain fits ~2 wavelengths; the 4 km sponge (base ≈ 8 km) absorbs upward wave
-## energy before top reflection without reaching down into the wave-breaking layer. A too-thin
-## or too-weak sponge reflects waves and produces spurious standing waves in the lee.
 sponge_depth = 4kilometers
 time_discretization = SplitExplicitTimeDiscretization(acoustic_cfl = 0.5,
                           sponge = UpperSponge(damping_rate = 0.01, depth = sponge_depth))
@@ -200,155 +154,159 @@ dynamics = CompressibleDynamics(time_discretization;
                                 reference_potential_temperature = potential_temperature_profile)
 checkpoint("dynamics built")
 
-# ## Prescribed surface fluxes over land and ocean: pick a regime and commit to it
+# ## The atmosphere (coupling-ready, moist)
 #
-# The land/sea mask imposes flux heterogeneity on top of the geometry. There are
-# **two physically distinct high-latitude regimes, and their heat-flux signs are
-# opposite — do not mix them** (mixing land-heated and ocean-heated values gives an
-# unphysical, internally inconsistent contrast):
+# `atmosphere_simulation` builds a Breeze `AtmosphereModel` wrapped in a `Simulation`,
+# pre-wired for coupling: the bottom boundary conditions on momentum, energy, and
+# moisture are blank 2D fields the `AtmosphereLandModel` coupler fills each step from
+# the similarity-theory surface fluxes. We do **not** set surface fluxes by hand. The
+# atmosphere is moist (warm-phase saturation-adjustment microphysics) so the wet fjords
+# can actually evaporate into it.
+
+atmosphere = atmosphere_simulation(grid; dynamics,
+                                   momentum_advection = WENO(order = 9),
+                                   scalar_advection = WENO(order = 5),
+                                   closure = SmagorinskyLilly(),
+                                   coriolis = FPlane(latitude = 68))
+checkpoint("atmosphere built")
+
+# ## The land surface: wet fjords, dry land
 #
-#   1. **Fair-weather summer day (land-heated).** Land heats more than the cool sea:
-#      `Qʰ_land ≈ +150`, `Qʰ_ocean ≈ +40 W/m²`.
-#   2. **Winter marine cold-air outbreak (ocean-heated) — the flagship choice here.**
-#      Cold air advects off snow-covered land over a much warmer sea, and the *ocean*
-#      becomes the dominant heat source: `Qʰ_ocean ≈ +200 W/m²` (Nordic-Seas
-#      observations reach O(100–300) W/m² sensible alone; Papritz et al. 2015;
-#      Renfrew et al. 2019), while the cold land is near-neutral to slightly stable
-#      (`Qʰ_land ≈ 0 to -10 W/m²`). This lights up vigorous convective plumes in the
-#      island wakes and pairs naturally with the terrain-forced jets.
+# A 2D `SlabLand` over the same horizontal extent carries a skin temperature, soil
+# water, and a diagnostic surface saturation `𝒮 ∈ [0, 1]`. We use the conservative
+# `VariablySaturatedHydrology` and a `WaterCoupledEnergy` closure with a **warm deep
+# reservoir** (`deep_temperature = 280 K`): the surface is held warm relative to the
+# cold inflowing air, so the land model supplies a cold-air-outbreak surface flux.
+# The **wet/dry contrast is set spatially**: water storage is near-saturation over the
+# fjords/sea (`land_mask = 0`) and near-zero over the land (`land_mask = 1`).
+
+land_grid = RectilinearGrid(arch; size = (Nx, Ny), halo = (grid.Hx, grid.Hy),
+                            x = (-Lx/2, Lx/2), y = (-Ly/2, Ly/2),
+                            topology = (Periodic, Periodic, Flat))
+
+hydrology = VariablySaturatedHydrology(eltype(land_grid);
+    slab_depth = 1.0, porosity = 0.4, residual_liquid_fraction = 0.05,
+    storage_height = 1000, critical_saturation = 0.5,
+    retention_curve = VanGenuchtenRetention(α = 1.0, n = 2.0),
+    hydraulic_conductivity = VanGenuchtenConductivity(K_saturated = 1e-7, n = 2.0),
+    deep_liquid_flux = NoDeepLiquidFlux(),
+    runoff = InfiltrationCapacityRunoff(infiltration_capacity = 1e-3))
+
+T_surface = 280   # K, warm surface (sea / coast) under the cold airmass
+energy = WaterCoupledEnergy(eltype(land_grid);
+    dry_heat_capacity = 1480 * 1500 * 0.10, liquid_heat_capacity = 4186,
+    reference_temperature = 273.15, deep_temperature = T_surface,
+    deep_time_scale = 12hours,
+    advect_deep_liquid_energy = false, advect_surface_liquid_energy = false)
+
+land = SlabLand(land_grid; hydrology, energy)
+
+## Wet (near-saturated) over water, dry over land. Water storage Mˡᵃ⁺ = ρˡ ν D.
+Mˡᵃ⁺  = hydrology.porosity * hydrology.slab_depth * 1000
+M_wet = 0.95 * Mˡᵃ⁺
+M_dry = 0.02 * Mˡᵃ⁺
+ocean_fraction(x, y) = 1 - land_fun(x, y)          # 1 over fjords/sea, 0 over land
+M_init(x, y) = M_dry + (M_wet - M_dry) * ocean_fraction(x, y)
+
+set!(land; T = T_surface, M = M_init)
+Oceananigans.TimeSteppers.update_state!(land)
+checkpoint("land built")
+
+# ## Couple the atmosphere and land
 #
-# For momentum we use Breeze's `BulkDrag`, which applies the velocity-dependent
-# quadratic surface stress `Jᵘ = -Cᴰ |U| ρu` (opposing the *local* wind, so it
-# vanishes in calm air and lee eddies — unlike a constant prescribed stress). We
-# use a single representative neutral drag coefficient; the land/ocean contrast is
-# carried by the heat flux, which is the dominant driver of the cold-air outbreak.
-# (A land/ocean-varying `Cᴰ` would need a spatially varying coefficient, which
-# `BulkDrag` does not currently take.)
-#
-# We default to the **cold-air-outbreak** regime below. To switch to the summer case,
-# set `Qʰ_land = 150`, `Qʰ_ocean = 40` and keep both positive (land > ocean). The
-# heat flux is precomputed as a 2D array on the grid (GPU-safe).
+# The surface specific humidity is solved by `DryLayerHumidity`: a Fickian vapor-flux
+# balance through an unresolved dry layer whose depth grows as the surface dries. Wet
+# fjords (`𝒮 ≥ 𝒮ᶜ`) present a saturated skin and evaporate freely; dry land has a deep
+# dry layer that throttles evaporation to near zero. `AtmosphereLandModel` wires the
+# turbulent fluxes (sensible, latent, momentum) between the two components by
+# similarity theory and owns the coupled time step.
 
-## --- Cold-air-outbreak (winter, ocean-heated) regime ---
-const Qʰ_ocean = FT(200);  const Qʰ_land = FT(-10)    # W m⁻²  (ocean is the heat source)
-## --- Summer (land-heated) alternative: Qʰ_land = FT(150); Qʰ_ocean = FT(40) ---
-const Cᴰ = FT(1.5e-3)         # neutral bulk drag coefficient (uniform)
-const gustiness = FT(0.5)     # m s⁻¹, floor on |U| so calm air does not divide by zero
-
-q₀ = Breeze.Thermodynamics.MoistureMassFractions{FT} |> zero
-constants = ThermodynamicConstants()
-const ρ₀ = Breeze.Thermodynamics.density(θ₀, p₀, q₀, constants)
-
-xc = [xnode(i, grid, Center()) for i in 1:Nx]
-yc = [ynode(j, grid, Center()) for j in 1:Ny]
-ℵ = [land_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]   # land fraction
-
-ρθ_surface = Oceananigans.on_architecture(arch, FT.((ℵ .* Qʰ_land .+ (1 .- ℵ) .* Qʰ_ocean) ./ cₚ))
-
-# !!! note "Sign convention (verified)"
-#     A bottom flux is *added* to the tendency in Breeze, so a positive `ρθ` flux
-#     heats the atmosphere (warm ocean `Qʰ_ocean > 0` drives the cold-air-outbreak
-#     plumes; cold land `Qʰ_land < 0` stabilizes). `BulkDrag` supplies the negative
-#     (wind-opposing) momentum flux — matching `bomex.jl` / the prescribed-SST example.
-
-## Velocity-dependent surface drag via Breeze's BulkDrag (the same object works for
-## both ρu and ρv; the momentum direction is inferred from the field location).
-drag = BulkDrag(coefficient = Cᴰ, gustiness = gustiness)
-ρθ_bcs = FieldBoundaryConditions(bottom = FluxBoundaryCondition(ρθ_surface))
-ρu_bcs = FieldBoundaryConditions(bottom = drag)
-ρv_bcs = FieldBoundaryConditions(bottom = drag)
-
-# ## Model
-
-advection = WENO(order = 9)
-closure = SmagorinskyLilly()
-
-model = AtmosphereModel(grid; dynamics, advection, closure,
-                        timestepper = :AcousticRungeKutta3,
-                        boundary_conditions = (; ρθ = ρθ_bcs, ρu = ρu_bcs, ρv = ρv_bcs))
-checkpoint("model built")
+al_interface = atmosphere_land_interface(land_grid, atmosphere, land;
+    specific_humidity = DryLayerHumidity(;
+        dry_layer_depth = StorageBasedDryLayerDepth(maximum_dry_layer_depth = 0.05,
+                                                    critical_saturation = 0.5,
+                                                    dry_layer_exponent = 2),
+        vapor_exchange = DryLayerVaporPistonVelocity(minimum_dry_layer_depth = 1e-4,
+                                                     molecular_diffusivity = 2.5e-5,
+                                                     tortuosity_model = MillingtonQuirk()),
+        thermal_exchange_depth = 0.10,
+        porosity = hydrology.porosity))
 
 # ## Initial conditions
 #
-# The stratified reference profile plus small near-surface perturbations and a
-# mean westerly inflow the terrain can deflect.
-#
-# Compressible models on terrain-following grids must be initialized in discrete
-# hydrostatic balance: we seed the density from `terrain_reference_density`
-# (available because we passed `reference_potential_temperature`). Without this the
-# prognostic density is zero and velocities are NaN at iteration 0.
+# A stratified, cold reference profile with a mean westerly inflow the terrain
+# deflects, plus small near-surface θ perturbations to seed 3-D turbulence and a
+# modest near-surface humidity. Compressible models on terrain-following grids must be
+# initialized in discrete hydrostatic balance, so we seed the density from the
+# dynamics' `terrain_reference_density`.
 
-## U₀ = 12 m/s keeps M = N h / U ≈ 1.35 in the 1–2 sweet spot and represents the wind
-## regime that produces fjord gap jets and Greenland-type tip/barrier jets (gap-jet
-## enhancement is typically 1.5–2× upstream). Onshore westerly flow (u = U₀, v = 0)
-## drives flow into the steep seaward faces; rotate ~30° (southwesterly) for asymmetric,
-## more realistic storm-track wakes.
-const U₀ = FT(12)   # m s⁻¹ mean wind (westerly, onshore)
-## Larger near-surface θ perturbation (0.3 K) seeds 3-D turbulence and speeds up spin-up
-## of the cold-air-outbreak convective plumes without contaminating the wave field.
-const δθ = FT(0.3)
-const zδ = FT(500)
+U₀  = 12     # m s⁻¹ mean wind (westerly, onshore)
+δθ  = 0.3    # K, near-surface θ perturbation
+zδ  = 500
+qᵗ₀ = 2e-3   # kg/kg, modest cold-air humidity
 
-ϵ() = rand(FT) - FT(0.5)
+ϵ() = rand() - 0.5
 uᵢ(x, y, z) = U₀
 θᵢ(x, y, z) = potential_temperature_profile(z) + δθ * ϵ() * (z < zδ)
+qᵢ(x, y, z) = qᵗ₀
 
-## Report the *nominal* nondimensional mountain height (resolution lowers the achieved value).
 let N = sqrt(N²), h_peak = maximum(h_data)
     @info @sprintf("Nondimensional mountain height M = N h / U = %.2f  (N = %.4f s⁻¹, h_peak = %.0f m, U = %.0f m/s)",
                    N * h_peak / U₀, N, h_peak, U₀)
 end
 
-set!(model, ρ = model.dynamics.terrain_reference_density,
-     θ = θᵢ, u = uᵢ, v = 0, w = 0, enforce_mass_conservation = false)
+set!(atmosphere.model, ρ = atmosphere.model.dynamics.terrain_reference_density,
+     θ = θᵢ, u = uᵢ, v = 0, w = 0, qᵗ = qᵢ, enforce_mass_conservation = false)
+Oceananigans.TimeSteppers.update_state!(atmosphere.model)
 checkpoint("set! done")
-Oceananigans.TimeSteppers.update_state!(model)
-checkpoint("update_state! done")
+
+model = AtmosphereLandModel(atmosphere, land;
+                            atmosphere_land_interface = al_interface,
+                            clock = Oceananigans.TimeSteppers.Clock{FT}(time = 0))
+checkpoint("coupled model built")
 
 # ## Simulation
 #
-# The split-explicit scheme advances on a large advective outer step (≈10 s) while
-# acoustic substeps handle the fast sound waves. We run **10 minutes** of simulated
-# time so the wave field and gap jets begin to establish over the terrain.
-#
-# !!! note "The wake is still in spin-up"
-#     Advective transit across a ~30 km island at 12 m/s is ~40 min, so 10 min lets
-#     the mountain-wave field and the leading gap jets appear but leaves the lee
-#     wakes and vortex shedding *still developing*. For statistically meaningful
-#     wakes/eddies run 1–2 hours; this short run is the visual smoke, not a
-#     converged-statistics experiment. (10 min also respects the performance caveat
-#     above — see the grid section.)
+# The split-explicit scheme advances on a large advective outer step while acoustic
+# substeps handle the fast sound waves — so the outer step is limited only by the
+# advective CFL, and the wizard can target `cfl = 1`. We run **3 hours** so the
+# mountain-wave field, the gap jets, and the convective plumes over the wet fjords
+# develop fully and the lee-side eddy shedding becomes statistically steady.
 
-simulation = Simulation(model; Δt = 1.0, stop_time = 90minutes)
-conjure_time_step_wizard!(simulation, cfl = 0.5, max_Δt = 10.0)
+simulation = Simulation(model; Δt = 1.0, stop_time = 3hours)
+conjure_time_step_wizard!(simulation, cfl = 1.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 
 wall_clock = Ref(time_ns())
 function progress(sim)
     elapsed = 1e-9 * (time_ns() - wall_clock[])
-    @info @sprintf("Iter %d, t %s, Δt %s, wall %s, max|w| %.2e m/s",
-                   iteration(sim), prettytime(sim), prettytime(sim.Δt),
-                   prettytime(elapsed), maximum(abs, sim.model.velocities.w))
+    a = sim.model.atmosphere.model
+    𝒮 = sim.model.land.saturation
+    Q = sim.model.interfaces.atmosphere_land_interface.fluxes.sensible_heat
+    @info @sprintf("Iter %d, t %s, Δt %s, wall %s, max|w| %.2e m/s, 𝒮∈[%.2f,%.2f], max|Qsens| %.0f W/m²",
+                   iteration(sim), prettytime(sim), prettytime(sim.Δt), prettytime(elapsed),
+                   maximum(abs, a.velocities.w), minimum(𝒮), maximum(𝒮), maximum(abs, interior(Q)))
+    wall_clock[] = time_ns()
     return nothing
 end
 add_callback!(simulation, progress, IterationInterval(50))
 
 # ## Outputs
 #
-# Static terrain/mask fields; high-frequency near-surface wind and a vertical
-# transect through a fjord/mountain line; sparse 3D fields.
+# Static terrain + land/water fields (for the terrain visualization); high-frequency
+# near-surface wind and a vertical transect; and the evolving land surface state.
 
-u, v, w = model.velocities
-θ = liquid_ice_potential_temperature(model)
+u, v, w = atmosphere.model.velocities
+θ = liquid_ice_potential_temperature(atmosphere.model)
 
-# Build static surface fields from precomputed host arrays (the bilinear
-# interpolators close over host arrays and cannot run in a GPU `set!` kernel).
+xc = [xnode(i, grid, Center()) for i in 1:Nx]
+yc = [ynode(j, grid, Center()) for j in 1:Ny]
 h_surface = reshape(FT.([h_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]), Nx, Ny, 1)
-ℵ_surface = reshape(FT.(ℵ), Nx, Ny, 1)
+water_surface = reshape(FT.([ocean_fraction(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]), Nx, Ny, 1)
 h_field = Field{Center, Center, Nothing}(grid)
-ℵ_field = Field{Center, Center, Nothing}(grid)
+water_field = Field{Center, Center, Nothing}(grid)
 interior(h_field) .= Oceananigans.on_architecture(arch, h_surface)
-interior(ℵ_field) .= Oceananigans.on_architecture(arch, ℵ_surface)
+interior(water_field) .= Oceananigans.on_architecture(arch, water_surface)
 
 jmid = Ny ÷ 2 + 1
 k_surface = 2
@@ -361,102 +319,36 @@ slice_outputs = (
     θ_xz = view(θ, :, jmid, :),
 )
 
-simulation.output_writers[:statics] = JLD2Writer(model, (; h = h_field, ℵ = ℵ_field);
-    filename = output_name(config, "statics"), schedule = IterationInterval(typemax(Int)),
+simulation.output_writers[:statics] = JLD2Writer(atmosphere.model, (; h = h_field, water = water_field);
+    filename = "norway_statics.jld2", schedule = IterationInterval(typemax(Int)),
     overwrite_existing = true)
-simulation.output_writers[:slices] = JLD2Writer(model, slice_outputs;
-    filename = slice_name(config), schedule = TimeInterval(15seconds), overwrite_existing = true)
-## (No full-3D field output — the near-surface slices and transect drive the visualization.)
+simulation.output_writers[:slices] = JLD2Writer(atmosphere.model, slice_outputs;
+    filename = "norway_slices.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
+simulation.output_writers[:land] = JLD2Writer(model, (; 𝒮 = land.saturation, T = land.temperature);
+    filename = "norway_land.jld2", schedule = TimeInterval(15seconds), overwrite_existing = true)
 
-write_once!(simulation.output_writers[:statics], model)
+write_once!(simulation.output_writers[:statics], atmosphere.model)
 checkpoint("statics written; starting run!")
 
 # ## Go time
 run!(simulation)
 
-# ## Visualization
-#
-# A near-surface wind-speed map over the terrain and a vertical `w` transect
-# through the fjord/mountain line.
-#
-# **What to watch.** The near-surface wind-speed map should show bright jets threading
-# the fjord gaps and accelerating around island tips, with calmer split-flow
-# stagnation on the windward seaward faces and turbulent wakes downstream. The
-# vertical `w` transect through the fjord/mountain line should show coherent
-# mountain-wave phase tilting upstream with height, capped by the sponge, and — if `M`
-# is large enough — overturning/wave-breaking signatures above the lee slopes. At this
-# 625 m smoke grid you see island-scale wakes and waves; the narrowest fjord jets only
-# fully resolve at the 100 m production target (≥4–6 cells across a ~1–3 km gap).
-
-using CairoMakie
-
-if isfile(slice_name(config))
-    u_xy = FieldTimeSeries(slice_name(config), "u_xy")
-    v_xy = FieldTimeSeries(slice_name(config), "v_xy")
-    w_xz = FieldTimeSeries(slice_name(config), "w_xz")
-    times = w_xz.times
-    Nt = length(times)
-
-    xs, ys, _ = nodes(u_xy)
-    xz_x, _, xz_z = nodes(w_xz)
-
-    n = Observable(Nt)
-    speed = @lift sqrt.(interior(u_xy[$n], :, :, 1).^2 .+ interior(v_xy[$n], :, :, 1).^2)
-    wn = @lift interior(w_xz[$n], :, 1, :)
-    title = @lift "Norway 100 m — t = " * prettytime(times[$n])
-
-    fig = Figure(size = (1200, 520))
-    Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)
-    ax1 = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "y (km)", title = "near-surface wind speed (m s⁻¹)", aspect = 1)
-    ax2 = Axis(fig[1, 2], xlabel = "x (km)", ylabel = "z (km)", title = "w transect (m s⁻¹)")
-    hm1 = heatmap!(ax1, xs ./ 1e3, ys ./ 1e3, speed, colormap = :speed)
-    wlim = max(1e-3, maximum(abs, interior(w_xz[Nt])))
-    hm2 = heatmap!(ax2, xz_x ./ 1e3, xz_z ./ 1e3, wn, colormap = :balance, colorrange = (-wlim, wlim))
-    Colorbar(fig[1, 0], hm1); Colorbar(fig[1, 3], hm2)
-
-    save(figure_name(config, "norway_final_w_slice"), fig)
-    if Nt > 1
-        record(fig, movie_name(config, "norway_100m_prescribed_fluxes"), 1:Nt; framerate = 12) do i
-            n[] = i
-        end
-    end
-end
-
-@info "Case 3 complete" run_stamp(config)...
+@info "Case 3 complete"
 
 # ## References
 #
 #   - Smith, R. B. (1989). Hydrostatic airflow over mountains. *Adv. Geophys.*, 31, 1–41.
-#     doi:10.1016/S0065-2687(08)60052-7 — defines `M = N h / U` and the regime diagram for
-#     wave breaking, windward stagnation/flow splitting, and lee-vortex onset.
-#   - Bauer, M. H., Mayr, G. J., Vergeiner, I., & Pichler, H. (2000). Strongly nonlinear flow
-#     over and around a 3-D mountain as a function of horizontal aspect ratio. *J. Atmos. Sci.*,
-#     57, 3971–3991. doi:10.1175/1520-0469(2001)058<3971:SNFOAA>2.0.CO;2 — nonlinear 3-D regime
-#     curves supporting the `M ≈ 1–2` target.
-#   - Smith, R. B. (1980). Linear theory of stratified hydrostatic flow past an isolated mountain.
-#     *Tellus*, 32, 348–364. doi:10.3402/tellusa.v32i4.10590 — `λ_z = 2π U / N`; sizes domain depth
-#     and sponge.
-#   - Doyle, J. D., & Shapiro, M. A. (1999). Flow response to large-scale topography: the Greenland
-#     tip jet. *Tellus A*, 51, 728–748. doi:10.3402/tellusa.v51i5.14471 — tip/barrier jets from flow
-#     splitting with Bernoulli acceleration; the high-latitude analog for fjord/gap jets.
-#   - Moore, G. W. K., & Renfrew, I. A. (2005). Tip jets and barrier winds: a QuikSCAT climatology…
-#     *J. Climate*, 18, 3713–3725. doi:10.1175/JCLI3455.1 — observed terrain-forced jet magnitudes
-#     (peaks up to ~50 m/s); supports U = 12–15 m/s.
-#   - Mayr, G. J., et al. (2007). Gap flows: results from MAP. *Quart. J. Roy. Meteor. Soc.*, 133,
-#     881–896. doi:10.1002/qj.66 — gap-flow dynamics, hydraulic control, and the resolution
-#     requirement (several cells across a gap).
-#   - Vosper, S. B. (2004). Inversion effects on mountain lee waves. *Quart. J. Roy. Meteor. Soc.*,
-#     130, 1723–1748. doi:10.1256/qj.03.63 — boundary-layer/inversion control of lee-wave and rotor
-#     response.
-#   - Papritz, L., et al. (2015). A Lagrangian climatology of wintertime cold-air outbreaks in the
-#     Irminger and Nordic Seas… *J. Climate*, 28, 342–364. doi:10.1175/JCLI-D-14-00482.1 —
-#     O(100s) W/m² ocean heat loss in CAOs; justifies the ocean-dominant flux contrast.
-#   - Renfrew, I. A., et al. (2019). The Iceland Greenland Seas Project. *Bull. Amer. Meteor. Soc.*,
-#     100, 1795–1817. doi:10.1175/BAMS-D-18-0217.1 — in-situ CAO sensible heat fluxes O(100–300) W/m².
-#   - Copernicus DEM GLO-30 product handbook (ESA / Copernicus Data Space Ecosystem) —
-#     https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model — 30 m global
-#     DSM, WGS84/EPSG:4326 horizontal, EGM2008 vertical; Norway infilled with Kartverket data.
-#   - Kartverket (Norwegian Mapping Authority), national DTM — https://hoydedata.no/ — highest-res
-#     native Norwegian DTM (down to 1 m LiDAR), CC BY 4.0.
+#     doi:10.1016/S0065-2687(08)60052-7 — `M = N h / U` and the nonlinear-regime diagram.
+#   - Bauer, M. H., et al. (2000). Strongly nonlinear flow over and around a 3-D mountain.
+#     *J. Atmos. Sci.*, 57, 3971–3991 — 3-D regime curves supporting `M ≈ 1–2`.
+#   - Doyle, J. D., & Shapiro, M. A. (1999). The Greenland tip jet. *Tellus A*, 51, 728–748 —
+#     tip/barrier jets from flow splitting; the high-latitude analog for fjord/gap jets.
+#   - Papritz, L., et al. (2015). Wintertime cold-air outbreaks in the Irminger and Nordic Seas.
+#     *J. Climate*, 28, 342–364 — O(100s) W/m² surface heat loss in CAOs.
+#   - Manabe, S. (1969). Climate and the ocean circulation: the atmospheric circulation and the
+#     hydrology of the earth's surface. *Mon. Wea. Rev.*, 97, 739–774 — bucket land-surface hydrology.
+#   - Kartverket (Norwegian Mapping Authority) national DTM — https://hoydedata.no/ — the real
+#     Lofoten terrain (and land/water mask), CC BY 4.0.
 
 nothing #hide
+

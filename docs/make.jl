@@ -188,14 +188,9 @@ const _RESULTS_SPEC = Dict(
         movies = ["norway_100m_prescribed_fluxes.mp4"],
     ),
     "intro_atmosphere" => (
-        title = "Intro: 2D atmospheric free convection",
-        figures = ["intro_atmosphere_convection_final.png"],
-        movies = ["intro_atmosphere_convection.mp4"],
-    ),
-    "intro_ocean" => (
-        title = "Intro: 2D ocean free convection",
-        figures = ["intro_ocean_convection_final.png"],
-        movies = ["intro_ocean_convection.mp4"],
+        title = "Intro: a first taste of the atmosphere",
+        figures = ["thermal_bubble.png", "free_convection.png", "lee_waves.png", "mountain_clouds.png"],
+        movies = ["thermal_bubble.mp4", "free_convection.mp4", "lee_waves.mp4", "mountain_clouds.mp4"],
     ),
     "intro_coupled" => (
         title = "Intro: 2D coupled air–sea convection",
@@ -314,6 +309,29 @@ function _slug_for_source(source_file::AbstractString)
     return nothing
 end
 
+# Pedagogical page order per day (by filename stem). The filenames were numbered
+# in authoring order, not teaching order — the intro convection trio (05–07) was
+# added after the advanced cases (01–03), so a plain filename sort buries "A first
+# taste of convection" mid-list. List the intended order here; files not listed
+# sort after, alphabetically. Other days fall back to filename order.
+const _PAGE_ORDER = Dict(
+    4 => ["05_intro_atmosphere_convection",          # first taste: 2D atmosphere (flat + terrain)
+          "07_intro_coupled_convection",             #              2D coupled
+          "01_atmospheric_turbulence_over_a_sea_ice_lead",
+          "02_ocean_turbulence_below_a_lead_with_surface_waves",
+          "08_coupled_warm_filament",                # flagship coupled
+          "03_norway_100m_prescribed_fluxes",        # flagship terrain
+          "04_gallery_and_discussion",
+          "99_smoke_case"],
+)
+
+function _page_rank(day::Int, f::AbstractString)
+    order = get(_PAGE_ORDER, day, String[])
+    stem = replace(f, r"\.jl$" => "")
+    i = findfirst(==(stem), order)
+    return i === nothing ? (length(order) + 1, stem) : (i, "")
+end
+
 # Days whose tutorial pages embed their own figures/movies inline: the Literate source writes them in its
 # working directory (tutorials/dayN/) and references them with `![](file)`. These bypass the
 # cached-artifact Results section; the references are base64-embedded at render time. A source is skipped
@@ -344,12 +362,14 @@ function render_day(day::Int)
     assetdir = joinpath(REPO_ROOT, "tutorials", "day$day")
 
     pages = String[]
-    files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)))
+    files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)); by = f -> _page_rank(day, f))
     for f in files
-        # Skip the shared infrastructure include (00_common) and the topo prep
-        # helper (03a) — they are includes / data prep, not standalone pages.
+        # Skip the shared infrastructure include (00_common), the topo prep helper
+        # (03a), and the `_viz.jl` visualization halves (rendered into their parent
+        # simulation page, not as standalone pages).
         startswith(f, "00_") && continue
         startswith(f, "03a_") && continue
+        endswith(f, "_viz.jl") && continue
         # 04_gpu_computing is retained as a script but dropped from the day-1 lineup.
         f == "04_gpu_computing.jl" && continue
 
@@ -377,10 +397,23 @@ function render_day(day::Int)
 
         mdname = replace(f, r"\.jl$" => ".md")
         mdpath = joinpath(outdir, mdname)
-
         if !inline
             slug = _slug_for_source(f)
-            slug === nothing || append_results_section!(mdpath, slug)
+
+            # If `scripts/render_all_viz.jl` (Phase A, workshop env) pre-rendered an
+            # executed visualization page for this case, append it (it carries the inline
+            # figure, diagnostics, and base64 animation). Otherwise fall back to the static
+            # cached-artifact Results section.
+            vizmd = joinpath(outdir, replace(f, r"\.jl$" => "_viz.md"))
+            if isfile(vizmd)
+                open(mdpath, "a") do io
+                    println(io)
+                    write(io, read(vizmd, String))
+                end
+                rm(vizmd; force = true)
+            elseif slug !== nothing
+                append_results_section!(mdpath, slug)
+            end
         end
 
         push!(pages, joinpath("day$day", mdname))
@@ -457,3 +490,19 @@ makedocs(
 )
 
 @info "Documentation built" build_dir = joinpath(DOCS_DIR, "build")
+
+# Strip base64 data-URI payloads from the search index. We embed figures/movies as
+# base64 in `@raw html` blocks (so Documenter doesn't mistake data URIs for file
+# paths), but Documenter then indexes those megabyte-scale strings into
+# `search_index.js` — pushing it past GitHub's 100 MB single-file limit on gh-pages.
+# Nobody searches base64, so dropping the payloads (keeping the surrounding text)
+# leaves search fully functional and shrinks the index by ~1000×.
+let search_index = joinpath(DOCS_DIR, "build", "search_index.js")
+    if isfile(search_index)
+        before = filesize(search_index)
+        text = read(search_index, String)
+        text = replace(text, r"data:(?:image/[a-z]+|video/mp4);base64,[A-Za-z0-9+/=]+" => "")
+        write(search_index, text)
+        @info "Stripped base64 from search index" MB_before = round(before/1e6; digits=1) MB_after = round(filesize(search_index)/1e6; digits=2)
+    end
+end

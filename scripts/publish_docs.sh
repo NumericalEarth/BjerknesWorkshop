@@ -41,6 +41,15 @@ cd "$REPO_ROOT"
 
 BRANCH="${PUBLISH_BRANCH:-gh-pages}"
 REMOTE="${PUBLISH_REMOTE:-origin}"
+# The rendered site lives in its OWN repo (BjerknesWorkshopDocs) so this source repo
+# stays small. Full-site deploys are a SINGLE orphan commit, force-pushed — the docs
+# repo never accumulates the heavy base64-embedded-movie history. Override
+# PUBLISH_REPO_URL to deploy elsewhere; a `PUBLISH_REMOTE` name (if set and resolvable)
+# takes precedence so existing same-repo workflows still work.
+PUBLISH_REPO_URL="${PUBLISH_REPO_URL:-https://github.com/NumericalEarth/BjerknesWorkshopDocs.git}"
+# Push to an explicit remote name if the caller set PUBLISH_REMOTE, else the docs repo URL.
+PUSH_TARGET="${PUBLISH_REMOTE:+$REMOTE}"
+PUSH_TARGET="${PUSH_TARGET:-$PUBLISH_REPO_URL}"
 WORKTREE="$REPO_ROOT/.gh-pages-worktree"
 BUILD_DIR="$REPO_ROOT/docs/build"
 DRY_RUN="${PUBLISH_DRY_RUN:-0}"
@@ -74,17 +83,22 @@ if [[ -d "$WORKTREE" ]]; then
 fi
 git worktree prune
 
-# Make sure we have the freshest view of the remote branch (best effort).
-git fetch "$REMOTE" "$BRANCH" 2>/dev/null || true
-
-if git show-ref --verify --quiet "refs/remotes/$REMOTE/$BRANCH"; then
-    log "Adding worktree tracking $REMOTE/$BRANCH"
-    git worktree add "$WORKTREE" -B "$BRANCH" "$REMOTE/$BRANCH"
-elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then
-    log "Adding worktree from local branch $BRANCH"
-    git worktree add "$WORKTREE" "$BRANCH"
+if [[ -n "$SUBDIR" ]]; then
+    # Subdir/preview deploys add to existing content, so they MUST preserve history.
+    git fetch "$PUSH_TARGET" "$BRANCH" 2>/dev/null || true
+    if git show-ref --verify --quiet "refs/remotes/$REMOTE/$BRANCH"; then
+        git worktree add "$WORKTREE" -B "$BRANCH" "$REMOTE/$BRANCH"
+    else
+        git worktree add --detach "$WORKTREE"
+        git -C "$WORKTREE" checkout --orphan "$BRANCH"
+        git -C "$WORKTREE" reset --hard
+        git -C "$WORKTREE" clean -fdx
+    fi
 else
-    log "No existing $BRANCH; creating an orphan branch in the worktree"
+    # Full-site deploy → always a FRESH orphan branch so the published history is a
+    # SINGLE commit (force-pushed below). This is what keeps the docs repo small: no
+    # accumulation of the large base64-embedded-movie pages across deploys.
+    log "Full-site deploy: building a single squashed (orphan) commit"
     git worktree add --detach "$WORKTREE"
     git -C "$WORKTREE" checkout --orphan "$BRANCH"
     git -C "$WORKTREE" reset --hard
@@ -97,6 +111,9 @@ cleanup() {
     log "Cleaning up worktree $WORKTREE"
     git worktree remove --force "$WORKTREE" 2>/dev/null || rm -rf "$WORKTREE"
     git worktree prune 2>/dev/null || true
+    # Drop the local deploy branch so its (large) orphan commit becomes unreachable and
+    # does not re-bloat this repo's .git; a periodic `git gc` then reclaims it.
+    [[ -n "$SUBDIR" ]] || git branch -D "$BRANCH" 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -136,7 +153,10 @@ log "Committed: $COMMIT_MSG"
 # --------------------------------------------------------------------------
 # Push (unless dry-run).
 # --------------------------------------------------------------------------
-RETRY_CMD="git -C \"$WORKTREE\" push \"$REMOTE\" \"HEAD:$BRANCH\""
+# Full-site deploys force-push (the branch is a fresh single orphan commit); subdir
+# deploys fast-forward onto preserved history.
+FORCE=""; [[ -z "$SUBDIR" ]] && FORCE="--force"
+RETRY_CMD="git -C \"$WORKTREE\" push $FORCE \"$PUSH_TARGET\" \"HEAD:$BRANCH\""
 
 if _truthy "$DRY_RUN"; then
     log "PUBLISH_DRY_RUN set — NOT pushing. Staged commit summary:"
@@ -145,9 +165,9 @@ if _truthy "$DRY_RUN"; then
     exit 0
 fi
 
-log "Pushing to $REMOTE $BRANCH ..."
-if git -C "$WORKTREE" push "$REMOTE" "HEAD:$BRANCH"; then
-    log "Published to $REMOTE/$BRANCH."
+log "Pushing to $PUSH_TARGET $BRANCH ${FORCE:+(force)} ..."
+if git -C "$WORKTREE" push $FORCE "$PUSH_TARGET" "HEAD:$BRANCH"; then
+    log "Published to $PUSH_TARGET ($BRANCH)."
 else
     # Disarm the cleanup trap so the worktree (with the committed deploy) is
     # preserved for a manual retry; also keep docs/build intact.

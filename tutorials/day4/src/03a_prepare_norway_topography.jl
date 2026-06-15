@@ -34,10 +34,13 @@
 # All modes write the *same* artifact schema, so `03_...` does not care which was
 # used.
 
+using Oceananigans
 using Oceananigans.Units
+using NumericalEarth
 using JLD2
 using Printf
 using Random
+using Dates
 
 include(joinpath(@__DIR__, "00_common.jl"))
 using .ThursdayLES
@@ -74,11 +77,16 @@ const artifact_path = joinpath(datadir, "norway_lofoten_100m_topography.jld2")
 # ## Terrain smoothing target
 #
 # The LES cannot resolve arbitrarily steep slopes; we smooth raw topography to a
-# maximum resolved slope of ≈0.3–0.5 over a smoothing length of 300–500 m, and
-# taper the outer 12 km to flat so the periodic rim is a clean numerical buffer.
+# tractable maximum resolved slope and taper the outer 12 km to flat so the periodic
+# rim is a clean numerical buffer. Real DEMs (Kartverket) are *much* steeper than the
+# synthetic fallback — Lofoten has near-vertical cliffs — so we smooth to 800 m
+# (≈8 grid cells) to keep the terrain-following coordinate well-conditioned for the
+# 100 m LES. (At 400 m the real DTM left a max resolved slope ≈1.3, too steep for a
+# stable long run.) The synthetic terrain is already gentle, so the heavier smoothing
+# is harmless there.
 
 const max_slope = 0.4
-const smoothing_length = 400meters
+const smoothing_length = 800meters
 
 # ## Real-DEM pipeline (documented; runs on a dev machine with GDAL)
 #
@@ -103,19 +111,25 @@ end
 # ## Real Kartverket DTM (via the custom NumericalEarth dataset)
 #
 # Build a `Metadatum` for a metric window centered on the domain (`halfwidth = Lx/2`)
-# at the case resolution, fetch the DTM via WCS, and sample its height function onto
-# the case `(x, y)` grid (box-centred metres). Kartverket returns ocean as 0, so the
-# shared `h_raw .> 0` land mask below works directly. No reprojection — the DTM is
-# already in the UTM 33N metric frame the LES grid uses.
+# at the case resolution, fetch the DTM via WCS, and regrid it onto the case grid with
+# NumericalEarth's **`regrid_topography`** — the same pipeline used for ETOPO/GEBCO,
+# dispatching on the Kartverket metadatum (both the DTM window and the LES grid are
+# metric UTM 33N, recentred, so the interpolation is coordinate-consistent). Kartverket
+# returns ocean as 0, so the shared `h_raw .> 0` land mask below works directly.
 
 function prepare_from_kartverket(x, y)
-    @info "Fetching Kartverket DTM via WCS and sampling onto the case grid…" center_lat center_lon
+    @info "Fetching Kartverket DTM via WCS and regridding onto the case grid…" center_lat center_lon
     metadatum = KartverketDEM.kartverket_metadatum(; center_lat, center_lon,
                                                    halfwidth = Float64(Lx / 2),
                                                    resolution = Float64(Δ))
-    h_fun = KartverketDEM.kartverket_height_function(metadatum)   # box-centred metric coords
     Nx, Ny = length(x), length(y)
-    return Float64[h_fun(x[i], y[j]) for i in 1:Nx, j in 1:Ny]
+    Δx = x[2] - x[1]; Δy = y[2] - y[1]
+    target_grid = RectilinearGrid(CPU(); size = (Nx, Ny), halo = (3, 3),
+                                  x = (x[1] - Δx/2, x[end] + Δx/2),
+                                  y = (y[1] - Δy/2, y[end] + Δy/2),
+                                  topology = (Bounded, Bounded, Flat))
+    h = regrid_topography(target_grid, metadatum)
+    return Float64.(Array(interior(h, :, :, 1)))
 end
 
 # ## Synthetic Lofoten-flavored terrain (dependency-free fallback)
@@ -225,9 +239,15 @@ end
 land_mask  = Float64.(h_raw .> 0)
 ocean_mask = 1 .- land_mask
 
-# Smooth, clamp ocean to zero height, then taper the rim to flat.
-h_smooth = gaussian_smooth(max.(h_raw, 0.0), x, y; smoothing_length)
-h_smooth .*= land_mask   # ocean topography is exactly zero
+# Clamp ocean to zero height *first*, then smooth, then taper the rim to flat.
+# Order matters: masking (sharp 0 over ocean) BEFORE smoothing lets the Gaussian
+# round the coastline cliffs — Lofoten mountains rise straight from the sea, so a
+# sharp land mask applied *after* smoothing would re-introduce near-vertical 0→peak
+# steps (and heavier height-smoothing then bleeds more inland height toward the
+# coast, making the step *worse*). Smoothing the already-masked field instead
+# spreads each coastal cliff over ≈smoothing_length, bounding the resolved slope.
+h_masked = max.(h_raw, 0.0) .* land_mask
+h_smooth = gaussian_smooth(h_masked, x, y; smoothing_length)
 
 taper_mask = [edge_taper(x[i], y[j], Lx, Ly; taper_width) for i in 1:Nx, j in 1:Ny]
 h = h_smooth .* taper_mask
@@ -242,7 +262,7 @@ source_metadata = (; source = TOPO_SOURCE,
                      Lx = Float64(Lx), Ly = Float64(Ly), Δ = Float64(Δ),
                      smoothing_length = Float64(smoothing_length),
                      taper_width = Float64(taper_width),
-                     created = string(ThursdayLES.now()))
+                     created = string(now()))
 
 # ## Save the artifact
 
