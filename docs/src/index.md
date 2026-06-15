@@ -18,27 +18,57 @@ separately* by a deployment workflow that records per-run status under
 
 ## Tutorials by day
 
+### Day 1 — Julia & GPU foundations for Earth-system modeling
+
+Getting productive with the Julia modeling stack, from interactive climate models
+to GPU kernels:
+
+- **Interactive climate modeling** — first steps with SpeedyWeather.jl and
+  Oceananigans.jl.
+- **Mesoscale eddies** — baroclinic instability in a channel.
+- **Implementing new physics** — a capsizing iceberg, two-way coupled.
+- **Hydrostatic ocean modeling** *(optional)* — internal tides over a sill.
+- **GPU computing in Julia** *(optional)* — from arrays to a turbulence solver.
+
+### Day 2 — The high-latitude ocean & sea ice
+
+Coupled ocean–sea ice simulation at regional and pan-Arctic scale:
+
+- **Sea ice in the Arctic** — a pan-Arctic simulation over a slab ocean.
+- **The Barents Sea** — a regional coupled ocean–sea ice simulation.
+
 ### Day 3 — Hybrid physics & differentiable Earth-system models
 
-Lightweight placeholder tutorials establishing the deployment pipeline:
+An end-to-end **hybrid machine-learning** tutorial — learning a surface-roughness
+parameterization and running it inside a climate model — plus differentiable ESMs:
 
-- **Hybrid physics + ML** — a physical core with a learned closure correction.
+- **Hybrid ML, start to finish** — introduction, data preprocessing, dataloaders,
+  offline training, defining the learned parameterization, and running it in
+  SpeedyWeather.jl (including on the GPU and generalized to the Pangaea
+  supercontinent).
 - **Differentiable ESMs** — gradient-based calibration of an Earth-system
   component.
 
 ### Day 4 — Boundary heterogeneity & turbulence
 
-Three GPU large-eddy simulation case studies, each driven by a heterogeneous
-*boundary* that organizes turbulence in the fluid:
+GPU large-eddy and coupled simulations, each driven by a heterogeneous *boundary*
+that organizes turbulence in the fluid:
 
-1. **A crack in the ice** — atmospheric turbulence over a sea-ice lead
-   (Breeze atmosphere-only LES with prescribed surface fluxes).
-2. **Beneath the crack** — ocean turbulence below the lead, comparing a
-   no-waves control against Craik–Leibovich surface-wave forcing (Oceananigans).
-3. **Fjords as boundary conditions** — 100 m terrain-following atmospheric flow
-   over coastal Norway (Breeze).
+1. **A first taste of the atmosphere** — a five-act intro that builds from a dry
+   thermal bubble to free convection, the split-explicit compressible solver,
+   mountain lee waves, and finally clouds and drizzle over a 3D mountain.
+2. **Two fluids, one interface** — 2D coupled air–sea convection over a warm
+   ocean filament, with fluxes computed at the interface.
+3. **A crack in the ice** — atmospheric turbulence over a sea-ice lead (Breeze).
+4. **Beneath the crack** — ocean turbulence below the lead, no-waves control vs.
+   Craik–Leibovich surface-wave (Langmuir) forcing (Oceananigans).
+5. **A warm filament writes a cloud street** — 3D two-way-coupled air–sea LES.
+6. **Steep island mountains as boundary conditions** — 100 m coupled air–land
+   flow over the Lofoten islands (terrain-following Breeze).
+7. **A realistic global ocean** — a NumericalEarth global ocean–sea ice simulation.
 
-A trivial **smoke case** exercises the full deploy pipeline end-to-end on CPU.
+A **gallery & discussion** page and a trivial **smoke case** (full deploy pipeline
+end-to-end on CPU) round out the day.
 
 ## Run status
 
