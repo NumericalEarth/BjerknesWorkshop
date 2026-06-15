@@ -315,8 +315,7 @@ end
 # taste of convection" mid-list. List the intended order here; files not listed
 # sort after, alphabetically. Other days fall back to filename order.
 const _PAGE_ORDER = Dict(
-    4 => ["05_intro_atmosphere_convection",          # first taste: 2D atmosphere (flat + terrain)
-          "07_intro_coupled_convection",             #              2D coupled
+    4 => ["07_intro_coupled_convection",             # 2D coupled
           "01_atmospheric_turbulence_over_a_sea_ice_lead",
           "02_ocean_turbulence_below_a_lead_with_surface_waves",
           "08_coupled_warm_filament",                # flagship coupled

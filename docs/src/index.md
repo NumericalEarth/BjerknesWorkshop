@@ -29,6 +29,9 @@ to GPU kernels:
 - **Implementing new physics** — a capsizing iceberg, two-way coupled.
 - **Hydrostatic ocean modeling** *(optional)* — internal tides over a sill.
 - **GPU computing in Julia** *(optional)* — from arrays to a turbulence solver.
+- **A first taste of the atmosphere (Breeze)** — a five-act tour from a dry
+  thermal bubble to free convection, the split-explicit compressible solver,
+  mountain lee waves, and finally clouds and drizzle over a 3D mountain.
 
 ### Day 2 — The high-latitude ocean & sea ice
 
@@ -54,18 +57,15 @@ parameterization and running it inside a climate model — plus differentiable E
 GPU large-eddy and coupled simulations, each driven by a heterogeneous *boundary*
 that organizes turbulence in the fluid:
 
-1. **A first taste of the atmosphere** — a five-act intro that builds from a dry
-   thermal bubble to free convection, the split-explicit compressible solver,
-   mountain lee waves, and finally clouds and drizzle over a 3D mountain.
-2. **Two fluids, one interface** — 2D coupled air–sea convection over a warm
+1. **Two fluids, one interface** — 2D coupled air–sea convection over a warm
    ocean filament, with fluxes computed at the interface.
-3. **A crack in the ice** — atmospheric turbulence over a sea-ice lead (Breeze).
-4. **Beneath the crack** — ocean turbulence below the lead, no-waves control vs.
+2. **A crack in the ice** — atmospheric turbulence over a sea-ice lead (Breeze).
+3. **Beneath the crack** — ocean turbulence below the lead, no-waves control vs.
    Craik–Leibovich surface-wave (Langmuir) forcing (Oceananigans).
-5. **A warm filament writes a cloud street** — 3D two-way-coupled air–sea LES.
-6. **Steep island mountains as boundary conditions** — 100 m coupled air–land
+4. **A warm filament writes a cloud street** — 3D two-way-coupled air–sea LES.
+5. **Steep island mountains as boundary conditions** — 100 m coupled air–land
    flow over the Lofoten islands (terrain-following Breeze).
-7. **A realistic global ocean** — a NumericalEarth global ocean–sea ice simulation.
+6. **A realistic global ocean** — a NumericalEarth global ocean–sea ice simulation.
 
 A **gallery & discussion** page and a trivial **smoke case** (full deploy pipeline
 end-to-end on CPU) round out the day.

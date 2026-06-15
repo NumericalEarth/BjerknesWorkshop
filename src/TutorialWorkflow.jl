@@ -486,10 +486,12 @@ function case_registry(root::AbstractString = pwd())
         description = "Breeze terrain-following LES over coastal Norway (Lofoten) with prescribed land/ocean fluxes.",
     ))
     push!(cases, TutorialCase(
-        day = 4, name = "Intro: a first taste of the atmosphere (bubble → convection → mountains → drizzle)",
+        # Moved to Day 1 (afternoon Breeze session). Slug/output_root kept under
+        # day4/intro_atmosphere so the already-validated cached run is reused as-is.
+        day = 1, name = "Breeze: a first taste of the atmosphere (bubble → convection → mountains → drizzle)",
         slug = "intro_atmosphere",
-        source = joinpath(DAY4_SRC, "05_intro_atmosphere_convection.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "05_intro_atmosphere_convection.jl"),
+        source = joinpath(DAY1_SRC, "06_breeze_tutorial.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "06_breeze_tutorial.jl"),
         output_root = joinpath("output", "day4", "intro_atmosphere"),
         required_outputs = [
             "thermal_bubble.jld2",
