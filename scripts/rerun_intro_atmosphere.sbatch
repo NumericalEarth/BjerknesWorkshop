@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=80G
-#SBATCH --time=00:40:00
+#SBATCH --time=06:00:00
 #SBATCH --output=logs/rerun05_%j.out
 #SBATCH --error=logs/rerun05_%j.err
 cd /shared/home/greg/Projects/BjerknesWorkshop
