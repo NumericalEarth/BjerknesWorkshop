@@ -38,13 +38,6 @@ using ClimaSeaIce.Rheologies: ElastoViscoPlasticRheology
 using Dates, Printf, CUDA
 using Oceananigans.OrthogonalSphericalShellGrids: RotatedLatitudeLongitudeGrid
 
-# `regrid_bathymetry` crops the source bathymetry to the grid's geographic extent through
-# `x_domain`/`y_domain`, which Oceananigans defines only for lat–lon grids. A rotated grid stores the
-# *true geographic* node coordinates, so its bounding box is just their extrema (temporary local patch):
-import Oceananigans.Grids: x_domain, y_domain
-x_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.λᶠᶠᵃ))
-y_domain(grid::Oceananigans.Grids.OrthogonalSphericalShellGrid) = extrema(parent(grid.φᶠᶠᵃ))
-
 arch = GPU()   # CPU() also works, at reduced resolution
 
 # ## A grid for the Arctic cap
@@ -60,8 +53,8 @@ arch = GPU()   # CPU() also works, at reduced resolution
 # so the plotting later needs no regridding. Since the slab ocean has no vertical structure we use a single
 # vertical level, enough for the bathymetry to mark land from ocean.
 
-Nx, Ny = 180, 180
-δ = 35   # half-width of the cap, in rotated degrees
+Nx, Ny = 720, 720
+δ = 25   # half-width of the cap, in rotated degrees
 z = (-10meters, 0)
 
 underlying_grid = RotatedLatitudeLongitudeGrid(arch;
@@ -72,8 +65,12 @@ underlying_grid = RotatedLatitudeLongitudeGrid(arch;
                                                halo = (5, 5, 1),
                                                z)
 
-bottom_height = regrid_bathymetry(underlying_grid; minimum_depth = 15, major_basins = Inf)
+# Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
 
+dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+
+bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
+bottom_height = regrid_bathymetry(underlying_grid, bathymetry; minimum_depth = 15)
 grid = ImmersedBoundaryGrid(underlying_grid, GridFittedBottom(bottom_height))
 
 # ## The slab ocean
@@ -96,7 +93,7 @@ ocean = SlabOcean(grid; depth = 50)
 
 date = DateTime(1993, 2, 1)   # late-winter Arctic, near the seasonal ice maximum
 
-set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date))
+set!(ocean.temperature, Metadatum(:temperature; dataset = EN4Monthly(), date, dir_kw...))
 
 # ## The sea-ice model
 #
@@ -125,19 +122,18 @@ dynamics = SeaIceMomentumEquation(grid;
                                   top_momentum_stress = atmosphere_ice_stress,
                                   bottom_momentum_stress = ocean_ice_stress,
                                   rheology = ElastoViscoPlasticRheology(),
-                                  solver = SplitExplicitSolver(grid; substeps = 120))
+                                  solver = SplitExplicitSolver(grid; substeps = 100))
 
-sea_ice = sea_ice_simulation(grid; Δt = 15minutes,
+sea_ice = sea_ice_simulation(grid;
                              advection = WENO(order = 7),
                              dynamics,
-                             timestepper = :ForwardEuler,
                              bottom_heat_boundary_condition)
 
 # We start the ice from the ECCO state estimate for the same date — a realistic January–February pack —
 # rather than from open water, so the simulation begins near the seasonal maximum and we watch it melt back
 # through the spring and summer:
 
-ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date)
+ecco_ice = MetadataSet(:sea_ice_thickness, :sea_ice_concentration; dataset = ECCO4Monthly(), date, dir_kw...)
 set!(sea_ice.model, ecco_ice)
 
 # ## The prescribed atmosphere
@@ -146,8 +142,8 @@ set!(sea_ice.model, ecco_ice)
 # downwelling radiation. The turbulent fluxes that actually cool the ice are computed interactively from
 # similarity theory, using the evolving ice-surface temperature:
 
-atmosphere = JRA55PrescribedAtmosphere(arch)
-radiation  = JRA55PrescribedRadiation(arch)
+atmosphere = JRA55PrescribedAtmosphere(arch; dir_kw...)
+radiation  = JRA55PrescribedRadiation(arch; dir_kw...)
 
 # ## The coupled model
 #
@@ -157,7 +153,7 @@ radiation  = JRA55PrescribedRadiation(arch)
 
 arctic = OceanSeaIceModel(ocean, sea_ice; atmosphere, radiation)
 
-simulation = Simulation(arctic; Δt = 15minutes, stop_time = 180days)
+simulation = Simulation(arctic; Δt = 30minutes, stop_time = 180days)
 
 wall_time = Ref(time_ns())
 
@@ -197,47 +193,96 @@ run!(simulation)
 # ## An Arctic movie
 #
 # Because the rotated grid carries the true longitude and latitude of every node, each snapshot is drawn
-# directly — no interpolation onto an intermediate grid. We read the node coordinates once and plot the
-# curvilinear fields on a GeoMakie `GeoAxis` in a polar-stereographic projection (`+proj=stere +lat_0=90`),
-# masking land to gray and overlaying coastlines for orientation:
+# directly — no interpolation onto an intermediate grid. We plot on a GeoMakie `GeoAxis` in a
+# polar-stereographic projection (`+proj=stere +lat_0=90`), with three panels following the pack: thickness,
+# concentration, and ice speed with the drift drawn as arrows. We show *speed* rather than the eastward and
+# northward velocity because a single vector component is ill-defined at the pole — it folds to a spurious
+# sign change there — whereas speed is rotation-invariant and the arrows carry the direction. Land is
+# painted over the fields in gray, with coastlines for orientation:
 
 using CairoMakie
 using GeoMakie
 
-hi = FieldTimeSeries("arctic_sea_ice.jld2", "h"; backend = OnDisk())
-ℵi = FieldTimeSeries("arctic_sea_ice.jld2", "ℵ"; backend = OnDisk())
+hi = FieldTimeSeries("arctic_sea_ice.jld2", "h")
+ℵi = FieldTimeSeries("arctic_sea_ice.jld2", "ℵ")
+ui = FieldTimeSeries("arctic_sea_ice.jld2", "u")
+vi = FieldTimeSeries("arctic_sea_ice.jld2", "v")
 
 λ = Array(λnodes(grid, Center(), Center(), Center()))   # 2D geographic longitude of every node
 φ = Array(φnodes(grid, Center(), Center(), Center()))   # 2D geographic latitude
-wet = Array(interior(grid.immersed_boundary.bottom_height, :, :, 1)) .< 0
+Nx, Ny = size(λ)
+landmask = ifelse.(Array(interior(grid.immersed_boundary.bottom_height, :, :, 1)) .< 0, NaN, 1.0)
+
+# The ice velocity is stored in the grid's local frame (along the rotated lon/lat axes). To draw the drift
+# as physically-oriented arrows on the geographic map we rotate it into true east/north using the angle α
+# between the grid's x-axis and geographic east, computed once from the 3D node positions:
+
+X = @. cosd(φ) * cosd(λ); Y = @. cosd(φ) * sind(λ); Z = @. sind(φ)
+α = zeros(Nx, Ny)
+for j in 1:Ny, i in 2:Nx-1
+    τ = (X[i+1, j] - X[i-1, j], Y[i+1, j] - Y[i-1, j], Z[i+1, j] - Z[i-1, j])   # grid-east tangent
+    ê = (-sind(λ[i, j]), cosd(λ[i, j]), 0)
+    n̂ = (-sind(φ[i, j]) * cosd(λ[i, j]), -sind(φ[i, j]) * sind(λ[i, j]), cosd(φ[i, j]))
+    α[i, j] = atan(τ[1]*n̂[1] + τ[2]*n̂[2] + τ[3]*n̂[3], τ[1]*ê[1] + τ[2]*ê[2] + τ[3]*ê[3])
+end
+α[1, :] .= α[2, :]; α[Nx, :] .= α[Nx-1, :]
+
+# Drift arrows are anchored at a fixed subset of wet cells (every 9th), so the animation updates them in place:
+anchors = [(i, j) for i in 5:9:Nx, j in 5:9:Ny if isnan(landmask[i, j])]
+arrow_longitude = [λ[i, j] for (i, j) in anchors]
+arrow_latitude  = [φ[i, j] for (i, j) in anchors]
 
 times = hi.times
 n = Observable(length(times))
 title = @lift "Arctic sea ice — day " * string(round(Int, times[$n] / days))
 
-# Mask land to NaN so it draws in `nan_color` rather than as zero-ice ocean:
-masked(field) = (data = Array(interior(field, :, :, 1)); data[.!wet] .= NaN; data)
-hₙ = @lift masked(hi[$n])
-ℵₙ = @lift masked(ℵi[$n])
+snapshot(fts) = @lift Array(interior(fts[$n], :, :, 1))
+hₙ = snapshot(hi)
+ℵₙ = snapshot(ℵi)
+
+# Co-locate the staggered velocity to cell centers, rotate to geographic east/north, and keep the drift
+# only where there is real ice (concentration ≥ 0.15); elsewhere the model still carries a noisy velocity:
+drift = @lift begin
+    u = Array(interior(ui[$n], :, :, 1))
+    v = Array(interior(vi[$n], :, :, 1))
+    uc = 0.5 .* (u[1:Nx, :] .+ u[2:Nx+1, :])
+    vc = 0.5 .* (v[:, 1:Ny] .+ v[:, 2:Ny+1])
+    ice = @. ($ℵₙ ≥ 0.15) & isnan(landmask)
+    east  = @. ifelse(ice, uc * cos(α) - vc * sin(α), 0.0)
+    north = @. ifelse(ice, uc * sin(α) + vc * cos(α), 0.0)
+    speed = @. ifelse(ice, hypot(uc, vc), NaN)
+    (; east, north, speed)
+end
+
+speedₙ = @lift $drift.speed
+arrow_east  = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.east[i, j]  / s : NaN) for (i, j) in anchors]
+arrow_north = @lift [(s = $drift.speed[i, j]; isfinite(s) && s > 0.03 ? $drift.north[i, j] / s : NaN) for (i, j) in anchors]
 
 projection = "+proj=stere +lat_0=90 +lat_ts=70"
 
-fig = Figure(size = (1000, 560))
+fig = Figure(size = (1580, 600))
 fig[0, :] = Label(fig, title, fontsize = 22, tellwidth = false)
 
-ax_h = GeoAxis(fig[1, 1]; dest = projection, title = "ice thickness [m]")
-ylims!(ax_h, 50, 90)
-sf_h = surface!(ax_h, λ, φ, hₙ; colormap = Reverse(:blues), colorrange = (0, 4),
-                nan_color = :gray20, shading = NoShading)
-lines!(ax_h, GeoMakie.coastlines(); color = :black, linewidth = 0.5)
-Colorbar(fig[1, 2], sf_h)
+# Each field is drawn per-cell with `surface!` — filled contours leave thin polygon artifacts on this
+# sheared curvilinear mesh. The gray land layer sits on top to hide the per-cell coastline, and the explicit
+# `limits` keep the global coastlines from blowing up the polar view:
 
-ax_ℵ = GeoAxis(fig[1, 3]; dest = projection, title = "ice concentration")
-ylims!(ax_ℵ, 50, 90)
-sf_ℵ = surface!(ax_ℵ, λ, φ, ℵₙ; colormap = :ice, colorrange = (0, 1),
-                nan_color = :gray20, shading = NoShading)
-lines!(ax_ℵ, GeoMakie.coastlines(); color = :black, linewidth = 0.5)
-Colorbar(fig[1, 4], sf_ℵ)
+function surface_panel!(column, field, name; colorrange, colormap)
+    ax = GeoAxis(fig[1, column]; dest = projection, limits = ((-180, 180), (50, 90)), title = name)
+    sf = surface!(ax, λ, φ, field; colormap, colorrange, nan_color = :transparent, shading = NoShading)
+    surface!(ax, λ, φ, landmask; colormap = [:gray20, :gray20], nan_color = :transparent, shading = NoShading)
+    lines!(ax, GeoMakie.coastlines(); color = :black, linewidth = 0.5)
+    Colorbar(fig[1, column + 1], sf)
+    return ax
+end
+
+surface_panel!(1, hₙ, "ice thickness [m]"; colorrange = (0,   1), colormap = Reverse(:blues))
+surface_panel!(3, ℵₙ, "ice concentration"; colorrange = (0.5, 1), colormap = :ice)
+
+# Speed is masked to the ice (NaN over open water), with the rotated unit drift vectors overlaid as arrows:
+ax_speed = surface_panel!(5, speedₙ, "ice speed [m s⁻¹]"; colorrange = (0, 1.0), colormap = :amp)
+arrows2d!(ax_speed, arrow_longitude, arrow_latitude, arrow_east, arrow_north;
+          lengthscale = 2.6, color = :black, tipwidth = 7, tiplength = 8, shaftwidth = 1.6)
 
 CairoMakie.record(fig, "arctic_sea_ice.mp4", 1:length(times), framerate = 12) do i
     n[] = i

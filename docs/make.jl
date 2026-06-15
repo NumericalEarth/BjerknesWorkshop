@@ -97,6 +97,43 @@ function strip_local_images(content::AbstractString)
     return String(take!(out))
 end
 
+# For day-2 (and any INLINE_ASSET_DAYS) the Literate source writes its own figures/movies in the script's
+# working directory and references them with `![](file)`. Rather than copy those files (whose relative
+# links are fragile under prettyurls), replace each reference with a base64 data-URI <video>/<img> in a
+# raw-HTML block — the same self-contained embedding the cached-artifact Results sections use. Returns a
+# postprocess closure bound to the script's working directory.
+function embed_local_assets(assetdir::AbstractString)
+    return function (content::AbstractString)
+        out = IOBuffer()
+        for line in eachline(IOBuffer(content); keep = true)
+            m = match(r"^!\[[^\]]*\]\(([^)]+)\)\s*$", rstrip(line))
+            if m === nothing || startswith(m.captures[1], "http")
+                print(out, line)
+                continue
+            end
+            ref = m.captures[1]
+            asset = joinpath(assetdir, ref)
+            if !isfile(asset)
+                @warn "inline asset not found; leaving reference as-is" ref asset
+                print(out, line)
+                continue
+            end
+            ext = lowercase(splitext(ref)[2])
+            data = base64encode(read(asset))
+            if ext in (".mp4", ".webm", ".ogg")
+                mime = ext == ".mp4" ? "video/mp4" : ext == ".webm" ? "video/webm" : "video/ogg"
+                print(out, "```@raw html\n<video controls width=\"100%\" src=\"data:", mime,
+                      ";base64,", data, "\"></video>\n```\n")
+            else
+                mime = ext in (".jpg", ".jpeg") ? "image/jpeg" : ext == ".gif" ? "image/gif" : "image/png"
+                print(out, "```@raw html\n<img style=\"max-width:100%;height:auto\" src=\"data:", mime,
+                      ";base64,", data, "\">\n```\n")
+            end
+        end
+        return String(take!(out))
+    end
+end
+
 # ============================================================================
 # Results section appended to each day-N page (safe, cached-only embedding).
 # ============================================================================
@@ -258,7 +295,6 @@ function append_results_section!(page_md::AbstractString, slug::AbstractString)
     return nothing
 end
 
-
 # ============================================================================
 # Render the Literate sources for the selected days.
 # ============================================================================
@@ -296,12 +332,34 @@ function _page_rank(day::Int, f::AbstractString)
     return i === nothing ? (length(order) + 1, stem) : (i, "")
 end
 
+# Days whose tutorial pages embed their own figures/movies inline: the Literate source writes them in its
+# working directory (tutorials/dayN/) and references them with `![](file)`. These bypass the
+# cached-artifact Results section; the references are base64-embedded at render time. A source is skipped
+# until every asset it references exists, so a page only publishes once its movie has been produced.
+const INLINE_ASSET_DAYS = (1, 2)
+
+# Individual sources that inline-embed their own assets even outside INLINE_ASSET_DAYS — the global-ocean
+# sim moved to day 4 but, like the day-1/2 examples, embeds the movie it writes in its working directory:
+const INLINE_ASSET_SOURCES = ("09_global_ocean.jl",)
+
+function _inline_assets_ready(source::AbstractString, assetdir::AbstractString)
+    for m in eachmatch(r"!\[[^\]]*\]\(([^)]+)\)", read(source, String))
+        ref = m.captures[1]
+        startswith(ref, "http") && continue
+        isfile(joinpath(assetdir, ref)) || return (false, ref)
+    end
+    return (true, "")
+end
+
 # Day-N page titles (the Literate `# # Title` first line becomes the page H1).
 function render_day(day::Int)
     srcdir = joinpath(REPO_ROOT, "tutorials", "day$day", "src")
     outdir = joinpath(SRC_DIR, "day$day")
     isdir(srcdir) || return String[]
+    rm(outdir; force = true, recursive = true)   # drop stale pages from earlier structures
     mkpath(outdir)
+
+    assetdir = joinpath(REPO_ROOT, "tutorials", "day$day")
 
     pages = String[]
     files = sort(filter(f -> endswith(f, ".jl"), readdir(srcdir)); by = f -> _page_rank(day, f))
@@ -312,31 +370,50 @@ function render_day(day::Int)
         startswith(f, "00_") && continue
         startswith(f, "03a_") && continue
         endswith(f, "_viz.jl") && continue
+        # 04_gpu_computing is retained as a script but dropped from the day-1 lineup.
+        f == "04_gpu_computing.jl" && continue
 
         source = joinpath(srcdir, f)
+
+        # Inline-embed a source's own figures/movies for whole INLINE_ASSET_DAYS, or for individual
+        # INLINE_ASSET_SOURCES (the global-ocean sim moved to day 4 but still embeds its movie):
+        inline = (day in INLINE_ASSET_DAYS) || (f in INLINE_ASSET_SOURCES)
+        postprocess = inline ? embed_local_assets(assetdir) ∘ demote_example_blocks :
+                               strip_local_images ∘ demote_example_blocks
+
+        if inline
+            ready, missing_ref = _inline_assets_ready(source, assetdir)
+            if !ready
+                @info "Skipping $f until its inline asset exists" missing_ref
+                continue
+            end
+        end
+
         Literate.markdown(source, outdir;
             execute = false,
             credit = false,
             flavor = Literate.DocumenterFlavor(),
-            postprocess = strip_local_images ∘ demote_example_blocks)
+            postprocess = postprocess)
 
         mdname = replace(f, r"\.jl$" => ".md")
         mdpath = joinpath(outdir, mdname)
-        slug = _slug_for_source(f)
+        if !inline
+            slug = _slug_for_source(f)
 
-        # If `scripts/render_all_viz.jl` (Phase A, workshop env) pre-rendered an
-        # executed visualization page for this case, append it (it carries the inline
-        # figure, diagnostics, and base64 animation). Otherwise fall back to the static
-        # cached-artifact Results section.
-        vizmd = joinpath(outdir, replace(f, r"\.jl$" => "_viz.md"))
-        if isfile(vizmd)
-            open(mdpath, "a") do io
-                println(io)
-                write(io, read(vizmd, String))
+            # If `scripts/render_all_viz.jl` (Phase A, workshop env) pre-rendered an
+            # executed visualization page for this case, append it (it carries the inline
+            # figure, diagnostics, and base64 animation). Otherwise fall back to the static
+            # cached-artifact Results section.
+            vizmd = joinpath(outdir, replace(f, r"\.jl$" => "_viz.md"))
+            if isfile(vizmd)
+                open(mdpath, "a") do io
+                    println(io)
+                    write(io, read(vizmd, String))
+                end
+                rm(vizmd; force = true)
+            elseif slug !== nothing
+                append_results_section!(mdpath, slug)
             end
-            rm(vizmd; force = true)
-        elseif slug !== nothing
-            append_results_section!(mdpath, slug)
         end
 
         push!(pages, joinpath("day$day", mdname))
@@ -365,8 +442,8 @@ write_summary_pages!(case_registry(REPO_ROOT); root = REPO_ROOT)
 function _nav_for_day(day::Int)
     pages = get(day_pages, day, String[])
     isempty(pages) && return nothing
-    label = day == 1 ? "Day 1 — GPU computing" :
-            day == 2 ? "Day 2 — One day in the high-latitude ocean" :
+    label = day == 1 ? "Day 1 — Julia and interactive Earth system modeling" :
+            day == 2 ? "Day 2 — Realistic simulations using Julia" :
             day == 3 ? "Day 3 — Hybrid physics & differentiable ESMs" :
             day == 4 ? "Day 4 — Boundary heterogeneity & turbulence" :
             "Day $day"

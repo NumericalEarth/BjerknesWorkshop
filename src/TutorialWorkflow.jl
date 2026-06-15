@@ -26,7 +26,7 @@ using Printf
 
 export TutorialCase, RunInfo,
        case_registry,
-       selected_days, selected_cases, selected_doc_days,
+       selected_days, selected_cases, selected_doc_days, doc_all_days,
        case_output_root, new_run_dir,
        latest_success, latest_attempt,
        safe_latest_success, safe_artifact,
@@ -363,95 +363,52 @@ accepted for symmetry but the returned paths are repo-relative.
 function case_registry(root::AbstractString = pwd())
     cases = TutorialCase[]
 
-    # ---- Day 1 (Monday GPU tutorials; own env, CPU-runnable) ----
+    # ---- Day 1 (idealized Oceananigans examples; own env, CPU-runnable) ----
+    # (01 Julia essentials and 01b GPU essentials are notebooks, run separately — not registered here.)
     push!(cases, TutorialCase(
-        day = 1, name = "GPU computing and a 2D turbulence solver", slug = "gpu_computing",
-        source = joinpath(DAY1_SRC, "01_gpu_computing.jl"),
-        generated_script = joinpath(DAY1_SCRIPTS, "01_gpu_computing.jl"),
-        output_root = joinpath("output", "day1", "gpu_computing"),
-        required_outputs = ["two_dimensional_turbulence.mp4"],
-        optional_outputs = ["two_dimensional_turbulence_gpu.mp4"],
-        parameters = (Nx = 256, Ny = 256, ν = 5e-4, stop_time = 5.0),
-        critical = false,
-        description = "GPU arrays, KernelAbstractions kernels, and a C-grid Navier–Stokes solver (CPU fallback).",
-        project = "tutorials/day1",
-        workdir = :artifacts,
-    ))
-    push!(cases, TutorialCase(
-        day = 1, name = "Distributed nonhydrostatic LES", slug = "distributed_convection",
-        source = joinpath(DAY1_SRC, "02_distributed_nonhydrostatic.jl"),
-        generated_script = joinpath(DAY1_SCRIPTS, "02_distributed_nonhydrostatic.jl"),
-        output_root = joinpath("output", "day1", "distributed_convection"),
-        required_outputs = ["distributed_demo.jl", "distributed_convection.jl"],
-        critical = false,
-        description = "Domain decomposition demo (2 CPU MPI ranks) plus the multi-GPU convection driver.",
-        project = "tutorials/day1",
-        workdir = :artifacts,
-    ))
-
-    # ---- Day 2 (Tuesday ocean & sea-ice tutorials; own env, CPU-runnable) ----
-    push!(cases, TutorialCase(
-        day = 2, name = "Internal tide over a sill", slug = "internal_tide",
-        source = joinpath(DAY2_SRC, "01_hydrostatic_internal_tide.jl"),
-        generated_script = joinpath(DAY2_SCRIPTS, "01_hydrostatic_internal_tide.jl"),
-        output_root = joinpath("output", "day2", "internal_tide"),
+        day = 1, name = "Internal tide over a sill", slug = "internal_tide",
+        source = joinpath(DAY1_SRC, "02_hydrostatic_internal_tide.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "02_hydrostatic_internal_tide.jl"),
+        output_root = joinpath("output", "day1", "internal_tide"),
         required_outputs = ["internal_tide_domain.png", "internal_tide.mp4"],
         parameters = (Nx = 256, Nz = 128, latitude = 60, stop_days = 4),
         critical = false,
         description = "HydrostaticFreeSurfaceModel fundamentals: immersed sill, tidal forcing, wave beams.",
-        project = "tutorials/day2",
+        project = "tutorials/day1",
         workdir = :artifacts,
     ))
     push!(cases, TutorialCase(
-        day = 2, name = "Baroclinic instability in a channel", slug = "baroclinic_instability",
-        source = joinpath(DAY2_SRC, "02_baroclinic_instability.jl"),
-        generated_script = joinpath(DAY2_SCRIPTS, "02_baroclinic_instability.jl"),
-        output_root = joinpath("output", "day2", "baroclinic_instability"),
+        day = 1, name = "Baroclinic adjustment in a channel", slug = "baroclinic_instability",
+        source = joinpath(DAY1_SRC, "03_baroclinic_adjustment.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "03_baroclinic_adjustment.jl"),
+        output_root = joinpath("output", "day1", "baroclinic_instability"),
         required_outputs = ["baroclinic_instability_energy.png", "baroclinic_instability.mp4"],
         parameters = (Nx = 96, Ny = 96, Nz = 16, latitude = 70, stop_days = 30),
         critical = false,
         description = "Eddying re-entrant channel: front release, custom drag BC, adaptive time step.",
-        project = "tutorials/day2",
+        project = "tutorials/day1",
         workdir = :artifacts,
     ))
     push!(cases, TutorialCase(
-        day = 2, name = "Sea ice thermodynamics", slug = "sea_ice_thermodynamics",
-        source = joinpath(DAY2_SRC, "03_sea_ice_thermodynamics.jl"),
-        generated_script = joinpath(DAY2_SCRIPTS, "03_sea_ice_thermodynamics.jl"),
-        output_root = joinpath("output", "day2", "sea_ice_thermodynamics"),
-        required_outputs = ["freezing_bucket.png", "semtner_forcing.png", "arctic_seasonal_cycle.png"],
-        critical = false,
-        description = "ClimaSeaIce slab thermodynamics: freezing bucket and the Semtner seasonal cycle.",
-        project = "tutorials/day2",
-        workdir = :artifacts,
-    ))
-    push!(cases, TutorialCase(
-        day = 2, name = "Sea ice dynamics", slug = "sea_ice_dynamics",
-        source = joinpath(DAY2_SRC, "04_sea_ice_dynamics.jl"),
-        generated_script = joinpath(DAY2_SCRIPTS, "04_sea_ice_dynamics.jl"),
-        output_root = joinpath("output", "day2", "sea_ice_dynamics"),
-        required_outputs = ["sea_ice_dynamics.mp4"],
-        parameters = (N = 128, substeps = 120, stop_days = 2),
-        critical = false,
-        description = "EVP rheology benchmark: leads and linear kinematic features under a traveling anticyclone.",
-        project = "tutorials/day2",
-        workdir = :artifacts,
-    ))
-    push!(cases, TutorialCase(
-        day = 2, name = "Capsizing iceberg", slug = "capsizing_iceberg",
-        source = joinpath(DAY2_SRC, "05_capsizing_iceberg.jl"),
-        generated_script = joinpath(DAY2_SCRIPTS, "05_capsizing_iceberg.jl"),
-        output_root = joinpath("output", "day2", "capsizing_iceberg"),
+        day = 1, name = "Capsizing iceberg", slug = "capsizing_iceberg",
+        source = joinpath(DAY1_SRC, "05_capsizing_iceberg.jl"),
+        generated_script = joinpath(DAY1_SCRIPTS, "05_capsizing_iceberg.jl"),
+        output_root = joinpath("output", "day1", "capsizing_iceberg"),
         required_outputs = ["capsizing_iceberg.mp4", "iceberg_tilt.png"],
         parameters = (Nx = 512, Nz = 128, width = 70, height = 200, τ = 2.0),
         critical = false,
         description = "Implementing new physics: penalized rigid iceberg, two-way coupled, GPU-compatible.",
-        project = "tutorials/day2",
+        project = "tutorials/day1",
         workdir = :artifacts,
     ))
-    # Day-2 parts 6 (Barents Sea coupled, GPU + datasets) and 7 (distributed channel,
-    # multi-GPU) are deliberately NOT registered: their pages render from the Literate
-    # sources, but the runner has no business launching them on the docs host.
+    # day1/04_gpu_computing.jl is retained as a script but dropped from the lineup → not registered.
+
+    # ---- Day 2 (realistic coupled runs; GPU + multi-GB datasets) ----
+    # 01_arctic_sea_ice and 02_barents_sea_regional are deliberately NOT registered: their pages render
+    # from the Literate sources (day-2 inline assets), but the runner has no business launching GPU/dataset
+    # jobs on the docs host. The global-ocean sim likewise lives on day 4 (09_global_ocean.jl), unregistered
+    # and inline-rendered. The docs still pick up these pages: `selected_doc_days` discovers renderable days
+    # from the filesystem (`doc_all_days`), not from this registry, so unregistered ≠ unpublished.
 
     # ---- Day 3 (lightweight placeholders) ----
     push!(cases, TutorialCase(
@@ -652,12 +609,46 @@ function selected_cases(all::Vector{TutorialCase})
 end
 
 """
+    doc_all_days(root=pwd()) -> Vector{Int}
+
+Days the documentation can render: the union of the registry days and any
+`tutorials/dayN/src` that holds at least one renderable Literate source. The
+filesystem branch is what lets inline-asset days (e.g. day 2) appear on the site
+without being registered for the runner — `render_day` does not need a registry
+entry to render an inline-asset page.
+"""
+function doc_all_days(root::AbstractString = pwd())
+    days = Set(c.day for c in case_registry(root))
+    tutorials_dir = joinpath(root, "tutorials")
+    if isdir(tutorials_dir)
+        for entry in readdir(tutorials_dir)
+            m = match(r"^day(\d+)$", entry)
+            m === nothing && continue
+            srcdir = joinpath(tutorials_dir, entry, "src")
+            isdir(srcdir) || continue
+            renderable = any(readdir(srcdir)) do f
+                endswith(f, ".jl") && !startswith(f, "00_") && !startswith(f, "03a_") &&
+                    f != "04_gpu_computing.jl"
+            end
+            renderable && push!(days, parse(Int, m.captures[1]))
+        end
+    end
+    return sort!(collect(days))
+end
+
+"""
     selected_doc_days() -> Vector{Int}
 
 Days to include when building documentation, honoring `DOC_DAYS` (same grammar
-as `RUN_DAYS`). Defaults to all registry days.
+as `RUN_DAYS`). Unlike the runner selection, the candidate set is [`doc_all_days`](@ref)
+— registry days plus any day with renderable Literate sources — so inline-asset
+days that are deliberately unregistered from the runner still publish.
 """
-selected_doc_days() = selected_days("DOC_DAYS")
+function selected_doc_days()
+    all_days = doc_all_days()
+    requested = _parse_days(get(ENV, "DOC_DAYS", "all"), all_days)
+    return filter(d -> d in all_days, requested)
+end
 
 # ============================================================================
 # Output layout & run directories

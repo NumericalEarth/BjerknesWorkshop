@@ -2,12 +2,11 @@
 #
 # *An introduction to GPU-based modelling.*
 #
-# Modern climate models live or die by their throughput: a century-long projection at
-# eddy-resolving resolution consists in advancing O(10⁹) grid points over O(10⁷) time steps,
-# and the hardware that today offers the highest memory bandwidth per watt is the GPU.
-# All the models in this stack — Oceananigans, ClimaSeaIce, Breeze, the
-# NumericalEarth stack — run natively on GPUs, and they do so through the same handful of
-# ideas that we develop in this tutorial.
+# Modern climate models live or die by their throughput: a century-long projection at eddy-resolving
+# resolution consists in advancing O(10⁹) grid points over O(10⁷) time steps, and the hardware that today
+# offers the highest memory bandwidth per watt is the GPU. All the models in this stack — Oceananigans,
+# ClimaSeaIce, Breeze, the NumericalEarth stack — run natively on GPUs, and they do so through the same
+# handful of ideas that we develop in this tutorial.
 #
 # In this session we will:
 #
@@ -18,17 +17,15 @@
 # 5. assemble a complete two-dimensional Navier–Stokes solver — a miniature Oceananigans —
 #    that runs unmodified on your laptop's CPU and on an HPC GPU.
 #
-# Nothing here requires a GPU: every code block falls back to the CPU when no device is
-# found, so you can follow along on your laptop and rerun the same script later on Betzy
-# or LUMI.
+# Nothing here requires a GPU: every code block falls back to the CPU when no device is found, so you can
+# follow along on your laptop and rerun the same script later on Betzy or LUMI.
 #
 # ## The professor and the army
 #
-# A CPU core is a brilliant professor: deep caches, branch prediction, out-of-order
-# execution — machinery designed to make *one* instruction stream as fast as possible
-# (low latency). A GPU is an army of thousands of modest workers: most of the silicon is
-# spent on arithmetic units, and performance comes from doing the *same* operation on
-# many data elements at once (high throughput).
+# A CPU core is a brilliant professor: deep caches, branch prediction, out-of-order execution — machinery
+# designed to make *one* instruction stream as fast as possible (low latency). A GPU is an army of thousands
+# of modest workers: most of the silicon is spent on arithmetic units, and performance comes from doing the
+# *same* operation on many data elements at once (high throughput).
 #
 # | | CPU | GPU |
 # |--|-----|-----|
@@ -37,18 +34,16 @@
 # | Memory bandwidth | ~100 GB/s | 1–8 TB/s |
 # | Strength | complex logic | data parallelism |
 #
-# The last row of the table is the one that matters for us. Finite-volume fluid dynamics
-# consists in applying identical stencil operations at every grid cell — exactly the
-# pattern the army executes well. It is worth noticing that the bottleneck of a stencil
-# code is almost never arithmetic but *memory bandwidth*: each tendency evaluation reads a
-# handful of neighboring values and writes one, so the model advances only as fast as the
-# memory can stream fields through the chip. The ~10–40× bandwidth advantage of a GPU is,
-# to first order, the speedup you should expect for an ocean model.
+# The last row of the table is the one that matters for us. Finite-volume fluid dynamics consists in
+# applying identical stencil operations at every grid cell — exactly the pattern the army executes well. It
+# is worth noticing that the bottleneck of a stencil code is almost never arithmetic but *memory bandwidth*:
+# each tendency evaluation reads a handful of neighboring values and writes one, so the model advances only
+# as fast as the memory can stream fields through the chip. The ~10–40× bandwidth advantage of a GPU is, to
+# first order, the speedup you should expect for an ocean model.
 #
-# One more thing to keep in mind: the GPU never works alone. The CPU (the *host*)
-# allocates memory, copies data, launches the compute tasks (called *kernels*) and
-# collects results; the GPU (the *device*) executes them. Every simulation in this stack
-# follows this choreography:
+# One more thing to keep in mind: the GPU never works alone. The CPU (the *host*) allocates memory, copies
+# data, launches the compute tasks (called *kernels*) and collects results; the GPU (the *device*) executes
+# them. Every simulation in this stack follows this choreography:
 #
 # 1. the host sets up the problem (grid, fields, parameters),
 # 2. the host moves the data to device memory,
@@ -56,24 +51,23 @@
 # 4. the device crunches numbers in parallel,
 # 5. the host pulls back only what it needs (diagnostics, output).
 #
-# Step 5 deserves respect: host–device transfers cross the PCIe bus at a bandwidth far
-# lower than device memory, and a code that copies fields back and forth every time step
-# throws the GPU advantage away. Good GPU codes keep data resident on the device.
+# Step 5 deserves respect: host–device transfers cross the PCIe bus at a bandwidth far lower than device
+# memory, and a code that copies fields back and forth every time step throws the GPU advantage away. Good
+# GPU codes keep data resident on the device.
 #
 # ## GPU backends in Julia
 #
-# Julia exposes every major vendor through the same generic interface, built on
-# GPUArrays.jl and GPUCompiler.jl. Switching vendor consists in loading a different
-# package:
+# Julia exposes every major vendor through the same generic interface, built on GPUArrays.jl and
+# GPUCompiler.jl. Switching vendor consists in loading a different package:
 #
 # - **CUDA.jl** (NVIDIA) provides the `CuArray`
 # - **AMDGPU.jl** (AMD) provides the `ROCArray`
 # - **oneAPI.jl** (Intel) provides the `oneArray`
 # - **Metal.jl** (Apple) provides the `MtlArray`
 #
-# In this tutorial we target CUDA, which is what you will find on most HPC systems, but
-# everything below works identically with the other three. We detect the hardware once,
-# at the top of the script, and write the rest of the code independently from it:
+# In this tutorial we target CUDA, which is what you will find on most HPC systems, but everything below
+# works identically with the other three. We detect the hardware once, at the top of the script, and write
+# the rest of the code independently from it:
 
 using CUDA
 using KernelAbstractions
@@ -89,13 +83,13 @@ else
     @info "No CUDA device found — running every 'GPU' section on the CPU instead."
 end
 
-# `backend` identifies *where* kernels execute, `GPUArray` *where* memory lives. The rest
-# of the script never mentions CUDA again.
+# `backend` identifies *where* kernels execute, `GPUArray` *where* memory lives. The rest of the script never
+# mentions CUDA again.
 #
 # ## GPU arrays: parallelism for free
 #
-# The simplest way to use a GPU is to never write GPU code at all. Julia's broadcasting
-# (the dot syntax) and linear algebra dispatch to device implementations automatically:
+# The simplest way to use a GPU is to never write GPU code at all. Julia's broadcasting (the dot syntax) and
+# linear algebra dispatch to device implementations automatically:
 
 host_matrix = rand(Float32, 1000, 1000)
 
@@ -113,11 +107,10 @@ nothing #hide
 
 # and `Array(device_matrix)` copies the result back to the host when needed.
 #
-# Two practical notes. First, climate models on GPUs usually adopt `Float32`: it halves
-# the memory traffic (remember, bandwidth is the currency) and modern devices execute it
-# at twice the `Float64` rate or better. Second, GPU operations are *asynchronous* —
-# the host queues work and continues — so timing measurements must synchronize first.
-# Let us measure the one operation where the army shines, a large matrix multiply:
+# Two practical notes. First, climate models on GPUs usually adopt `Float32`: it halves the memory traffic
+# (remember, bandwidth is the currency) and modern devices execute it at twice the `Float64` rate or better.
+# Second, GPU operations are *asynchronous* — the host queues work and continues — so timing measurements
+# must synchronize first. Let us measure the one operation where the army shines, a large matrix multiply:
 
 using BenchmarkTools
 using LinearAlgebra
@@ -137,22 +130,20 @@ if CUDA.functional()
 end
 
 # !!! tip "The bandwidth ceiling, measured"
-#     Repeat the comparison for an element-wise operation, `sin.(A)`, at sizes
-#     `N = 100`, `1000`, `5000`. At which size does the GPU start to win? Why is the
-#     crossover so much larger than for the matrix multiply? (count the floating
-#     point operations *per byte of memory traffic* in the two cases.)
+#     Repeat the comparison for an element-wise operation, `sin.(A)`, at sizes `N = 100`, `1000`, `5000`. At
+#     which size does the GPU start to win? Why is the crossover so much larger than for the matrix multiply?
+#     (count the floating point operations *per byte of memory traffic* in the two cases.)
 #
 # ## Writing kernels with KernelAbstractions.jl
 #
-# Broadcasting covers element-wise work, but a PDE solver needs *stencils*: the update at
-# cell ``(i, j)`` reads the neighbors at ``(i \pm 1, j \pm 1)``. For this we write kernels
-# ourselves. [KernelAbstractions.jl](https://juliagpu.github.io/KernelAbstractions.jl/stable/)
-# (KA) allows to write a kernel once and execute it on every backend — NVIDIA, AMD, Intel,
-# Apple, or the CPU. It is the layer on which Oceananigans is built, so what follows is
-# precisely what happens behind the scenes when you call `time_step!` on an Oceananigans model.
+# Broadcasting covers element-wise work, but a PDE solver needs *stencils*: the update at cell ``(i, j)``
+# reads the neighbors at ``(i \pm 1, j \pm 1)``. For this we write kernels ourselves.
+# [KernelAbstractions.jl](https://juliagpu.github.io/KernelAbstractions.jl/stable/)
+# (KA) allows to write a kernel once and execute it on every backend — NVIDIA, AMD, Intel, Apple, or the
+# CPU. It is the layer on which Oceananigans is built, so what follows is precisely what happens behind the
+# scenes when you call `time_step!` on an Oceananigans model.
 #
-# A kernel describes the work of *one thread*; the `@index` macro tells each thread which
-# element it owns:
+# A kernel describes the work of *one thread*; the `@index` macro tells each thread which element it owns:
 
 @kernel function _add!(c, a, b)
     i = @index(Global)
@@ -171,24 +162,21 @@ KernelAbstractions.synchronize(backend)
 
 all(Array(c) .== 3)
 
-# On the GPU the threads are organized hierarchically: groups of threads (a *workgroup*,
-# or "block" in CUDA jargon) execute together on the same multiprocessor and can share
-# fast memory; the collection of all workgroups (the *grid*) covers the `ndrange`. KA
-# picks a sensible workgroup size automatically, and accepts an explicit one — e.g.
-# `_add!(backend, 256)` — when you want control.
+# On the GPU the threads are organized hierarchically: groups of threads (a *workgroup*, or "block" in CUDA
+# jargon) execute together on the same multiprocessor and can share fast memory; the collection of all
+# workgroups (the *grid*) covers the `ndrange`. KA picks a sensible workgroup size automatically, and accepts
+# an explicit one — e.g. `_add!(backend, 256)` — when you want control.
 #
 # !!! note "A naming convention used throughout the stack"
-#     Throughout the NumericalEarth stack, a leading underscore marks the `@kernel`
-#     function (`_add!`) launched by a same-named host-side function (`add!`). We adopt
-#     the same convention here.
+#     Throughout the NumericalEarth stack, a leading underscore marks the `@kernel` function (`_add!`)
+#     launched by a same-named host-side function (`add!`). We adopt the same convention here.
 #
 # ### A first stencil: the Laplacian
 #
-# Stencils need multi-dimensional indices, which `@index(Global, NTuple)` provides. Here
-# is the five-point Laplacian ``\nabla^2 f`` on a doubly-periodic domain. The `left` and
-# `right` helpers wrap the indices around the boundary — written with `ifelse` rather than
-# `if`/`else` because all the threads of a workgroup march in lockstep, and uniform
-# (branchless) code keeps them from diverging:
+# Stencils need multi-dimensional indices, which `@index(Global, NTuple)` provides. Here is the five-point
+# Laplacian ``\nabla^2 f`` on a doubly-periodic domain. The `left` and `right` helpers wrap the indices
+# around the boundary — written with `ifelse` rather than `if`/`else` because all the threads of a workgroup
+# march in lockstep, and uniform (branchless) code keeps them from diverging:
 
 @inline left(i, N)  = ifelse(i == 1, N, i - 1)
 @inline right(i, N) = ifelse(i == N, 1, i + 1)
@@ -206,13 +194,12 @@ end
     @inbounds ∇²f[i, j] = ∇²(i, j, f, Δx, Δy, Nx, Ny)
 end
 
-# Note the division of labor, another pattern taken straight from Oceananigans: the
-# *operator* `∇²` is an `@inline` function of the indices, and the *kernel* merely maps it
-# over the grid. Operators compose — we will reuse `∇²` inside the Navier–Stokes tendency
-# kernel below without rewriting anything.
+# Note the division of labor, another pattern taken straight from Oceananigans: the *operator* `∇²` is an
+# `@inline` function of the indices, and the *kernel* merely maps it over the grid. Operators compose — we
+# will reuse `∇²` inside the Navier–Stokes tendency kernel below without rewriting anything.
 #
-# We can verify the kernel on a function with a known Laplacian, ``f = \sin x \sin y``
-# for which ``\nabla^2 f = -2f``:
+# We can verify the kernel on a function with a known Laplacian, ``f = \sin x \sin y`` for which
+# ``\nabla^2 f = -2f``:
 
 Nx, Ny = 128, 128
 Δx, Δy = 2π / Nx, 2π / Ny
@@ -226,27 +213,24 @@ KernelAbstractions.synchronize(backend)
 
 maximum(abs, Array(∇²f) .+ 2 .* Array(f))  # discretization error, O(Δx²) ≈ 2e-3
 
-# The same kernel object runs on the CPU backend with the same results — this is the
-# property that allows to develop and debug on a laptop and deploy on a supercomputer
-# without touching the code.
+# The same kernel object runs on the CPU backend with the same results — this is the property that allows to
+# develop and debug on a laptop and deploy on a supercomputer without touching the code.
 #
 # !!! tip "A stencil of your own"
 #     A good way to make this stick: a kernel `_gradient_magnitude!` computing
-#     ``|\nabla f| = \sqrt{(\partial_x f)^2 + (\partial_y f)^2}``
-#     with centered differences, checked against ``f(x, y) = x + 2y`` (where
-#     ``|\nabla f| = \sqrt{5}``) away from the boundaries.
+#     ``|\nabla f| = \sqrt{(\partial_x f)^2 + (\partial_y f)^2}`` with centered differences, checked against
+#     ``f(x, y) = x + 2y`` (where ``|\nabla f| = \sqrt{5}``) away from the boundaries.
 #
 # ## Interlude: multiple dispatch, or how to make kernels extensible
 #
-# Before assembling the solver we need one Julia-specific idea. A numerical model offers
-# choices — advection schemes, equations of state, parameterizations — and the classical
-# implementations select among them with strings and `if`/`else` ladders inside the inner
-# loop. Julia instead dispatches on *types*: we define one empty `struct` per scheme and
-# one method per (function, scheme) pair, and the compiler selects the method at compile
-# time, also inside a GPU kernel, at zero runtime cost.
+# Before assembling the solver we need one Julia-specific idea. A numerical model offers choices — advection
+# schemes, equations of state, parameterizations — and the classical implementations select among them with
+# strings and `if`/`else` ladders inside the inner loop. Julia instead dispatches on *types*: we define one
+# empty `struct` per scheme and one method per (function, scheme) pair, and the compiler selects the method
+# at compile time, also inside a GPU kernel, at zero runtime cost.
 #
-# Consider the reconstruction of a cell-centered quantity at the face ``i + 1/2``,
-# the central ingredient of finite-volume advection:
+# Consider the reconstruction of a cell-centered quantity at the face ``i + 1/2``, the central ingredient of
+# finite-volume advection:
 
 abstract type AbstractScheme end
 struct SecondOrderCentered <: AbstractScheme end
@@ -261,29 +245,28 @@ exact_face_value = 2.5^2
 (second_order = reconstruct(cell_values, 3, SecondOrderCentered()) - exact_face_value,
  fourth_order = reconstruct(cell_values, 3, FourthOrderCentered()) - exact_face_value)
 
-# Adding a fifth scheme does not touch the existing four — we just define a new type and
-# a new method. Contrarily to an `if`/`else` ladder, the dispatch costs nothing inside a
-# kernel: the scheme type is known at compile time, so the compiler emits straight-line
-# code for the chosen stencil. This is precisely how `advection = WENO()` works in
-# Oceananigans, and we will use the same mechanism for the solver's advection scheme.
+# Adding a fifth scheme does not touch the existing four — we just define a new type and a new method.
+# Contrarily to an `if`/`else` ladder, the dispatch costs nothing inside a kernel: the scheme type is known
+# at compile time, so the compiler emits straight-line code for the chosen stencil. This is precisely how
+# `advection = WENO()` works in Oceananigans, and we will use the same mechanism for the solver's advection
+# scheme.
 #
 # ## The target: two-dimensional turbulence
 #
-# Time to put everything together. We solve the two-dimensional incompressible
-# Navier–Stokes equations,
+# Time to put everything together. We solve the two-dimensional incompressible Navier–Stokes equations,
 #
 # ```math
 # \frac{\partial \mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} =
 #     -\nabla p + \nu \nabla^2 \mathbf{u}, \qquad \nabla \cdot \mathbf{u} = 0,
 # ```
 #
-# in a doubly-periodic square — the simplest system that produces a genuinely turbulent
-# flow, and (not by chance) the system behind the mesoscale eddy fields simulated by ocean
-# models. Two dimensional turbulence transfers energy *upscale*: small vortices merge
-# into larger ones, which is the reason why the ocean is full of coherent eddies.
+# in a doubly-periodic square — the simplest system that produces a genuinely turbulent flow, and (not by
+# chance) the system behind the mesoscale eddy fields simulated by ocean models. Two dimensional turbulence
+# transfers energy *upscale*: small vortices merge into larger ones, which is the reason why the ocean is
+# full of coherent eddies.
 #
-# For the time discretization we use forward Euler — the simplest possible choice, stable
-# enough at small time step and free of implicit complications:
+# For the time discretization we use forward Euler — the simplest possible choice, stable enough at small
+# time step and free of implicit complications:
 #
 # ```math
 # \frac{\mathbf{u}^{n+1} - \mathbf{u}^n}{\Delta t} = \mathrm{RHS}^n .
@@ -291,31 +274,27 @@ exact_face_value = 2.5^2
 #
 # ### The projection method
 #
-# The system gives explicit update formulas for ``u`` and ``v``, but no evolution
-# equation for the pressure: ``p`` is whatever it must be for the velocity to remain
-# divergence-free. The classical solution is the *projection method* of
-# [Chorin (1968)](https://doi.org/10.1090/S0025-5718-1968-0242392-2), which splits each
-# time step into a prediction that ignores the pressure and a correction that restores
-# incompressibility:
+# The system gives explicit update formulas for ``u`` and ``v``, but no evolution equation for the pressure:
+# ``p`` is whatever it must be for the velocity to remain divergence-free. The classical solution is the
+# *projection method* of
+# [Chorin (1968)](https://doi.org/10.1090/S0025-5718-1968-0242392-2), which splits each time step into a
+# prediction that ignores the pressure and a correction that restores incompressibility:
 #
 # 1. **Tendencies**: ``G^n = -(\mathbf{u}^n \cdot \nabla)\mathbf{u}^n + \nu \nabla^2 \mathbf{u}^n``
 # 2. **Prediction**: ``\mathbf{u}^\star = \mathbf{u}^n + \Delta t \, G^n`` (generally not divergence-free)
-# 3. **Pressure solve**: requiring ``\nabla \cdot \mathbf{u}^{n+1} = 0`` in the correction
-#    below yields the Poisson equation
-#    ``\nabla^2 p^{n+1} = \nabla \cdot \mathbf{u}^\star / \Delta t``
+# 3. **Pressure solve**: requiring ``\nabla \cdot \mathbf{u}^{n+1} = 0`` in the correction below yields the
+#    Poisson equation ``\nabla^2 p^{n+1} = \nabla \cdot \mathbf{u}^\star / \Delta t``
 # 4. **Correction**: ``\mathbf{u}^{n+1} = \mathbf{u}^\star - \Delta t \, \nabla p^{n+1}``
 #
-# The pressure acts as a Lagrange multiplier, and the correction is an orthogonal
-# projection of ``\mathbf{u}^\star`` onto the divergence-free subspace — hence the name.
-# Oceananigans' `NonhydrostaticModel` advances the same algorithm (with a fancier time
-# stepping scheme); hydrostatic ocean models replace the 3D pressure solve with
-# a free-surface solve, but the architecture is unchanged.
+# The pressure acts as a Lagrange multiplier, and the correction is an orthogonal projection of
+# ``\mathbf{u}^\star`` onto the divergence-free subspace — hence the name. Oceananigans'
+# `NonhydrostaticModel` advances the same algorithm (with a fancier time stepping scheme); hydrostatic ocean
+# models replace the 3D pressure solve with a free-surface solve, but the architecture is unchanged.
 #
 # ### The staggered C-grid
 #
 # Where do `u`, `v` and `p` live? Following
-# [Arakawa and Lamb (1977)](https://doi.org/10.1016/B978-0-12-460817-7.50009-4), on a
-# *staggered* C-grid:
+# [Arakawa and Lamb (1977)](https://doi.org/10.1016/B978-0-12-460817-7.50009-4), on a *staggered* C-grid:
 #
 # ```text
 #     +-------v[i,j+1]-------+
@@ -325,12 +304,11 @@ exact_face_value = 2.5^2
 #     +--------v[i,j]--------+
 # ```
 #
-# pressure at cell centers, ``u`` on the west/east faces, ``v`` on the south/north faces.
-# The staggering buys two properties that collocated grids lose: the discrete divergence
-# is *exactly* zero after the correction (to machine precision — we will check), and the
-# pressure cannot develop the spurious checkerboard mode that haunts collocated
-# discretizations. Every model in this stack, and almost every ocean model in
-# existence, lives on a C-grid.
+# pressure at cell centers, ``u`` on the west/east faces, ``v`` on the south/north faces. The staggering
+# buys two properties that collocated grids lose: the discrete divergence is *exactly* zero after the
+# correction (to machine precision — we will check), and the pressure cannot develop the spurious
+# checkerboard mode that haunts collocated discretizations. Every model in this stack, and almost every
+# ocean model in existence, lives on a C-grid.
 #
 # ## Building the solver
 #
@@ -359,11 +337,10 @@ nothing #hide
 
 # ### Difference operators
 #
-# Forward and backward differences on the periodic grid; together with `∇²` defined
-# above, they are all the calculus we need. On the C-grid the *forward* difference of a
-# face quantity lands at the center and the *backward* difference of a center quantity
-# lands at the face — keeping track of this bookkeeping is most of the work of writing a
-# staggered-grid model:
+# Forward and backward differences on the periodic grid; together with `∇²` defined above, they are all the
+# calculus we need. On the C-grid the *forward* difference of a face quantity lands at the center and the
+# *backward* difference of a center quantity lands at the face — keeping track of this bookkeeping is most of
+# the work of writing a staggered-grid model:
 
 @inline δx⁺(i, j, f, Δx, Nx) = @inbounds (f[right(i, Nx), j] - f[i, j]) / Δx
 @inline δy⁺(i, j, f, Δy, Ny) = @inbounds (f[i, right(j, Ny)] - f[i, j]) / Δy
@@ -380,12 +357,11 @@ nothing #hide
 # \partial_x(U v) + \partial_y(V v),
 # ```
 #
-# so for each velocity component we need the momentum fluxes through its cell faces. To
-# build a flux ``F = U \phi`` at a face we need two ingredients at that face: the
-# *advecting* velocity ``U``, which we obtain by symmetric interpolation, and the
-# *advected* quantity ``\phi``, which we **reconstruct** with the chosen advection scheme.
-# This distinction — interpolate the carrier, reconstruct the cargo — is the key pattern,
-# and the reconstruction is where the scheme types of the interlude enter:
+# so for each velocity component we need the momentum fluxes through its cell faces. To build a flux
+# ``F = U \phi`` at a face we need two ingredients at that face: the *advecting* velocity ``U``, which we
+# obtain by symmetric interpolation, and the *advected* quantity ``\phi``, which we **reconstruct** with the
+# chosen advection scheme. This distinction — interpolate the carrier, reconstruct the cargo — is the key
+# pattern, and the reconstruction is where the scheme types of the interlude enter:
 
 @inline symmetric_x(i, j, f, N) = @inbounds (f[i, j] + f[right(i, N), j]) / 2
 @inline symmetric_y(i, j, f, N) = @inbounds (f[i, j] + f[i, right(j, N)]) / 2
@@ -397,14 +373,13 @@ struct Centered <: AbstractAdvectionScheme end
 @inline reconstruct_in_y(i, j, f, N, V, ::Centered) = symmetric_y(i, j, f, N)
 nothing #hide
 
-# The centered scheme ignores the advecting velocity `U`; an upwind scheme (something to try
-# at the end) selects a biased stencil according to its sign.
+# The centered scheme ignores the advecting velocity `U`; an upwind scheme (something to try at the end)
+# selects a biased stencil according to its sign.
 #
-# Each momentum equation needs fluxes in both directions, which makes four combinations.
-# The same-direction fluxes (``Uu``, ``Vv``) live at cell centers, between two like
-# velocity points; the cross-direction fluxes (``Vu``, ``Uv``) live at cell corners,
-# where the advecting velocity must additionally be interpolated across the grid. Each
-# function returns the flux pair through the right and left faces of the cell owned by
+# Each momentum equation needs fluxes in both directions, which makes four combinations. The same-direction
+# fluxes (``Uu``, ``Vv``) live at cell centers, between two like velocity points; the cross-direction fluxes
+# (``Vu``, ``Uv``) live at cell corners, where the advecting velocity must additionally be interpolated
+# across the grid. Each function returns the flux pair through the right and left faces of the cell owned by
 # ``(i, j)``:
 
 @inline function x_flux_of_u(i, j, u, Nx, scheme)
@@ -442,25 +417,22 @@ nothing #hide
 
 # ### The pressure solver
 #
-# On a doubly-periodic domain the Poisson equation ``\nabla^2 p = f`` diagonalizes under
-# the Fourier transform, so the solve consists in one FFT, one division by the
-# eigenvalues, and one inverse FFT — ``O(N^2 \log N)`` work, executed by cuFFT on the
-# device when the storage is a `CuArray`.
+# On a doubly-periodic domain the Poisson equation ``\nabla^2 p = f`` diagonalizes under the Fourier
+# transform, so the solve consists in one FFT, one division by the eigenvalues, and one inverse FFT —
+# ``O(N^2 \log N)`` work, executed by cuFFT on the device when the storage is a `CuArray`.
 #
-# One subtlety with important consequences: we must divide by the eigenvalues of the
-# *discrete* Laplacian,
+# One subtlety with important consequences: we must divide by the eigenvalues of the *discrete* Laplacian,
 #
 # ```math
 # \lambda_{mn} = -\frac{4 \sin^2(\pi m / N_x)}{\Delta x^2}
 #                -\frac{4 \sin^2(\pi n / N_y)}{\Delta y^2},
 # ```
 #
-# and not by the continuous ``-(k_x^2 + k_y^2)``. The reason is consistency: the
-# correction step removes the divergence *as measured by our finite differences*, and
-# only the discrete eigenvalues invert exactly the same operator that ``δx⁺``/``δx⁻``
-# build. Using the continuous symbols would leave a residual divergence at every step.
-# With the discrete ones, ``\nabla \cdot \mathbf{u} = 0`` holds to machine precision —
-# a check worth performing on every solver you ever write:
+# and not by the continuous ``-(k_x^2 + k_y^2)``. The reason is consistency: the correction step removes the
+# divergence *as measured by our finite differences*, and only the discrete eigenvalues invert exactly the
+# same operator that ``δx⁺``/``δx⁻`` build. Using the continuous symbols would leave a residual divergence at
+# every step. With the discrete ones, ``\nabla \cdot \mathbf{u} = 0`` holds to machine precision — a check
+# worth performing on every solver you ever write:
 
 using FFTW
 using AbstractFFTs
@@ -497,9 +469,9 @@ nothing #hide
 
 # ### The kernels
 #
-# Four kernels implement the four stages of the projection algorithm. It is possible to
-# notice that they contain no reference to CUDA, to the backend, or to the array type:
-# they are pure index-space descriptions of the numerics.
+# Four kernels implement the four stages of the projection algorithm. It is possible to notice that they
+# contain no reference to CUDA, to the backend, or to the array type: they are pure index-space descriptions
+# of the numerics.
 
 @kernel function _compute_tendencies!(Gu, Gv, u, v, ν, Δx, Δy, Nx, Ny, scheme)
     i, j = @index(Global, NTuple)
@@ -543,8 +515,8 @@ nothing #hide
 
 # ### The model
 #
-# A `struct` collects grid, fields, parameters and solver — the moral equivalent of
-# Oceananigans' `NonhydrostaticModel`:
+# A `struct` collects grid, fields, parameters and solver — the moral equivalent of Oceananigans'
+# `NonhydrostaticModel`:
 
 struct NavierStokesModel{T, G, F, S, A, B}
     grid           :: G
@@ -568,8 +540,8 @@ function NavierStokesModel(grid::Grid{T}, backend, ArrayType; ν, advection = Ce
 end
 nothing #hide
 
-# and the time step launches the kernels in sequence — compare it line by line with the
-# algorithm summary above:
+# and the time step launches the kernels in sequence — compare it line by line with the algorithm summary
+# above:
 
 function time_step!(model::NavierStokesModel, Δt)
     (; grid, u, v, p, Gu, Gv, divergence, ν, advection, poisson_solver, backend) = model
@@ -594,19 +566,18 @@ function compute_vorticity!(model::NavierStokesModel)
 end
 nothing #hide
 
-# Notice that the host code launches kernels and orchestrates, while every floating-point
-# operation happens on the device, and no field ever leaves it during time stepping —
-# exactly the choreography described at the beginning.
+# Notice that the host code launches kernels and orchestrates, while every floating-point operation happens
+# on the device, and no field ever leaves it during time stepping — exactly the choreography described at the
+# beginning.
 #
 # ## An initial condition: a sea of vortices
 #
-# We seed the flow with a few dozen Lamb–Oseen vortices — Gaussian blobs of vorticity
-# with random positions and circulations. Rather than differentiating an analytical
-# velocity (whose ``1/r`` tails break periodicity), we set the *vorticity* and recover
-# the velocity from the streamfunction: solve ``\nabla^2 \psi = -\omega`` — conveniently,
-# with the Poisson solver we already own — then ``u = \partial_y \psi``,
-# ``v = -\partial_x \psi``. The resulting field is smooth, periodic, and divergence-free
-# by construction.
+# We seed the flow with a few dozen Lamb–Oseen vortices — Gaussian blobs of vorticity with random positions
+# and circulations. Rather than differentiating an analytical velocity (whose ``1/r`` tails break
+# periodicity), we set the *vorticity* and recover the velocity from the streamfunction: solve
+# ``\nabla^2 \psi = -\omega`` — conveniently, with the Poisson solver we already own — then
+# ``u = \partial_y \psi``, ``v = -\partial_x \psi``. The resulting field is smooth, periodic, and
+# divergence-free by construction.
 
 using Random
 
@@ -696,9 +667,9 @@ seed_vortices!(model)
 snapshots, times = run!(model, 5e-4, 5.0)
 nothing #hide
 
-# Before admiring the result, the sanity check promised above — the discrete divergence
-# after a step must vanish to machine precision (this single number validates the grid
-# staggering, the operators, and the consistency of the FFT eigenvalues all at once):
+# Before admiring the result, the sanity check promised above — the discrete divergence after a step must
+# vanish to machine precision (this single number validates the grid staggering, the operators, and the
+# consistency of the FFT eigenvalues all at once):
 
 (; u, v, divergence) = model
 (; Nx, Ny, Δx, Δy) = grid
@@ -732,15 +703,15 @@ nothing #hide
 
 # ![](two_dimensional_turbulence.mp4)
 #
-# Opposite-signed vortices pair up and propagate, like-signed vortices merge, and the
-# population coarsens — the inverse energy cascade in action.
+# Opposite-signed vortices pair up and propagate, like-signed vortices merge, and the population coarsens —
+# the inverse energy cascade in action.
 #
 # ## Unleashing the GPU
 #
-# Everything above ran through the portable backend, so "switching on" the GPU consists
-# in nothing more than what we already did at the top of the script: when a device is
-# available, `GPUArray === CuArray` and the same constructors produce a device-resident
-# model. We celebrate the bandwidth with 16× more grid points and a sharper viscosity:
+# Everything above ran through the portable backend, so "switching on" the GPU consists in nothing more than
+# what we already did at the top of the script: when a device is available, `GPUArray === CuArray` and the
+# same constructors produce a device-resident model. We celebrate the bandwidth with 16× more grid points and
+# a sharper viscosity:
 
 if CUDA.functional()
     grid  = Grid(GPUArray, Float32, 1024, 1024, 2π, 2π)
@@ -753,22 +724,20 @@ else
     @info "No GPU found — skipping the high-resolution run (try this section on the cluster!)."
 end
 
-# On an H100 the 1024² model sustains roughly 10⁹ cell-updates per second — compare with
-# the number your laptop printed above, and note that the *script did not change*. This
-# is the workflow we recommend in general: develop and debug at small size
-# on the CPU, then move to the GPU only to turn the resolution dial.
+# On an H100 the 1024² model sustains roughly 10⁹ cell-updates per second — compare with the number your
+# laptop printed above, and note that the *script did not change*. This is the workflow we recommend in
+# general: develop and debug at small size on the CPU, then move to the GPU only to turn the resolution dial.
 #
 # ## Key takeaways
 #
-# - GPUs win through memory bandwidth and data parallelism; stencil codes are
-#   bandwidth-bound and inherit the full advantage.
-# - Julia + KernelAbstractions allows to write a kernel once and run it on every vendor's
-#   hardware, and on the CPU for development.
-# - Multiple dispatch turns numerical choices (advection schemes, closures, ...) into
-#   types, extensible without touching — or paying anything inside — the kernels.
-# - The C-grid + projection method + FFT pressure solver triad is the blueprint of
-#   Oceananigans' nonhydrostatic model; you have now written the essential parts of it
-#   yourself.
+# - GPUs win through memory bandwidth and data parallelism; stencil codes are bandwidth-bound and inherit the
+#   full advantage.
+# - Julia + KernelAbstractions allows to write a kernel once and run it on every vendor's hardware, and on the
+#   CPU for development.
+# - Multiple dispatch turns numerical choices (advection schemes, closures, ...) into types, extensible
+#   without touching — or paying anything inside — the kernels.
+# - The C-grid + projection method + FFT pressure solver triad is the blueprint of Oceananigans'
+#   nonhydrostatic model; you have now written the essential parts of it yourself.
 #
 # ## Further reading
 #
@@ -776,8 +745,7 @@ end
 # - [Arakawa and Lamb (1977), on staggered grids](https://doi.org/10.1016/B978-0-12-460817-7.50009-4)
 # - [KernelAbstractions.jl documentation](https://juliagpu.github.io/KernelAbstractions.jl/stable/)
 # - [CUDA.jl documentation](https://cuda.juliagpu.org/stable/)
-# - [Oceananigans.jl](https://github.com/NumericalEarth/Oceananigans.jl) — the production
-#   version of the solver we built here
-# - The [PolarPlunge.jl](https://github.com/NumericalEarth/PolarPlunge.jl) notebooks, from
-#   which this tutorial is distilled, including a Lagrangian-particle extra where
-#   turbulence shreds a text banner
+# - [Oceananigans.jl](https://github.com/NumericalEarth/Oceananigans.jl) — the production version of the
+#   solver we built here
+# - The [PolarPlunge.jl](https://github.com/NumericalEarth/PolarPlunge.jl) notebooks, from which this tutorial
+#   is distilled, including a Lagrangian-particle extra where turbulence shreds a text banner

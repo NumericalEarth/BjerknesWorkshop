@@ -8,7 +8,6 @@ docs/src/status/*.md
 
 # Generated tutorial artifacts (Literate.script output, notebooks)
 tutorials/*/scripts/
-tutorials/*/notebooks/
 
 # Tutorial run outputs and pointers
 output/
@@ -18,6 +17,9 @@ output/
 
 # Logs
 logs/
+
+# Jupyter autosave checkpoints
+.ipynb_checkpoints/
 
 # Superseded prototype tree (migrated to tutorials/day4); kept locally for reference
 thursday/
@@ -29,7 +31,12 @@ CondaPkg.toml
 tutorials/day1/.CondaPkg/*
 tutorials/day1/CondaPkg.toml
 tutorials/day2/.CondaPkg/*
-tutorials/day2/CondaPkg.toml# simulation output / render leftovers
+tutorials/day2/CondaPkg.toml
+
+# ...but day1 commits its CondaPkg.toml so the numpy interop example is reproducible.
+!tutorials/day1/CondaPkg.toml
+
+# simulation output / render leftovers
 *.jld2
 docs/src/day*/*.png
 docs/src/day*/*.mp4
