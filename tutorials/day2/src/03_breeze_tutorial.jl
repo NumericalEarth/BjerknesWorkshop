@@ -30,6 +30,13 @@ using Base64
 arch = GPU()
 Oceananigans.defaults.FloatType = Float32
 
+# A small helper that base64-embeds a finished `.mp4` in an HTML5 `<video>` tag,
+# so the animation plays inline in the notebook (no external file serving needed).
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
+
 # ## The shared grid and background atmosphere
 #
 # A single vertical slice serves every part: 24 km wide, 8 km tall, periodic in
@@ -177,6 +184,8 @@ record(fig, "thermal_bubble.mp4", 1:Nt; framerate = 24, compression = 28) do nn
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
+
+mp4_html("thermal_bubble.mp4")
 
 # ## Part II — free convection off a warm surface
 #
@@ -338,6 +347,8 @@ record(fig, "hilly_free_convection.mp4", 1:Nt; framerate = 24, compression = 28)
     n[] = nn
 end
 
+mp4_html("hilly_free_convection.mp4")
+
 # ## Part IV — cloud microphysics on the hilly flow
 #
 # The same hilly, terrain-following, compressible setup as Part III — same grid,
@@ -403,5 +414,7 @@ record(fig, "hilly_cloud_physics.mp4", 1:Nt; framerate = 24, compression = 28) d
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
+
+mp4_html("hilly_cloud_physics.mp4")
 
 
