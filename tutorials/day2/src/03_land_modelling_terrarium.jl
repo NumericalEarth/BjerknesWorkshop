@@ -74,8 +74,8 @@
 # carries the sensible heat and the **latent heat** of freeze/thaw of pore water. Therein 
 # $\rho_w$ is the density of water, $L_\text{sl}$ is the latent heat of fusion, $\theta_w(T)$ 
 # is the liquid water fraction with its soil freezing characteristic curve.
-# Soil and Soil water and carbon are part of the state but inert in this configuration (static `NoFlow` hydrology,
-# constant carbon density).
+# Soil water and carbon are part of the state but inert in this configuration (static `NoFlow`
+# hydrology, constant carbon density).
 
 import Pkg
 Pkg.activate("../terrarium-env")
@@ -100,19 +100,29 @@ run!(integrator, period = Day(10))
 #
 # To run over the whole planet we place the columns on a global
 # [`FullGaussianGrid`](https://speedyweather.github.io/SpeedyWeatherDocumentation/stable/ringgrids/)
-# from RingGrids.jl and wrap it in a [`ColumnRingGrid`](@ref). Switching `CPU()` to `GPU()`
-# is the only change needed to run on the GPU. (The full example with a real land–sea mask
-# and ERA5 forcing lives in [`examples/simulations/soil_heat_global.jl`](https://github.com/NumericalEarth/Terrarium.jl/blob/main/examples/simulations/soil_heat_global.jl).)
+# from RingGrids.jl, masked to land points with a realistic land–sea mask, and wrap it in a
+# [`ColumnRingGrid`](@ref). Switching `CPU()` to `GPU()` is the only change needed to run on
+# the GPU. (A fuller version with ERA5 forcing lives in
+# [`examples/simulations/soil_heat_global.jl`](https://github.com/NumericalEarth/Terrarium.jl/blob/main/examples/simulations/soil_heat_global.jl).)
 
 using CUDA
 import RingGrids
+import SpeedyWeather
 
 NF = Float32
 arch = CUDA.functional() ? GPU() : CPU()
 
 rings = RingGrids.FullGaussianGrid(8)  # 16 latitude rings, 512 cells, ~9°
-grid = ColumnRingGrid(arch, NF, ExponentialSpacing(N = 10), rings)
-grid_lon, grid_lat = RingGrids.get_lonlats(grid.rings)  # radians
+
+## A land–sea mask (from SpeedyWeather) so we place soil columns on land
+## points only:
+lsm = SpeedyWeather.EarthLandSeaMask(SpeedyWeather.SpectralGrid(rings))
+SpeedyWeather.load_mask!(lsm)
+land_mask = lsm.mask .> 0.5            # cells that are more than half land
+
+grid = ColumnRingGrid(arch, NF, ExponentialSpacing(N = 10), rings, land_mask)
+grid_lon, grid_lat = RingGrids.get_lonlats(grid.rings)        # radians, all ring points
+lon_land, lat_land = grid_lon[land_mask], grid_lat[land_mask] # restrict to the land columns
 model = SoilModel(grid)
 
 # We force the surface with a simple latitude-dependent climatology (warm equator, cold
@@ -133,7 +143,7 @@ function diurnal_bc(lon::AbstractVector, lat::AbstractVector; amplitude = 10)
     return bc_fn
 end
 
-bcs = PrescribedSurfaceTemperature(:T_ub, diurnal_bc(grid_lon, grid_lat))
+bcs = PrescribedSurfaceTemperature(:T_ub, diurnal_bc(lon_land, lat_land))
 integrator = initialize(model, ForwardEuler(NF); boundary_conditions = bcs)
 
 # Run for 12 hours and look at the temperature of the uppermost soil layer. Terrarium
@@ -190,7 +200,15 @@ land = SpeedyWeather.LandModel(spectral_grid, terrarium_model; timestepper = For
 # the flow. That solver isn't fully stable yet in the coupled run, so we keep `NoFlow` here. Soil **carbon** is
 # held at a constant density; dynamic biogeochemistry is not active yet.
 
-# The land component plugs into a full primitive-equation atmosphere from SpeedyWeather.jl,
+# Before building the atmosphere we set up output: a `NetCDFOutput` to which we add
+# `LandOutput`, so SpeedyWeather also writes the Terrarium land variables — soil temperature,
+# moisture, … — alongside the usual atmospheric diagnostics:
+
+output = SpeedyWeather.NetCDFOutput(spectral_grid, SpeedyWeather.PrimitiveWetModel;
+                                    nlayers_soil = land.geometry.nlayers, interval = Hour(6))
+SpeedyWeather.add!(output, SpeedyWeather.LandOutput())
+
+# The land component then plugs into a full primitive-equation atmosphere from SpeedyWeather,
 # sharing the same land–sea mask:
 
 model_coupled = SpeedyWeather.PrimitiveWetModel(
@@ -200,39 +218,28 @@ model_coupled = SpeedyWeather.PrimitiveWetModel(
     surface_heat_flux = SpeedyWeather.SurfaceHeatFlux(spectral_grid, land = SpeedyWeather.PrescribedLandHeatFlux()),
     surface_humidity_flux = SpeedyWeather.SurfaceHumidityFlux(spectral_grid, land = SpeedyWeather.PrescribedLandHumidityFlux()),
     time_stepping = SpeedyWeather.Leapfrog(spectral_grid, Δt_at_T31 = Minute(15)),
+    output,
 )
 simulation = SpeedyWeather.initialize!(model_coupled)
 
-# We advance the coupled model in short chunks, capturing a snapshot at each step of the
-# **surface soil temperature** (uppermost soil layer — a Terrarium land variable, living on
-# the masked land grid) and the **surface relative vorticity** (lowest atmospheric layer — a
-# SpeedyWeather diagnostic). The masked land field is mapped back onto the full ring grid
-# with `RingGrids.Field`; ocean points become `NaN` and plot as blank.
+# Now we run the coupled simulation in one call — no manual chunking — writing a snapshot to
+# the NetCDF file every `interval`:
 
-using CairoMakie
+SpeedyWeather.run!(simulation, period = Day(10), output = true)
 
-nframes = 20
-soiltemp_frames, vorticity_frames = Matrix{Float32}[], Matrix{Float32}[]
-for _ in 1:nframes
-    SpeedyWeather.run!(simulation, period = Hour(6))
-    land_state = simulation.variables.prognostic.land.terrarium
-    T_top = interior(land_state.temperature)[:, :, end:end]                          # uppermost soil layer (°C)
-    ## map the masked land columns back onto the full ring grid; ocean points come back as NaN
-    push!(soiltemp_frames, Float32.(Matrix(RingGrids.Field(CPU(), T_top, column_grid)[:, 1, 1])))
-    push!(vorticity_frames, Float32.(Matrix(simulation.variables.grid.vorticity[:, end])))  # lowest layer
-end
+# The run produced a NetCDF file; we read it and animate, exactly as in the
+# tutorial yesterday. Soil temperature is stored as `"st"`; vorticity as `"vor"`:
 
-## stack the per-step snapshots into (lon, lat, time) arrays for animation
-soil_temperature, vorticity = stack(soiltemp_frames), stack(vorticity_frames)
+using NCDatasets, CairoMakie
+ds = NCDataset(joinpath(simulation.model.output.run_path, simulation.model.output.filename))
+lon, lat = ds["lon"][:], ds["lat"][:]
+soil_temperature = nomissing(ds["st"][:, :, 1, :], NaN)      # (lon, lat, time), °C (1 soil layer)
+soil_temperature[soil_temperature .< -100] .= NaN            # ocean carries no soil (≈0 K) → blank
+vorticity        = nomissing(ds["vor"][:, :, end, :], NaN)   # lowest atmospheric layer
 
-# Longitude/latitude axes shared by both panels, read from the full ring grid:
-ζ_ref = simulation.variables.grid.vorticity[:, end]
-lond, latd = RingGrids.get_lond(ζ_ref), RingGrids.get_latd(ζ_ref)
-
-# We reuse the `animate_field` helper from the day-1 tutorial
-# (`01_intro_interactive_climate.jl`): it wraps the time index in an `Observable`, builds a
-# heatmap from it, and then `record`s the frames one by one. (Generalized here with optional
-# `colormap`/`colorrange`; the defaults reproduce day 1's symmetric `:balance` styling.)
+# We reuse the `animate_field` helper from the day-1 tutorial: it wraps the time index in an
+# `Observable`, builds a heatmap, and `record`s the frames one by one. (Generalized here with
+# optional `colormap`/`colorrange`; the defaults reproduce day 1's symmetric `:balance`.)
 function animate_field(data, filename; lon = axes(data, 1), lat = axes(data, 2),
                        label = "", title = "", time_steps = 1:size(data, 3), framerate = 10,
                        colormap = :balance, colorrange = (-maximum(abs, data), maximum(abs, data)))
@@ -258,7 +265,7 @@ end
 # **Surface soil temperature** over land (ocean masked out). Driven by the coupled
 # atmosphere's surface fluxes, the uppermost soil layer warms and cools over the run:
 
-animate_field(soil_temperature, "soil_temperature.mp4"; lon = lond, lat = latd,
+animate_field(soil_temperature, "soil_temperature.mp4"; lon, lat,
               label = "Surface soil temperature [°C]", title = "Surface soil temperature",
               colormap = :balance, colorrange = (-30, 30))
 
@@ -268,10 +275,9 @@ animate_field(soil_temperature, "soil_temperature.mp4"; lon = lond, lat = latd,
 # evolving above the land. Here `animate_field`'s defaults (symmetric range, `:balance`) make
 # the spatial structure clear regardless of units:
 
-animate_field(vorticity, "vorticity.mp4"; lon = lond, lat = latd,
+animate_field(vorticity, "vorticity.mp4"; lon, lat,
               label = "Surface relative vorticity", title = "Surface relative vorticity")
 
-              
 # ![Surface vorticity animation](vorticity.mp4)
 
 # ## Beyond this example: other Terrarium processes
