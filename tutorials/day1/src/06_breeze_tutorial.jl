@@ -173,7 +173,7 @@ agnesi_grid = RectilinearGrid(arch; z,
 
 materialize_terrain!(agnesi_grid, agnesi_hill)
 sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers)
-split_explicit_discretization = SplitExplicitTimeDiscretization(; sponge)
+split_explicit_discretization = SplitExplicitTimeDiscretization(acoustic_cfl=0.5; sponge)
 
 dynamics = CompressibleDynamics(split_explicit_discretization;
                                 reference_potential_temperature = θ̄)
