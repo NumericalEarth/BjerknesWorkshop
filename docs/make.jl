@@ -375,8 +375,12 @@ function render_day(day::Int)
         source = joinpath(srcdir, f)
 
         # Inline-embed a source's own figures/movies for whole INLINE_ASSET_DAYS, or for individual
-        # INLINE_ASSET_SOURCES (the global-ocean sim moved to day 4 but still embeds its movie):
-        inline = (day in INLINE_ASSET_DAYS) || (f in INLINE_ASSET_SOURCES)
+        # INLINE_ASSET_SOURCES (the global-ocean sim moved to day 4 but still embeds its movie).
+        # EXCEPTION: a source with a `<stem>_viz.jl` sibling uses the render_all_viz viz-page
+        # mechanism (e.g. the day-1 Breeze tutorial), so it is NOT inline even within an
+        # INLINE_ASSET_DAY — otherwise its rendered movies would never be appended.
+        has_viz = isfile(joinpath(srcdir, replace(f, r"\.jl$" => "_viz.jl")))
+        inline = !has_viz && ((day in INLINE_ASSET_DAYS) || (f in INLINE_ASSET_SOURCES))
         postprocess = inline ? embed_local_assets(assetdir) ∘ demote_example_blocks :
                                strip_local_images ∘ demote_example_blocks
 

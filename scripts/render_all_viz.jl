@@ -44,8 +44,11 @@ end
 
 function render_one(vizfile, outdir, artifacts_dir)
     mkpath(outdir)
+    # Stage the day's shared helper next to the viz only if it has one (day-4 cases
+    # `include("00_common.jl")`; self-contained viz like the day-1 Breeze tutorial do not).
+    common_src = joinpath(dirname(vizfile), "00_common.jl")
     staged_common = joinpath(outdir, "00_common.jl")
-    cp(joinpath(dirname(vizfile), "00_common.jl"), staged_common; force = true)
+    isfile(common_src) && cp(common_src, staged_common; force = true)
 
     # The viz reads its simulation output by plain filename (e.g.
     # `FieldTimeSeries("free_convection.jld2", …)`). Literate executes inside
