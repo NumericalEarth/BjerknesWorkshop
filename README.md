@@ -19,8 +19,6 @@ module load JupyterNotebook/7.4.7-GCCcore-14.3.0
 module load Julia
 export DATA_DIR=/cluster/projects/nn9984k
 mkdir /cluster/work/projects/nn9984k/$USER
-cd /cluster/work/projects/nn9984k/$USER
-git clone https://github.com/NumericalEarth/BjerknesWorkshop.git
 export JULIA_DEPOT_PATH=/cluster/work/projects/nn9984k/$USER/julia_depot
 env -u LD_LIBRARY_PATH julia -e 'import Pkg; Pkg.add("IJulia")'
 env -u LD_LIBRARY_PATH julia -e 'using IJulia; installkernel("Julia 1.12 (clean env)", "-t 8"; env = Dict("LD_LIBRARY_PATH" => "/cluster/software/NRIS/neoverse_v2/software/Julia/1.12.2/lib"))'
