@@ -59,18 +59,48 @@ grid = RectilinearGrid(arch;
                        z = (0, Lz),
                        topology = (Periodic, Flat, Bounded))
 
-# We stratify the atmosphere stably with a constant buoyancy frequency
-# `N = 0.01 s⁻¹` above a surface at `θ₀ = 290 K`, which sets the background
-# potential-temperature profile
+# ## The anelastic approximation and the reference state
+#
+# The first three parts use **anelastic** dynamics, so it is worth a moment on
+# what that buys us and what we have to supply in return. The atmosphere is a
+# compressible fluid, and sound waves — fast and energetically irrelevant to the
+# convection we care about — would otherwise force a punishingly small time step.
+# The anelastic approximation removes them by splitting every thermodynamic field
+# into a static, horizontally-uniform **reference profile** (overbar) plus a small
+# **perturbation** (prime),
 #
 # ```math
-# \bar θ(z) = θ_0 \, e^{N^2 z / g} .
+# ρ(x, z, t) = \bar ρ(z) + ρ'(x, z, t), \qquad
+# p(x, z, t) = \bar p(z) + p'(x, z, t), \qquad |ρ'| \ll \bar ρ ,
 # ```
 #
-# The anelastic dynamics filter sound waves analytically — pressure comes from an
-# elliptic solve at every substep — and the reference state carries the background
-# density `ρ̄(z)` that lets thin warm bubbles accelerate correctly through a deep
-# atmosphere. One advection scheme (WENO, order 9) serves all four parts.
+# where the reference state is itself in hydrostatic balance, `d\bar p/dz = -\bar ρ g`.
+# Mass continuity is then replaced by the **anelastic constraint**
+# `∇·(\bar ρ \, 𝐮) = 0`: the `∂ρ'/∂t` term is dropped, and that is exactly what
+# filters the acoustic modes. Pressure is no longer thermodynamic but
+# diagnostic — `p'` is whatever enforces the constraint, recovered from an elliptic
+# solve at every substep.
+#
+# That leaves one thing to pin down: the reference profile itself. The whole column
+# is fixed by a *single* function — the **reference potential temperature**
+# `\bar θ(z)`. Given `\bar θ(z)` and a surface pressure, hydrostatic balance and the
+# ideal-gas law close the system: integrating `d\bar p/dz = -\bar ρ g` with
+# `\bar ρ = \bar p / (R \, \bar T)` and `\bar T = \bar θ \, (\bar p/p_0)^{R/c_p}`
+# yields `\bar p(z)`, `\bar T(z)`, and the background density `\bar ρ(z)`. So when we
+# hand `ReferenceState` a potential-temperature profile, it is computing that
+# `\bar ρ(z)` for us — and `\bar ρ(z)`, decreasing with height, is what lets a thin
+# warm bubble accelerate correctly as it rises through a deep atmosphere.
+#
+# For the background we choose a stably stratified profile with a *constant*
+# buoyancy frequency `N`. Since `N^2 = (g/\bar θ) \, d\bar θ/dz`, holding `N` constant
+# makes `\bar θ` grow exponentially with height,
+#
+# ```math
+# \bar θ(z) = θ_0 \, e^{N^2 z / g} ,
+# ```
+#
+# anchored to a surface value `θ₀ = 290 K`. One advection scheme (WENO, order 9)
+# serves all four parts.
 
 θ₀ = 290     # K, surface potential temperature
 N² = 1e-6    # s⁻², stratification (N = 0.01 s⁻¹)
@@ -85,6 +115,14 @@ advection = WENO(order = 9)
 model = AtmosphereModel(grid; dynamics, advection)
 
 # ## Part I — a dry thermal bubble
+#
+# A warm perturbation `θ' = θ - \bar θ(z)` feels a buoyancy
+#
+# ```math
+# b = -g \, \frac{ρ'}{\bar ρ} \approx g \, \frac{θ'}{\bar θ} ,
+# ```
+#
+# so `θ' > 0` rises — which is why we diagnose and plot `θ'` throughout.
 #
 # The "hello, world" of atmospheric dynamics: a blob of air 10 K warmer than its
 # surroundings, released at rest. It is buoyant, so it rises; as it rises it rolls
