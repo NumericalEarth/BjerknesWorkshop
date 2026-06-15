@@ -1,3 +1,6 @@
+# Manifest
+Manifest.toml
+
 # Documentation build output and generated pages
 docs/build/
 docs/src/day1/*.md
