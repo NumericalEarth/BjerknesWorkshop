@@ -8,7 +8,7 @@
 # as the land component of a new, fully GPU- and autodiff-compatible Earth system model in
 # Julia.
 #
-# We see Terrarium a **toolkit** for assembling land models from modular
+# We see Terrarium as a **toolkit** for assembling land models from modular
 # process building blocks. Its goals are to be fast enough for global simulations on a
 # laptop, scalable to HPC and GPUs, fully differentiable with Enzyme.jl, and friendly
 # enough to actually be fun to use. 
@@ -33,8 +33,8 @@
 # Every Terrarium model lives on a **grid**. Horizontally, the domain is a collection of
 # up to $N_h$ independent **columns** (single grid cells, or points on a global
 # [`RingGrid`](https://speedyweather.github.io/SpeedyWeatherDocumentation/stable/ringgrids/)).
-# Vertically, each column is discretized into $N_i$ **layers** spanning the subsurface,
-# . The physics is expressed as **kernel functions** that run
+# Vertically, each column is discretized into $N_i$ **layers** spanning the subsurface.
+# The physics is expressed as **kernel functions** that run
 # over the grid through a **device interface**, so the exact same code runs on CPU or GPU.
 #
 # Three abstractions tie this together (see [Basic concepts](https://numericalearth.github.io/Terrarium.jl/dev/introduction/basic_concepts/)):
@@ -57,7 +57,7 @@
 
 using Terrarium
 
-grid = ColumnGrid(PU(), Float32, ExponentialSpacing(N = 10))
+grid = ColumnGrid(CPU(), Float32, ExponentialSpacing(N = 10))
 model = SoilModel(grid)
 
 # We prescribe a constant 1 °C surface temperature, pick the [`ForwardEuler`](@ref)
@@ -171,43 +171,66 @@ simulation = Speedy.initialize!(model_coupled)
 using CairoMakie
 
 nframes = 20
-moisture_frames, vorticity_frames = [], []
+moisture_frames, vorticity_frames = Matrix{Float32}[], Matrix{Float32}[]
 for _ in 1:nframes
     Speedy.run!(simulation, period = Hour(6))
     land_state = simulation.variables.prognostic.land.terrarium
     sat_top = interior(land_state.saturation_water_ice)[:, :, end:end]              # surface saturation
-    push!(moisture_frames, Float32.(coalesce.(Matrix(RingGrids.Field(CPU(), sat_top, column_grid)[:, 1, 1]), NaN32)))
+    ## map the masked land columns back onto the full ring grid; ocean points come back as NaN
+    push!(moisture_frames, Float32.(Matrix(RingGrids.Field(CPU(), sat_top, column_grid)[:, 1, 1])))
     push!(vorticity_frames, Float32.(Matrix(simulation.variables.grid.vorticity[:, end])))  # lowest layer
 end
+
+## stack the per-step snapshots into (lon, lat, time) arrays for animation
+moisture, vorticity = stack(moisture_frames), stack(vorticity_frames)
 
 # Longitude/latitude axes shared by both panels, read from the full ring grid:
 ζ_ref = simulation.variables.grid.vorticity[:, end]
 lond, latd = RingGrids.get_lond(ζ_ref), RingGrids.get_latd(ζ_ref)
 
-# A small helper records a sequence of lon–lat snapshots to an mp4 (cf. the snow example):
-function animate_frames(frames, filename; colorrange, colormap, label)
-    n = Observable(1)
-    fig = Figure(size = (1000, 480))
-    ax = Axis(fig[1, 1], aspect = 2, title = label, xlabel = "Longitude (°E)", ylabel = "Latitude (°N)")
-    hm = heatmap!(ax, lond, latd, (@lift frames[$n]); colorrange, colormap)
-    Colorbar(fig[1, 2], hm)
-    record(i -> (n[] = i), fig, joinpath(@__DIR__, filename), 1:length(frames); framerate = 8)
-    return nothing
+# We reuse the `animate_field` helper from the day-1 tutorial
+# (`01_intro_interactive_climate.jl`): it wraps the time index in an `Observable`, builds a
+# heatmap from it, and then `record`s the frames one by one. (Generalized here with optional
+# `colormap`/`colorrange`; the defaults reproduce day 1's symmetric `:balance` styling.)
+function animate_field(data, filename; lon = axes(data, 1), lat = axes(data, 2),
+                       label = "", title = "", time_steps = 1:size(data, 3), framerate = 10,
+                       colormap = :balance, colorrange = (-maximum(abs, data), maximum(abs, data)))
+    ## this defines the iterator that will update the animation
+    i_time = Observable(1)
+
+    ## this is the array that is animated
+    frame = @lift data[:, :, $i_time]
+
+    fig, ax, hm = heatmap(lon, lat, frame; colormap, colorrange,
+                          axis = (xlabel = "Longitude [˚E]", ylabel = "Latitude [˚N]"))
+    Colorbar(fig[1, 2], hm; label)
+
+    ## here, we do the actual animation:
+    anim = CairoMakie.record(fig, filename, eachindex(time_steps); framerate) do t
+        i_time[] = t
+        ax.title = "$title, time step $(time_steps[t])"
+    end
+
+    return anim
 end
 
-# **Surface soil moisture** over land (ocean masked out):
+# **Surface soil moisture** over land (ocean masked out). Saturation lies in [0, 1], so we pass
+# a sequential colormap and range rather than the symmetric default:
 
-animate_frames(moisture_frames, "soil_moisture.mp4"; colorrange = (0, 1), colormap = :viridis, label = "Surface soil moisture (saturation)")
+animate_field(moisture, "soil_moisture.mp4"; lon = lond, lat = latd,
+              label = "Surface soil moisture (saturation)", title = "Surface soil moisture",
+              colormap = :viridis, colorrange = (0, 1))
 
 # ![Surface soil moisture animation](soil_moisture.mp4)
 
 # **Surface relative vorticity** of the coupled atmosphere — the synoptic weather systems
-# evolving above the land. We use a symmetric colour range so the field's spatial structure
-# is clear regardless of units:
+# evolving above the land. Here `animate_field`'s defaults (symmetric range, `:balance`) make
+# the spatial structure clear regardless of units:
 
-ζmax = maximum(maximum(abs, f) for f in vorticity_frames)
-animate_frames(vorticity_frames, "vorticity.mp4"; colorrange = (-ζmax, ζmax), colormap = :balance, label = "Surface relative vorticity")
+animate_field(vorticity, "vorticity.mp4"; lon = lond, lat = latd,
+              label = "Surface relative vorticity", title = "Surface relative vorticity")
 
+              
 # ![Surface vorticity animation](vorticity.mp4)
 
 # ## Where to go next: Terrarium's documentation
