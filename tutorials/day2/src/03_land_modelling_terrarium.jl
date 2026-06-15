@@ -76,6 +76,9 @@
 # carbon are part of the state but inert in this configuration (static `NoFlow` hydrology,
 # constant carbon density).
 
+import Pkg
+Pkg.activate("../terrarium-env")
+
 using Terrarium
 
 grid = ColumnGrid(CPU(), Float32, ExponentialSpacing(N = 10))
