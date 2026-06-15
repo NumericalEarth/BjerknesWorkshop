@@ -40,13 +40,6 @@ using Base64
 arch = CPU()
 Oceananigans.defaults.FloatType = Float32
 
-# A small helper that base64-embeds a finished `.mp4` in an HTML5 `<video>` tag,
-# so the animation plays inline in the notebook (no external file serving needed).
-
-mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
-                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
-                             "\" style=\"max-width:100%\"></video>"))
-
 # ## The shared grid and background atmosphere
 #
 # A single vertical slice serves every part: 24 km wide, 8 km tall, periodic in
@@ -56,7 +49,8 @@ mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
 # halo of five cells. (Crank `Nx, Nz` back up for a crisper movie.)
 
 Lx, Lz = 24kilometers, 8kilometers
-Nx, Nz = 384, 160
+#Nx, Nz = 384, 160
+Nx, Nz = 128, 64
 
 grid = RectilinearGrid(arch;
                        size = (Nx, Nz),
@@ -79,7 +73,7 @@ grid = RectilinearGrid(arch;
 # atmosphere. One advection scheme (WENO, order 9) serves all four parts.
 
 θ₀ = 290     # K, surface potential temperature
-N² = 1e-4    # s⁻², stratification (N = 0.01 s⁻¹)
+N² = 1e-6    # s⁻², stratification (N = 0.01 s⁻¹)
 g  = 9.81    # m s⁻², gravitational acceleration
 
 θ̄(z) = θ₀ * exp(N² * z / g)
@@ -99,12 +93,17 @@ model = AtmosphereModel(grid; dynamics, advection)
 # with gravity waves. We paint the warmth onto the initial condition as a smooth
 # cone of radius `r₀` centered at height `z₀`.
 
-Δθ = 10             # K, bubble amplitude
+Δθ = 2              # K, bubble amplitude
 r₀ = 1.5kilometers  # bubble radius
 z₀ = 2kilometers    # release height
 
 θ_bubble(x, z) = θ̄(z) + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
 set!(model, θ=θ_bubble)
+
+# Let's visualize the initial condition:
+
+heatmap(liquid_ice_potential_temperature(model))
+display(current_figure())
 
 # A CFL wizard adapts the time step as the bubble accelerates; with Runge–Kutta
 # time stepping and WENO advection the conventional anelastic stability target is
@@ -139,11 +138,13 @@ bubble_ow = JLD2Writer(model, outputs;
 
 simulation.output_writers[:fields] = bubble_ow
 
+# Now we are ready to run the simulation,
+
 run!(simulation)
 
 # ### The movie
 #
-# Replay every saved frame as a heatmap of `θ′`; `mp4_html` embeds the finished
+# Replay every saved frame as a heatmap of `θ′`.
 # movie so it plays inline.
 
 θ′_ts = FieldTimeSeries("thermal_bubble.jld2", "θ′")
@@ -161,8 +162,6 @@ record(fig, "thermal_bubble.mp4", 1:Nt; framerate = 24, compression = 28) do nn
     n[] = nn
 end
 
-mp4_html("thermal_bubble.mp4")
-
 # ## Part II — free convection off a warm surface
 #
 # Same grid, same anelastic dynamics — but now the warmth comes through the
@@ -173,10 +172,11 @@ mp4_html("thermal_bubble.mp4")
 # into a quadratic bulk formula would alias resolved turbulence into the mean
 # flux, so a `gustiness` floor keeps the exchange finite in calm spots.
 
-coefficient = 1e-3
+coefficient = 2e-3
 gustiness = 1e-1
-q_bottom_bc = BulkVaporFlux(; coefficient, gustiness, surface_temperature=θ₀)
-θ_bottom_bc = BulkSensibleHeatFlux(; coefficient, gustiness, surface_temperature=θ₀)
+surface_temperature = θ₀ + 10
+q_bottom_bc = BulkVaporFlux(; coefficient, gustiness, surface_temperature)
+θ_bottom_bc = BulkSensibleHeatFlux(; coefficient, gustiness, surface_temperature)
 u_bottom_bc = BulkDrag(; coefficient, gustiness)
 
 ρq_bcs = FieldBoundaryConditions(bottom=q_bottom_bc)
@@ -216,6 +216,8 @@ convection_ow = JLD2Writer(model, outputs;
                            overwrite_existing = true)
 
 simulation.output_writers[:fields] = convection_ow
+
+# and then we run the simulation,
 
 run!(simulation)
 
@@ -276,7 +278,7 @@ model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
 
 set!(model, ρ=ρᵢ, θ=θᵢ, u=10)
 
-simulation = Simulation(model; Δt=1, stop_time=1hour)
+simulation = Simulation(model; Δt=1, stop_time=2hour)
 conjure_time_step_wizard!(simulation, cfl=1)
 
 function progress(sim)
@@ -319,8 +321,6 @@ record(fig, "hilly_free_convection.mp4", 1:Nt; framerate = 24, compression = 28)
     @info "Drawing frame $nn of $Nt..."
     n[] = nn
 end
-
-mp4_html("hilly_free_convection.mp4")
 
 # ## Part IV — cloud microphysics on the hilly flow
 #
@@ -388,30 +388,4 @@ record(fig, "hilly_cloud_physics.mp4", 1:Nt; framerate = 24, compression = 28) d
     n[] = nn
 end
 
-mp4_html("hilly_cloud_physics.mp4")
 
-# ## Curtain call
-#
-# Looking back at what carried through: one grid geometry, one background
-# atmosphere `θ̄(z)`, one advection scheme, one bulk-flux recipe. What changed,
-# part by part: a bubble became a heated boundary; the anelastic core became a
-# split-explicit compressible core (the CFL target rising from 0.7 to 1.0) so the
-# flow could climb a hill; and the hilly flow gained a microphysics scheme that
-# lets it make clouds and rain.
-#
-# ## References
-#
-# - **Deardorff, J. W. (1970).** Convective velocity and temperature scales for
-#   the unstable planetary boundary layer. *J. Atmos. Sci.*, 27, 1211–1213 — the
-#   convective velocity scale `w★` behind Part II.
-# - **Wicker, L. J., & Skamarock, W. C. (2002).** Time-splitting methods for
-#   elastic models using forward time schemes. *Mon. Wea. Rev.*, 130, 2088–2097 —
-#   the split-explicit Runge–Kutta of Parts III–IV and its CFL ≈ 1 stability.
-# - **Queney, P. (1948).** The problem of airflow over mountains. *Bull. Amer.
-#   Meteor. Soc.*, 29, 16–26 — the Witch of Agnesi hill.
-# - **Smith, R. B. (1989).** Hydrostatic airflow over mountains. *Adv. Geophys.*,
-#   31, 1–41 — the `M = N h / U` mountain-wave regimes.
-#
-# !!! note "Why 2D?"
-#     Two-dimensional dynamics suppress vortex stretching, so treat the structures
-#     in these movies as schematic. The later case studies are genuine 3D LES.
