@@ -355,7 +355,15 @@ function render_day(day::Int)
     srcdir = joinpath(REPO_ROOT, "tutorials", "day$day", "src")
     outdir = joinpath(SRC_DIR, "day$day")
     isdir(srcdir) || return String[]
-    rm(outdir; force = true, recursive = true)   # drop stale pages from earlier structures
+    # Drop stale pages from earlier structures, but PRESERVE the `*_viz.md` pages that
+    # Phase A (scripts/render_all_viz.jl) just rendered — render_day appends them below.
+    # (A blanket `rm(outdir)` here wipes those before they can be attached, dropping every
+    # tutorial's movies.)
+    if isdir(outdir)
+        for x in readdir(outdir; join = true)
+            endswith(x, "_viz.md") || rm(x; force = true, recursive = true)
+        end
+    end
     mkpath(outdir)
 
     assetdir = joinpath(REPO_ROOT, "tutorials", "day$day")
