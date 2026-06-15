@@ -133,34 +133,34 @@ heatmap(T_surface[:, 1, 1], title = "Uppermost soil layer temperature", colorran
 # in the SpeedyWeather docs. (Full example:
 # [`examples/simulations/speedy_wet_land.jl`](https://github.com/NumericalEarth/Terrarium.jl/blob/main/examples/simulations/speedy_wet_land.jl).)
 
-import SpeedyWeather as Speedy
+import SpeedyWeather
 
 ## Higher-resolution shared grid: a full Gaussian grid with 64 latitude rings
 ring_grid = RingGrids.FullGaussianGrid(32)
-spectral_grid = Speedy.SpectralGrid(ring_grid)
+spectral_grid = SpeedyWeather.SpectralGrid(ring_grid)
 
 ## Realistic Earth land–sea mask; Terrarium columns are placed on land points only
-land_sea_mask = Speedy.EarthLandSeaMask(spectral_grid)
-Speedy.load_mask!(land_sea_mask)
+land_sea_mask = SpeedyWeather.EarthLandSeaMask(spectral_grid)
+SpeedyWeather.load_mask!(land_sea_mask)
 column_grid = ColumnRingGrid(CPU(), Float32, ExponentialSpacing(N = 15, Δz_min = 0.05), ring_grid, land_sea_mask.mask .> 0)
 
 ## Build the Terrarium land model (soil only here; vegetation = nothing) and wrap it
 soil = SoilEnergyWaterCarbon(eltype(column_grid); hydrology = SoilHydrology(eltype(column_grid)))
 terrarium_model = LandModel(column_grid; initializer = SoilInitializer(eltype(column_grid)), vegetation = nothing, soil)
-land = Speedy.LandModel(spectral_grid, terrarium_model; timestepper = ForwardEuler(eltype(column_grid)), Δt = 300.0)
+land = SpeedyWeather.LandModel(spectral_grid, terrarium_model; timestepper = ForwardEuler(eltype(column_grid)), Δt = 300.0)
 
 # The land component plugs into a full primitive-equation atmosphere from SpeedyWeather.jl,
 # sharing the same land–sea mask:
 
-model_coupled = Speedy.PrimitiveWetModel(
+model_coupled = SpeedyWeather.PrimitiveWetModel(
     spectral_grid;
     land,
     land_sea_mask,
-    surface_heat_flux = Speedy.SurfaceHeatFlux(spectral_grid, land = Speedy.PrescribedLandHeatFlux()),
-    surface_humidity_flux = Speedy.SurfaceHumidityFlux(spectral_grid, land = Speedy.PrescribedLandHumidityFlux()),
-    time_stepping = Speedy.Leapfrog(spectral_grid, Δt_at_T31 = Minute(15)),
+    surface_heat_flux = SpeedyWeather.SurfaceHeatFlux(spectral_grid, land = SpeedyWeather.PrescribedLandHeatFlux()),
+    surface_humidity_flux = SpeedyWeather.SurfaceHumidityFlux(spectral_grid, land = SpeedyWeather.PrescribedLandHumidityFlux()),
+    time_stepping = SpeedyWeather.Leapfrog(spectral_grid, Δt_at_T31 = Minute(15)),
 )
-simulation = Speedy.initialize!(model_coupled)
+simulation = SpeedyWeather.initialize!(model_coupled)
 
 # We advance the coupled model in short chunks, capturing a snapshot at each step of the
 # **surface soil moisture** (top-layer saturation — a Terrarium land variable, living on the
@@ -173,7 +173,7 @@ using CairoMakie
 nframes = 20
 moisture_frames, vorticity_frames = Matrix{Float32}[], Matrix{Float32}[]
 for _ in 1:nframes
-    Speedy.run!(simulation, period = Hour(6))
+    SpeedyWeather.run!(simulation, period = Hour(6))
     land_state = simulation.variables.prognostic.land.terrarium
     sat_top = interior(land_state.saturation_water_ice)[:, :, end:end]              # surface saturation
     ## map the masked land columns back onto the full ring grid; ocean points come back as NaN
