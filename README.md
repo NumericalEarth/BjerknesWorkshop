@@ -48,8 +48,10 @@ env -u LD_LIBRARY_PATH julia -e 'using IJulia; installkernel("Julia 1.12 (clean 
 
 ## Tutorials & website
 
-The LES tutorials (Thursday = `tutorials/day4/`) are built into a website served
-at <https://numericalearth.github.io/BjerknesWorkshop/>.
+The tutorials are built into a website served at
+<https://numericalearth.github.io/BjerknesWorkshopDocs/> (the rendered docs live in
+the companion [BjerknesWorkshopDocs](https://github.com/NumericalEarth/BjerknesWorkshopDocs)
+repo so this repo stays lightweight).
 
 To generate the docs, run cases, publish to GitHub Pages, or regenerate just part
 of the site, see the operator guide: [`docs/WORKFLOW.md`](docs/WORKFLOW.md).
@@ -60,3 +62,42 @@ Part of [NumericalEarth](https://github.com/NumericalEarth):
 
 - [PolarPlunge.jl](https://github.com/NumericalEarth/PolarPlunge.jl) — Swim lessons in Scottish waters
 - [SwimLessons.jl](https://github.com/NumericalEarth/SwimLessons.jl) — Tutorials and scripts that teach ocean-flavored fluid dynamics with Oceananigans
+
+## Table of contents
+
+Every tutorial is rendered (with figures and movies) at
+<https://numericalearth.github.io/BjerknesWorkshopDocs/>. Sources live under
+`tutorials/dayN/src/`.
+
+### Day 1 — Julia & GPU foundations
+- [Interactive climate modelling basics](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/01_intro_interactive_climate/) — SpeedyWeather.jl + Oceananigans.jl
+- [Mesoscale eddies: baroclinic instability in a channel](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/02_oceananigans_baroclinic_adjustment/)
+- [Implementing new physics: a capsizing iceberg](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/03_capsizing_iceberg/)
+- [Hydrostatic ocean modelling: internal tides over a sill](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/04_optional_hydrostatic_internal_tide/) *(optional)*
+- [GPU computing in Julia: from arrays to a turbulence solver](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/05_optional_gpu_computing/) *(optional)*
+- [A first taste of the atmosphere (Breeze)](https://numericalearth.github.io/BjerknesWorkshopDocs/day1/06_breeze_tutorial/) — thermal bubble → free convection → split-explicit compressible → mountain lee waves → clouds & drizzle over a 3D mountain
+
+### Day 2 — High-latitude ocean & sea ice
+- [Sea ice in the Arctic: a pan-Arctic simulation](https://numericalearth.github.io/BjerknesWorkshopDocs/day2/01_arctic_sea_ice/)
+- [The Barents Sea: a regional coupled ocean–sea ice simulation](https://numericalearth.github.io/BjerknesWorkshopDocs/day2/02_barents_sea_regional/)
+
+### Day 3 — Hybrid physics & differentiable ESMs
+- Hybrid ML — learning a surface-roughness parameterization, end to end:
+  [introduction](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01a_hybrid_ml_introduction/) ·
+  [preprocessing](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01b_preprocessing/) ·
+  [dataloaders](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01c_dataloaders/) ·
+  [training](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01d_training/) ·
+  [parameterization](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01e_parameterization/) ·
+  [run in SpeedyWeather](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01f_run_parameterization/) ·
+  [Pangaea](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01g_run_pangaea/) ·
+  [GPU](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/01h_run_parameterization_gpu/)
+- [Differentiable Earth-system models](https://numericalearth.github.io/BjerknesWorkshopDocs/day3/02_differentiable_esms/)
+
+### Day 4 — Boundary heterogeneity & turbulence
+- [A crack in the ice: atmospheric turbulence over a sea-ice lead](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/01_atmospheric_turbulence_over_a_sea_ice_lead/)
+- [Beneath the crack: ocean turbulence & Langmuir structures](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/02_ocean_turbulence_below_a_lead_with_surface_waves/)
+- [Steep island mountains: 100 m coupled air–land flow over Lofoten](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/03_norway_100m_prescribed_fluxes/)
+- [Two fluids, one interface: 2D coupled air–sea convection](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/07_intro_coupled_convection/)
+- [A warm filament writes a cloud street: 3D coupled LES](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/08_coupled_warm_filament/)
+- [A realistic global ocean–sea ice simulation](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/09_global_ocean/)
+- [Gallery & discussion](https://numericalearth.github.io/BjerknesWorkshopDocs/day4/04_gallery_and_discussion/)
