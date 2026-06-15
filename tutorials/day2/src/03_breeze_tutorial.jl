@@ -24,9 +24,10 @@ using Oceananigans.Units
 using Printf
 using Random
 using CairoMakie
+using CUDA
 using Base64
 
-arch = CPU()
+arch = GPU()
 Oceananigans.defaults.FloatType = Float32
 
 # ## The shared grid and background atmosphere
@@ -79,7 +80,7 @@ grid = RectilinearGrid(arch;
 # anchored at `θ₀ = 290 K`. WENO order-9 advection serves all four parts.
 
 θ₀ = 290     # K, surface potential temperature
-N² = 1e-6    # s⁻², stratification (N = 0.01 s⁻¹)
+N² = 1e-6    # s⁻², stratification (N = 0.001 s⁻¹)
 g  = 9.81    # m s⁻², gravitational acceleration
 
 θ̄(z) = θ₀ * exp(N² * z / g)
