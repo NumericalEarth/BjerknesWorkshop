@@ -40,3 +40,4 @@ tutorials/day2/CondaPkg.toml
 *.jld2
 docs/src/day*/*.png
 docs/src/day*/*.mp4
+*.swp
