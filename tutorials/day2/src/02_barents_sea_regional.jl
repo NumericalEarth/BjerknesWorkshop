@@ -69,7 +69,8 @@ underlying_grid = LatitudeLongitudeGrid(arch;
                                         halo = (7, 7, 7))
 
 # Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
-dir_kw = (;) # haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+
+dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
 
 bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
 bottom_height = regrid_bathymetry(underlying_grid, bathymetry;
@@ -88,10 +89,8 @@ h_bottom = Array(interior(grid.immersed_boundary.bottom_height, :, :, 1))
 h_bottom[h_bottom .≥ 0] .= NaN
 
 fig = Figure(size = (900, 350))
-ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]",
-          title = "Barents Sea bathymetry")
-hm = heatmap!(ax, range(λ₁, λ₂, Nx), range(φ₁, φ₂, Ny), h_bottom,
-              colormap = :deep, colorrange = (-depth, 0))
+ax = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]", title = "Barents Sea bathymetry")
+hm = heatmap!(ax, range(λ₁, λ₂, Nx), range(φ₁, φ₂, Ny), h_bottom, colormap = :deep, colorrange = (-depth, 0))
 Colorbar(fig[1, 2], hm, label = "bottom height [m]")
 save("barents_bathymetry.png", fig)
 nothing #hide
@@ -130,6 +129,22 @@ uᵉˣᵗ = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region, dir_
 vᵉˣᵗ = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 ηᵉˣᵗ = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 nothing #hide
+
+# How do these fields look like? Let's make a video of the GLORYS12 data
+
+iter  = Observable(1)
+ηv = @lift begin
+    η = Array(interior(ηᵉˣᵗ[$iter], :, :, 1))
+    η[isnan.(h_bottom)] .= NaN
+    η
+end
+fig = Figure(size = (800, 400))
+ax  = Axis(fig[1, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]", title = "GLORYS free surface")
+hm  = heatmap!(range(λ₁, λ₂, Nx), range(φ₁, φ₂, Ny), ηv, colormap = :balance, colorrange = (-1.5, 0.2))
+Colorbar(fig[1, 2], hm, label = "Free surface [m]")
+CairoMakie.record(fig, "free_surface.mp4", 1:length(dates), framerate = 8) do i
+    iter[] = i
+end
 
 # Discrete boundary functions hand the external values to the boundary machinery: each evaluates its
 # `FieldTimeSeries` at the boundary index and the current clock time — the same zero-overhead pattern as every
