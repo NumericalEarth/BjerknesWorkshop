@@ -16,7 +16,7 @@
 
 using SpeedyWeather, Lux, JLD2
 
-include(joinpath(@__DIR__,"01e_parameterization.jl"))
+include(joinpath(@__DIR__, "..", "src/01e_parameterization.jl"))
 
 # ## Get the Pangaea boundary conditions
 #
