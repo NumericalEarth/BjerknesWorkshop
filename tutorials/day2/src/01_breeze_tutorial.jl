@@ -343,6 +343,28 @@ agnesi_grid = RectilinearGrid(arch; z,
 
 materialize_terrain!(agnesi_grid, agnesi_hill)
 
+# Let's see what the terrain-following coordinate did: each gray line is a
+# constant-index surface, packed against the hill near the ground and relaxing back
+# to flat aloft. The brown curve is the terrain itself.
+
+x_nodes = xnodes(agnesi_grid, Center())
+surface_indices = unique(round.(Int, range(1, Nz + 1, length = 9)))
+
+fig = Figure(size=(1200, 400))
+ax = Axis(fig[1, 1], xlabel="x (m)", ylabel="z (m)",
+          title="Terrain-following coordinate surfaces")
+
+CUDA.@allowscalar for k in surface_indices
+    z_surface = [znode(i, 1, k, agnesi_grid, Center(), Center(), Face()) for i in 1:Nx]
+    lines!(ax, x_nodes, z_surface, color=:gray, linewidth=0.5)
+end
+
+z_bottom = CUDA.@allowscalar [znode(i, 1, 1, agnesi_grid, Center(), Center(), Face()) for i in 1:Nx]
+lines!(ax, x_nodes, z_bottom, color=:brown, linewidth=2)
+band!(ax, x_nodes, zero(z_bottom), z_bottom, color=(:brown, 0.2))
+
+display(fig)
+
 # Unlike the neutral first two parts, the hill needs a **stratified** background so
 # that flow over the terrain can radiate gravity (mountain) waves. We give the
 # reference state a constant buoyancy frequency, so the reference potential
@@ -472,7 +494,7 @@ model = AtmosphereModel(agnesi_grid; microphysics, dynamics, advection, boundary
 qᵗᵢ(x, z) = 0.012 * exp(-z / 3kilometers)   # kg/kg, moist near the surface, drying aloft
 set!(model, ρ=ρᵢ, θ=θᵢ, u=10, qᵗ=qᵗᵢ)
 
-simulation = Simulation(model; Δt=1, stop_time=1hour)
+simulation = Simulation(model; Δt=1, stop_time=4hours)
 conjure_time_step_wizard!(simulation, cfl=1)
 
 # `qᶜˡ` is the specific cloud-liquid mixing ratio and `qʳ` the specific rain mixing
