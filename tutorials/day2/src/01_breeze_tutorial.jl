@@ -29,12 +29,10 @@ using Random
 using CairoMakie
 using CUDA
 
-# It pays to *be careful* about which versions are actually in play. We print the
-# environment status *after* the `using` statements on purpose: only then will
-# `Pkg.status` annotate any package whose loaded version differs from the resolved
-# one, e.g. `Breeze v0.6.0 [loaded: v0.5.3]`. That bracketed note means a stale
-# version is still loaded in this session (Julia can't hot-swap a loaded package) —
-# if you see it, restart the kernel so the resolved version is the one in memory.
+# Print the environment status *after* the `using` statements: only then can
+# `Pkg.status` flag a package whose loaded version differs from the resolved one
+# (shown as `[loaded: …]`). If you see that, restart the kernel — Julia can't
+# hot-swap an already-loaded package.
 
 Pkg.status()
 
@@ -52,11 +50,9 @@ mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
 
 # ## The shared grid and background atmosphere
 #
-# A single vertical slice serves every part: 24 km wide, 8 km tall, periodic in
-# `x` and `Flat` in `y`. Two-dimensional dynamics are a cartoon — 2D turbulence
-# has no vortex stretching — but they are cheap enough to run in minutes and rich
-# enough to show everything we want to point at. WENO advection of order 9 needs a
-# halo of five cells. (Crank `Nx, Nz` back up for a crisper movie.)
+# A single vertical slice serves every part: periodic in `x`, `Flat` in `y`. Two-
+# dimensional dynamics are a cartoon — no vortex stretching — but cheap to run and
+# rich enough to show what we are after.
 
 Lx, Lz = 24kilometers, 8kilometers
 Nx, Nz = 384, 160
@@ -96,32 +92,15 @@ grid = RectilinearGrid(arch;
 #
 # while ``p'`` is then diagnostic, from an elliptic solve enforcing that constraint.
 #
-# The reference column is fixed by a single function, the **reference potential
-# temperature** ``θᵣ(z)``: with a surface pressure, hydrostatic balance and the
-# ideal-gas law then close ``pᵣ(z)``, ``Tᵣ(z)``, and the background density
-# ``ρᵣ(z)``. So handing `ReferenceState` a ``θᵣ(z)`` is what produces ``ρᵣ(z)``.
-# We take a constant buoyancy frequency ``N``. Since
-#
-# ```math
-# N^2 = \frac{g}{θᵣ} \frac{dθᵣ}{dz} ,
-# ```
-#
-# ``θᵣ`` is exponential for constant ``N^2``,
-#
-# ```math
-# θᵣ(z) = θ_0 \, e^{N^2 z / g} .
-# ```
-#
-# We choose a surface potential temperature of `θ₀ = 290 K`.
-# Note also the choice of WENO order-9 advection with no turbulence closure.
+# The reference column is fixed by the **reference potential temperature**: with a
+# surface pressure, hydrostatic balance and the ideal-gas law then close ``pᵣ(z)``,
+# ``Tᵣ(z)``, and the density ``ρᵣ(z)``. For the first two parts we take a *neutral*
+# atmosphere — a constant reference potential temperature — and introduce
+# stratification only at the hill in Part III. Advection is WENO with no closure.
 
-θ₀ = 290     # K, surface potential temperature
-N² = 1e-4    # s⁻², stratification (N = 0.01 s⁻¹); strong enough for visible lee waves
-g  = 9.81    # m s⁻², gravitational acceleration
+θ₀ = 290     # K, reference potential temperature
 
-θᵣ(z) = θ₀ * exp(N² * z / g)
-
-reference_state = ReferenceState(grid; potential_temperature = θᵣ)
+reference_state = ReferenceState(grid; potential_temperature = θ₀)
 dynamics = AnelasticDynamics(reference_state)
 advection = WENO(order = 9)
 
@@ -157,27 +136,24 @@ model = AtmosphereModel(grid; dynamics, advection)
 
 # ## Part I — a dry thermal bubble
 #
-# A warm perturbation ``θ' = θ - θᵣ(z)`` feels a buoyancy
+# A warm perturbation ``θ' = θ - θ₀`` feels a buoyancy
 #
 # ```math
-# b = -g \, \frac{ρ'}{ρᵣ} = g \, \frac{θ'}{θᵣ}
+# b = -g \, \frac{ρ'}{ρᵣ} = g \, \frac{θ'}{θ₀}
 # ```
 #
 # (exact in the anelastic system, where buoyancy is evaluated at the reference
-# pressure so `p'` drops out): `θ' > 0` rises, which is why we plot `θ'` throughout.
+# pressure so ``p'`` drops out): warm air rises, which is why we plot ``θ'``.
 #
-# The "hello, world" of atmospheric dynamics: a blob of air 10 K warmer than its
-# surroundings, released at rest. It is buoyant, so it rises; as it rises it rolls
-# up into the classic mushroom vortex pair, overshoots the height where the
-# stratification matches its excess warmth, and rings the surrounding atmosphere
-# with gravity waves. We paint the warmth onto the initial condition as a smooth
-# cone of radius `r₀` centered at height `z₀`.
+# The "hello, world" of atmospheric dynamics: a warm blob released at rest in a
+# neutral atmosphere. Being buoyant it rises, rolling up into the classic mushroom
+# vortex pair. We paint the warmth on as a smooth cone.
 
 Δθ = 2              # K, bubble amplitude
 r₀ = 1.5kilometers  # bubble radius
 z₀ = 2kilometers    # release height
 
-θ_bubble(x, z) = θᵣ(z) + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
+θ_bubble(x, z) = θ₀ + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
 set!(model, θ=θ_bubble)
 
 # Let's visualize the initial condition:
@@ -187,9 +163,8 @@ ax = Axis(fig[1, 1])
 heatmap!(ax, liquid_ice_potential_temperature(model))
 display(fig)
 
-# A CFL wizard adapts the time step as the bubble accelerates; with Runge–Kutta
-# time stepping and WENO advection the conventional anelastic stability target is
-# `cfl = 0.7`. A progress callback logs the wall-clock march periodically.
+# A CFL wizard adapts the time step as the bubble accelerates, and a progress
+# callback logs the march periodically.
 
 simulation = Simulation(model; Δt=1, stop_time=25minutes)
 conjure_time_step_wizard!(simulation, cfl=0.7)
@@ -203,14 +178,10 @@ end
 
 add_callback!(simulation, progress, IterationInterval(200))
 
-# We save the potential-temperature *perturbation* `θ′ = θ - θᵣ(z)` — the signal
-# the bubble carries above the background — together with the velocities, once a
-# minute.
+# We save the potential-temperature perturbation ``θ' = θ - θ₀`` and the velocities.
 
 θ = liquid_ice_potential_temperature(model)
-θᵣ_field = Field{Nothing, Nothing, Center}(grid)
-set!(θᵣ_field, θᵣ)
-θ′ = θ - θᵣ_field
+θ′ = θ - θ₀
 outputs = (; θ′, model.velocities...)
 
 bubble_ow = JLD2Writer(model, outputs;
@@ -226,8 +197,7 @@ run!(simulation)
 
 # ### The movie
 #
-# Replay every saved frame as a heatmap of `θ′`.
-# movie so it plays inline.
+# Replay every saved frame as a heatmap of ``θ'``.
 
 θ′_ts = FieldTimeSeries("thermal_bubble.jld2", "θ′")
 Nt = length(θ′_ts)
@@ -248,13 +218,11 @@ mp4_html("thermal_bubble.mp4")
 
 # ## Part II — free convection off a warm surface
 #
-# Same grid, same anelastic dynamics — but now the warmth comes through the
-# *boundary* instead of being painted on the initial condition. Breeze computes
-# the turbulent surface exchange with bulk aerodynamic formulae: a sensible heat
-# flux and a vapor flux out of a sea held at `θ₀`, plus a drag on the wind. The
-# `coefficient` sets the exchange strength; feeding the instantaneous LES wind
-# into a quadratic bulk formula would alias resolved turbulence into the mean
-# flux, so a `gustiness` floor keeps the exchange finite in calm spots.
+# Same grid, same anelastic dynamics — but now the warmth enters through the
+# *boundary* rather than the initial condition. Breeze computes the turbulent
+# surface exchange with bulk aerodynamic formulae: a sensible heat flux and a vapor
+# flux from a warm surface, plus a drag on the wind. A `gustiness` floor keeps the
+# exchange finite where the resolved wind goes slack.
 
 coefficient = 2e-3
 gustiness = 1e-1
@@ -270,13 +238,12 @@ u_bottom_bc = BulkDrag(; coefficient, gustiness)
 boundary_conditions = (; ρq=ρq_bcs, ρθ=ρθ_bcs, ρu=ρu_bcs)
 model = AtmosphereModel(grid; dynamics, advection, boundary_conditions)
 
-# The lowest layer warms, goes unstable, and organizes into thermals that punch
-# upward and erode the stratification from below, growing a convective boundary
-# layer. We start from the background profile plus a whisper of noise and a light
-# mean wind (`u = 5 m s⁻¹`) to lean the plumes and work the bulk formulae.
+# The lowest layer warms, goes unstable, and organizes into thermals that grow a
+# convective boundary layer. We start from the neutral background plus a whisper of
+# noise and a light mean wind to work the bulk formulae.
 
-θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
-set!(model, θ=θᵢ, u=5)
+θᵢ(x, z) = θ₀ + 1e-2 * randn()
+set!(model, θ=θᵢ, u=2)
 
 simulation = Simulation(model; Δt=1, stop_time=2hours)
 conjure_time_step_wizard!(simulation, cfl=0.7)
@@ -291,7 +258,7 @@ end
 add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
-θ′ = θ - θᵣ_field
+θ′ = θ - θ₀
 outputs = (; θ′, model.velocities...)
 
 convection_ow = JLD2Writer(model, outputs;
@@ -355,8 +322,10 @@ mp4_html("free_convection.mp4")
 # the classic bell of mountain-wave theory. The grid's vertical coordinate follows
 # the terrain near the ground and decays back to flat aloft (`TwoLevelDecay`).
 
-h₀ = 300           # m, hill height (Nh₀/U ≈ 0.3 — linear, non-breaking mountain wave)
-a = 5kilometers   # hill half-width (a gentle slope keeps the flow stable)
+Lx = 100kilometers
+Lz = 20kilometers
+h₀ = 300          # m, hill height
+a = 5kilometers   # hill half-width
 
 agnesi_hill(x) = h₀ / (1 + (x / a)^2)
 
@@ -374,20 +343,25 @@ agnesi_grid = RectilinearGrid(arch; z,
 
 materialize_terrain!(agnesi_grid, agnesi_hill)
 
-# A sponge in the top 2.5 km absorbs the waves before they reflect off the model
-# lid back into the physics. The split-explicit discretization integrates the fast
-# acoustic and buoyancy terms with cheap small substeps (`acoustic_cfl = 0.5` sets
-# the substep from the sound speed) while advection takes the long outer step; it
-# stays stable up to an advective Courant number of one, so the wizard targets
-# `cfl = 1`. A compressible model carries density as a prognostic field, so we
-# initialize it from the terrain-following hydrostatic reference. The warm surface
-# and bulk fluxes are reused verbatim from Part II; the mean wind is `u = 10 m s⁻¹`.
-# With the stronger stratification (`N² = 1e-4`, so `N = 0.01 s⁻¹`) and uniform `N`,
-# the flow over the hill launches a **vertically propagating mountain wave** with
-# vertical wavelength `λ_z = 2π u / N ≈ 6 km`; its phase lines tilt upstream with
-# height. We keep the hill low — `h₀ = 300 m`, so the nondimensional mountain height
-# is `N h₀ / u ≈ 0.3`, comfortably below the wave-breaking threshold (`≈ 0.85`) — to
-# stay in the clean, linear regime rather than the turbulent overturning one.
+# Unlike the neutral first two parts, the hill needs a **stratified** background so
+# that flow over the terrain can radiate gravity (mountain) waves. We give the
+# reference state a constant buoyancy frequency, so the reference potential
+# temperature grows exponentially with height:
+#
+# ```math
+# θᵣ(z) = θ₀ \, e^{N^2 z / g} .
+# ```
+
+N² = 1e-4   # s⁻², background stratification
+g  = 9.81   # m s⁻², gravitational acceleration
+θᵣ(z) = θ₀ * exp(N² * z / g)
+
+# A sponge near the lid absorbs the waves before they reflect. The split-explicit
+# discretization substeps the fast acoustic and buoyancy terms while advection takes
+# the long outer step, so the wizard can target a larger Courant number than in the
+# anelastic parts. With uniform stratification, flow over the hill launches a
+# vertically propagating mountain wave whose phase lines tilt upstream with height;
+# the hill is kept low enough to stay in the clean, linear (non-breaking) regime.
 
 sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers)
 split_explicit_discretization = SplitExplicitTimeDiscretization(acoustic_cfl=0.5; sponge)
@@ -397,12 +371,13 @@ dynamics = CompressibleDynamics(split_explicit_discretization;
 
 model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
 
-# The printed summary now reports `dynamics: CompressibleDynamics` on the
-# terrain-following grid, while the prognostic variables stay in conservative form
-# (`ρu`, `ρθ`, …) just as in the anelastic parts. With the model built, we initialize
-# the compressible state from the terrain-following hydrostatic reference density, add
-# a light wind, and run the simulation in the next block.
+# The printed summary now reports `CompressibleDynamics` on the terrain-following
+# grid, with the same conservative prognostic variables. A compressible model carries
+# density as a prognostic field, so we initialize it from the hydrostatic reference
+# density, add a mean wind, and run in the next block.
 
+θᵣ_field = Field{Nothing, Nothing, Center}(agnesi_grid)
+set!(θᵣ_field, θᵣ)
 θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
@@ -487,14 +462,12 @@ model = AtmosphereModel(agnesi_grid; microphysics, dynamics, advection, boundary
 θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
-# A humid initial state primes the flow for condensation. We give it a moist boundary
-# layer by setting the total water mixing ratio `qᵗ` directly — high near the surface
-# and decaying with height — rather than specifying a relative humidity. (Setting `ℋ`
-# triggers a saturation-specific-humidity diagnostic that does not yet compile on the
-# GPU in this Breeze release; prescribing `qᵗ` is the route Breeze's own GPU cloud
-# examples take.) Orographic lifting over the hill, plus the surface vapor flux, then
-# nudge parcels past saturation — cloud liquid forms, and rains once it exceeds the
-# autoconversion threshold. The wind is `u = 10 m s⁻¹` as in Part III.
+# A humid initial state primes the flow for condensation. We set the total water
+# mixing ratio `qᵗ` directly — moist near the surface, drying aloft — rather than a
+# relative humidity (the `ℋ` path does not yet compile on the GPU in this Breeze
+# release; prescribing `qᵗ` is what Breeze's GPU cloud examples do). Orographic lifting
+# and the surface vapor flux push parcels past saturation, forming cloud that rains
+# once it exceeds the autoconversion threshold.
 
 qᵗᵢ(x, z) = 0.012 * exp(-z / 3kilometers)   # kg/kg, moist near the surface, drying aloft
 set!(model, ρ=ρᵢ, θ=θᵢ, u=10, qᵗ=qᵗᵢ)
