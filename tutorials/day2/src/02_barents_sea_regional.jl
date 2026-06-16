@@ -30,6 +30,11 @@
 #     NumericalEarth checkouts (see the `[sources]` section of the environment's `Project.toml`). Expect this
 #     section of the stack to evolve faster than the rest of the tutorial.
 
+using Pkg
+Pkg.activate("../")
+
+# Upload packages
+
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
