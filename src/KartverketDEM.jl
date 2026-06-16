@@ -52,55 +52,115 @@ import NumericalEarth.DataWrangling:
 import NumericalEarth: regrid_topography, regrid_bathymetry
 
 export KartverketDTM, KartverketWindow, kartverket_metadatum,
-       latlon_to_utm33n, kartverket_topography, kartverket_height_function
+       latlon_to_utm, latlon_to_utm33n, utm_central_meridian,
+       kartverket_topography, kartverket_height_function
 
 # ============================================================================
-# WGS84 (lat, lon) → UTM zone 33N (EPSG:25833) forward projection
+# WGS84 (lat, lon) → UTM zone N (EPSG:258zz) forward projection
 # ============================================================================
 #
 # Standard transverse-Mercator series (Snyder, USGS PP-1395), accurate to a few
-# mm over the Lofoten extent — enough to anchor the metric box on the DTM. We roll
-# it by hand so the workshop env needs no Proj/GDAL dependency.
+# mm over a workshop-sized extent — enough to anchor the metric box on the DTM. We
+# roll it by hand so the workshop env needs no Proj/GDAL dependency.
+#
+# The projection is parametrized by the UTM zone so the same machinery serves both
+# **zone 33N** (Lofoten, ~13.7° E — the original Norway case) and **zone 32N**
+# (western Norway / Sognefjord–Nærøyfjord, ~6.8° E — the fjord case). Each Norwegian
+# UTM zone has its own Geonorge national-DTM coverage and WCS endpoint (`…-258zz`),
+# so anchoring in the *correct* zone keeps scale distortion small (a few cm/m), where
+# forcing everything through zone 33 would distort a 6.8° E box by ~8° of longitude.
 
-const _UTM33_λ₀  = deg2rad(15.0)   # central meridian of UTM zone 33
-const _UTM33_k₀  = 0.9996          # scale factor
-const _UTM33_FE  = 500_000.0       # false easting
+const _UTM_k₀  = 0.9996          # scale factor
+const _UTM_FE  = 500_000.0       # false easting
 const _WGS84_a   = 6_378_137.0     # semi-major axis (m)
 const _WGS84_f   = 1 / 298.257223563
 const _WGS84_e²  = 2 * _WGS84_f - _WGS84_f^2   # first eccentricity squared
 
-"""
-    latlon_to_utm33n(lat, lon) -> (easting, northing)
+## Central meridian of a UTM zone (degrees): zone 32 → 9° E, zone 33 → 15° E.
+utm_central_meridian(zone::Integer) = 6 * zone - 183
 
-Project geographic `(lat, lon)` in degrees (WGS84) to UTM zone 33N eastings and
-northings in metres (EPSG:25833, northern hemisphere).
 """
-function latlon_to_utm33n(lat, lon)
+    latlon_to_utm(lat, lon; zone = 33) -> (easting, northing)
+
+Project geographic `(lat, lon)` in degrees (WGS84) to UTM zone `zone` (northern
+hemisphere) eastings and northings in metres (EPSG:258`zone`). Defaults to zone 33
+(Lofoten); pass `zone = 32` for western Norway (Sognefjord / Nærøyfjord).
+"""
+function latlon_to_utm(lat, lon; zone::Integer = 33)
     a  = _WGS84_a
     e² = _WGS84_e²
     φ  = deg2rad(lat)
     λ  = deg2rad(lon)
+    λ₀ = deg2rad(utm_central_meridian(zone))
 
     e′² = e² / (1 - e²)
     N   = a / sqrt(1 - e² * sin(φ)^2)
     T   = tan(φ)^2
     C   = e′² * cos(φ)^2
-    A   = (λ - _UTM33_λ₀) * cos(φ)
+    A   = (λ - λ₀) * cos(φ)
 
     M = a * ((1 - e²/4 - 3e²^2/64 - 5e²^3/256) * φ
              - (3e²/8 + 3e²^2/32 + 45e²^3/1024) * sin(2φ)
              + (15e²^2/256 + 45e²^3/1024) * sin(4φ)
              - (35e²^3/3072) * sin(6φ))
 
-    easting = _UTM33_FE + _UTM33_k₀ * N * (A
+    easting = _UTM_FE + _UTM_k₀ * N * (A
               + (1 - T + C) * A^3 / 6
               + (5 - 18T + T^2 + 72C - 58e′²) * A^5 / 120)
 
-    northing = _UTM33_k₀ * (M + N * tan(φ) * (A^2 / 2
+    northing = _UTM_k₀ * (M + N * tan(φ) * (A^2 / 2
                + (5 - T + 9C + 4C^2) * A^4 / 24
                + (61 - 58T + T^2 + 600C - 330e′²) * A^6 / 720))
 
     return easting, northing
+end
+
+## Backward-compatible alias: the original zone-33-only entry point.
+latlon_to_utm33n(lat, lon) = latlon_to_utm(lat, lon; zone = 33)
+
+"""
+    utm_to_latlon(easting, northing; zone = 33) -> (lat, lon)
+
+Inverse of [`latlon_to_utm`](@ref): map UTM zone `zone` (northern hemisphere)
+eastings/northings in metres back to geographic `(lat, lon)` in degrees (WGS84). Uses
+the standard inverse transverse-Mercator series (Snyder, USGS PP-1395). Needed to
+sample a geographic (lat–lon) dataset — e.g. EMODnet bathymetry — onto the metric UTM
+grid the fjord LES runs on.
+"""
+function utm_to_latlon(easting, northing; zone::Integer = 33)
+    a  = _WGS84_a
+    e² = _WGS84_e²
+    k₀ = _UTM_k₀
+    λ₀ = deg2rad(utm_central_meridian(zone))
+
+    x = easting - _UTM_FE
+    y = northing                      # northern hemisphere: no false northing
+
+    # NB: write every coefficient × e₁ with an explicit `*` — `3e1` etc. would lex as a
+    # floating-point literal (3×10¹), not 3·e₁. (Hence the subscript name `e₁`, too.)
+    e₁  = (1 - sqrt(1 - e²)) / (1 + sqrt(1 - e²))
+    M   = y / k₀
+    μ   = M / (a * (1 - e²/4 - 3e²^2/64 - 5e²^3/256))
+    φ1  = (μ + (3*e₁/2 - 27*e₁^3/32) * sin(2μ)
+             + (21*e₁^2/16 - 55*e₁^4/32) * sin(4μ)
+             + (151*e₁^3/96) * sin(6μ)
+             + (1097*e₁^4/512) * sin(8μ))
+
+    e′² = e² / (1 - e²)
+    C1  = e′² * cos(φ1)^2
+    T1  = tan(φ1)^2
+    N1  = a / sqrt(1 - e² * sin(φ1)^2)
+    R1  = a * (1 - e²) / (1 - e² * sin(φ1)^2)^1.5
+    D   = x / (N1 * k₀)
+
+    φ = φ1 - (N1 * tan(φ1) / R1) * (D^2/2
+            - (5 + 3T1 + 10C1 - 4C1^2 - 9e′²) * D^4/24
+            + (61 + 90T1 + 298C1 + 45T1^2 - 252e′² - 3C1^2) * D^6/720)
+
+    λ = λ₀ + (D - (1 + 2T1 + C1) * D^3/6
+            + (5 - 2C1 + 28T1 - 3C1^2 + 8e′² + 24T1^2) * D^5/120) / cos(φ1)
+
+    return rad2deg(φ), rad2deg(λ)
 end
 
 # ============================================================================
@@ -108,37 +168,43 @@ end
 # ============================================================================
 
 """
-    KartverketDTM(; coverage = "nhm_dtm_topo_25833")
+    KartverketDTM(; zone = 33, coverage = "nhm_dtm_topo_258`zone`")
 
-The Kartverket national DTM as a NumericalEarth static-bathymetry dataset. `coverage`
-is the WCS coverage id (the default is the 1 m topographic DTM in EPSG:25833).
+The Kartverket national DTM as a NumericalEarth static-bathymetry dataset. `zone` is
+the UTM zone (33 for Lofoten, 32 for western Norway / Nærøyfjord) — it selects both the
+projection central meridian and the Geonorge WCS endpoint/coverage. `coverage` is the
+WCS coverage id; by default the 1 m topographic DTM in EPSG:258`zone`.
 """
 struct KartverketDTM <: AbstractStaticBathymetry
+    zone     :: Int
     coverage :: String
 end
 
-KartverketDTM(; coverage = "nhm_dtm_topo_25833") = KartverketDTM(coverage)
+KartverketDTM(; zone::Integer = 33, coverage = "nhm_dtm_topo_258$(zone)") =
+    KartverketDTM(Int(zone), coverage)
 
-Base.summary(d::KartverketDTM) = "KartverketDTM(\"$(d.coverage)\")"
+Base.summary(d::KartverketDTM) = "KartverketDTM(zone=$(d.zone), \"$(d.coverage)\")"
 Base.show(io::IO, d::KartverketDTM) = print(io, summary(d))
 
 """
-    KartverketWindow(; center_lat, center_lon, halfwidth, resolution)
+    KartverketWindow(; center_lat, center_lon, halfwidth, resolution, zone = 33)
 
 A square metric window on the DTM, used as a `Metadatum`'s `region`. `center_lat`,
-`center_lon` (degrees) are projected to UTM 33N to anchor the box; `halfwidth` and
-`resolution` are in metres. The fetched grid is `(2·halfwidth / resolution)²` cells.
+`center_lon` (degrees) are projected to UTM zone `zone` to anchor the box; `halfwidth`
+and `resolution` are in metres. The fetched grid is `(2·halfwidth / resolution)²` cells.
+The `zone` is stored so the windowed coordinates can be interpreted in the right CRS.
 """
 struct KartverketWindow{T}
     center_easting  :: T
     center_northing :: T
     halfwidth       :: T
     resolution      :: T
+    zone            :: Int
 end
 
-function KartverketWindow(; center_lat, center_lon, halfwidth, resolution)
-    E₀, N₀ = latlon_to_utm33n(center_lat, center_lon)
-    return KartverketWindow(promote(E₀, N₀, float(halfwidth), float(resolution))...)
+function KartverketWindow(; center_lat, center_lon, halfwidth, resolution, zone::Integer = 33)
+    E₀, N₀ = latlon_to_utm(center_lat, center_lon; zone)
+    return KartverketWindow(promote(E₀, N₀, float(halfwidth), float(resolution))..., Int(zone))
 end
 
 ## UTM bounding box (xmin, ymin, xmax, ymax) and pixel counts of a window.
@@ -156,30 +222,33 @@ default_download_directory(::KartverketDTM) = _kartverket_cache
 Base.size(::KartverketDTM, name = :bottom_height) = (0, 0, 1)  # window-dependent; see Downloads.download
 dataset_variable_name(::KartverketDTM) = "Band1"               # WCS NetCDF elevation band
 
-## A region-stamped filename so different windows cache separately.
+## A region-stamped filename so different windows (and zones) cache separately.
 function metadata_filename(::KartverketDTM, name, date, region::KartverketWindow)
     E = round(Int, region.center_easting); N = round(Int, region.center_northing)
     L = round(Int, region.halfwidth); Δ = round(Int, region.resolution)
-    return @sprintf("kartverket_dtm_E%d_N%d_L%d_d%d.nc", E, N, L, Δ)
+    return @sprintf("kartverket_dtm_z%d_E%d_N%d_L%d_d%d.nc", region.zone, E, N, L, Δ)
 end
 metadata_filename(::KartverketDTM, name, date, ::Nothing) = "kartverket_dtm.nc"
 
-const _WCS_BASE = "https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833"
+## Each Norwegian UTM zone has its own national-DTM WCS endpoint and EPSG code.
+wcs_base(zone::Integer) = "https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-258$(zone)"
+epsg_code(zone::Integer) = 25800 + zone
 
 """
     wcs_url(dataset, window) -> String
 
 Build the WCS 1.0.0 `GetCoverage` URL that returns the windowed DTM as NetCDF in
-EPSG:25833. ArcGIS Server (which backs this service) is reliable with WCS 1.0.0's
-explicit `bbox`/`width`/`height`, where it rejects 2.0.1 `subset` syntax.
+EPSG:258`zone` (the dataset's UTM zone). ArcGIS Server (which backs this service) is
+reliable with WCS 1.0.0's explicit `bbox`/`width`/`height`, where it rejects 2.0.1
+`subset` syntax.
 """
 function wcs_url(dataset::KartverketDTM, w::KartverketWindow)
     xmin, ymin, xmax, ymax = utm_bbox(w)
     n = npixels(w)
-    return string(_WCS_BASE,
+    return string(wcs_base(dataset.zone),
         "?service=WCS&version=1.0.0&request=GetCoverage",
         "&coverage=", dataset.coverage,
-        "&crs=EPSG:25833",
+        "&crs=EPSG:", epsg_code(dataset.zone),
         @sprintf("&bbox=%.3f,%.3f,%.3f,%.3f", xmin, ymin, xmax, ymax),
         "&width=", n, "&height=", n,
         "&format=NetCDF")
@@ -191,18 +260,21 @@ end
 
 """
     kartverket_metadatum(; center_lat, center_lon, halfwidth, resolution,
-                         coverage = "nhm_dtm_topo_25833", dir = <thursday/data>)
+                         zone = 33, coverage = "nhm_dtm_topo_258`zone`",
+                         dir = <thursday/data>)
 
 Build a `NumericalEarth.DataWrangling.Metadatum` for a metric window of the
 Kartverket DTM. `center_lat/center_lon` (deg) anchor the box; `halfwidth` and
-`resolution` are metres.
+`resolution` are metres. `zone` is the UTM zone (33 for Lofoten, 32 for western
+Norway / Nærøyfjord) — it selects the projection and the Geonorge endpoint/coverage.
 """
 function kartverket_metadatum(; center_lat, center_lon, halfwidth, resolution,
-                              coverage = "nhm_dtm_topo_25833",
+                              zone::Integer = 33,
+                              coverage = "nhm_dtm_topo_258$(zone)",
                               dir = _kartverket_cache)
     # Build the Metadatum manually so we control the (custom, projected) region type.
-    dataset = KartverketDTM(; coverage)
-    region  = KartverketWindow(; center_lat, center_lon, halfwidth, resolution)
+    dataset = KartverketDTM(; zone, coverage)
+    region  = KartverketWindow(; center_lat, center_lon, halfwidth, resolution, zone)
     name    = :bottom_height
     filename = metadata_filename(dataset, name, nothing, region)
     return NumericalEarth.DataWrangling.Metadata(name, dataset, nothing, region, dir, filename)
