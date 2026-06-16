@@ -8,7 +8,7 @@ using Lux, Optimisers, Zygote, ADTypes, Random, Printf, JLD2, CUDA, cuDNN
 using MLDataDevices: cpu_device, gpu_device
 using Lux: Training
 
-include(joinpath(@__DIR__, "01c_dataloaders.jl"))
+include(joinpath(@__DIR__, "..", "src/01c_dataloaders.jl"))
 
 # ## Data configuration 
 # 

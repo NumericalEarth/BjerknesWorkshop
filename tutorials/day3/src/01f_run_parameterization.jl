@@ -7,7 +7,7 @@
 using SpeedyWeather, Lux, JLD2
 ## using CUDA, cuDNN   # only needed for arch = SpeedyWeather.GPU()
 
-include(joinpath(@__DIR__,"01e_parameterization.jl"))
+include(joinpath(@__DIR__, "..", "src/01e_parameterization.jl"))
 
 # ## Import the trained model
 #
