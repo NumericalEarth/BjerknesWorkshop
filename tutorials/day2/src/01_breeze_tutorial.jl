@@ -77,10 +77,10 @@ grid = RectilinearGrid(arch;
 # **perturbation** (prime),
 #
 # ```math
-# ρ = ρ_r(z) + ρ', \qquad p = \bar p(z) + p', \qquad |ρ'| \ll ρ_r ,
+# ρ = ρᵣ(z) + ρ', \qquad p = pᵣ(z) + p', \qquad |ρ'| \ll ρᵣ ,
 # ```
 #
-# with the reference state in hydrostatic balance, ``d\bar p/dz = -ρ_r g``. Mass
+# with the reference state in hydrostatic balance, ``dpᵣ/dz = -ρᵣ g``. Mass
 # conservation reads
 #
 # ```math
@@ -91,36 +91,37 @@ grid = RectilinearGrid(arch;
 # **anelastic constraint**
 #
 # ```math
-# ∇·(ρ_r \, 𝐮) = 0 ,
+# ∇·(ρᵣ \, 𝐮) = 0 ,
 # ```
 #
 # while ``p'`` is then diagnostic, from an elliptic solve enforcing that constraint.
 #
 # The reference column is fixed by a single function, the **reference potential
-# temperature** `\bar θ(z)`: with a surface pressure, hydrostatic balance and the
-# ideal-gas law then close `\bar p(z)`, `\bar T(z)`, and the background density
-# ``ρ_r(z)``. So handing `ReferenceState` a `\bar θ(z)` is what produces ``ρ_r(z)``.
+# temperature** ``θᵣ(z)``: with a surface pressure, hydrostatic balance and the
+# ideal-gas law then close ``pᵣ(z)``, ``Tᵣ(z)``, and the background density
+# ``ρᵣ(z)``. So handing `ReferenceState` a ``θᵣ(z)`` is what produces ``ρᵣ(z)``.
 # We take a constant buoyancy frequency ``N``. Since
 #
 # ```math
-# N^2 = \frac{g}{\bar θ} \frac{d\bar θ}{dz} ,
+# N^2 = \frac{g}{θᵣ} \frac{dθᵣ}{dz} ,
 # ```
 #
-# ``\bar θ`` is exponential,
+# ``θᵣ`` is exponential for constant ``N^2``,
 #
 # ```math
-# \bar θ(z) = θ_0 \, e^{N^2 z / g} ,
+# θᵣ(z) = θ_0 \, e^{N^2 z / g} .
 # ```
 #
-# anchored at `θ₀ = 290 K`. WENO order-9 advection serves all four parts.
+# We choose a surface potential temperature of `θ₀ = 290 K`.
+# Note also the choice of WENO order-9 advection with no turbulence closure.
 
 θ₀ = 290     # K, surface potential temperature
-N² = 1e-6    # s⁻², stratification (N = 0.001 s⁻¹)
+N² = 1e-4    # s⁻², stratification (N = 0.01 s⁻¹); strong enough for visible lee waves
 g  = 9.81    # m s⁻², gravitational acceleration
 
-θ̄(z) = θ₀ * exp(N² * z / g)
+θᵣ(z) = θ₀ * exp(N² * z / g)
 
-reference_state = ReferenceState(grid; potential_temperature = θ̄)
+reference_state = ReferenceState(grid; potential_temperature = θᵣ)
 dynamics = AnelasticDynamics(reference_state)
 advection = WENO(order = 9)
 
@@ -128,10 +129,24 @@ model = AtmosphereModel(grid; dynamics, advection)
 
 # Notice that `AtmosphereModel` solves the governing equations in **conservative
 # (flux) form**: the prognostic variables are the *densities* of momentum, heat, and
-# moisture — ``ρ𝐮``, ``ρθ``, ``ρq^v``, ``ρe`` — rather than the velocities and
-# potential temperature themselves. This is visible in the model's printed summary
-# above, where the advected quantities are listed as `ρθ` and `ρqᵛ` and the forcing
-# entries act on `ρu`, `ρv`, `ρw`, `ρθ`, `ρqᵛ`, and `ρe`. Diagnostics such as
+# moisture — ``ρ𝐮``, ``ρθ``, ``ρqᵛ``, ``ρe`` — rather than the velocities and
+# potential temperature themselves. "Flux form" means a tracer is advanced as the
+# divergence of a flux, not by an advective (material) derivative. The two are equal:
+# expand the flux-form tendency with the product rule and collect terms,
+#
+# ```math
+# \frac{∂(ρθ)}{∂t} + ∇·(ρ \, 𝐮 \, θ)
+#   = ρ \left( \frac{∂θ}{∂t} + 𝐮·∇θ \right)
+#   + θ \underbrace{\left( \frac{∂ρ}{∂t} + ∇·(ρ \, 𝐮) \right)}_{=\,0} ,
+# ```
+#
+# and the second group vanishes by **mass conservation**. So the conservative tendency
+# ``∂(ρθ)/∂t + ∇·(ρ𝐮θ)`` is *identical* to the advective tendency
+# ``ρ(∂θ/∂t + 𝐮·∇θ)`` — but advancing ``ρθ`` through the flux ``∇·(ρ𝐮θ)`` conserves
+# total heat exactly (up to boundary fluxes), which is why the model carries ``ρθ`` and
+# its siblings. This is visible in the printed summary above, where the advected
+# quantities are listed as `ρθ` and `ρqᵛ` and the forcing entries act on `ρu`, `ρv`,
+# `ρw`, `ρθ`, `ρqᵛ`, and `ρe`. Diagnostics such as
 # `liquid_ice_potential_temperature(model)` recover the familiar primitive variables
 # (e.g. ``θ = ρθ / ρ``) on demand.
 #
@@ -142,10 +157,10 @@ model = AtmosphereModel(grid; dynamics, advection)
 
 # ## Part I — a dry thermal bubble
 #
-# A warm perturbation `θ' = θ - \bar θ(z)` feels a buoyancy
+# A warm perturbation ``θ' = θ - θᵣ(z)`` feels a buoyancy
 #
 # ```math
-# b = -g \, \frac{ρ'}{ρ_r} = g \, \frac{θ'}{\bar θ}
+# b = -g \, \frac{ρ'}{ρᵣ} = g \, \frac{θ'}{θᵣ}
 # ```
 #
 # (exact in the anelastic system, where buoyancy is evaluated at the reference
@@ -162,7 +177,7 @@ model = AtmosphereModel(grid; dynamics, advection)
 r₀ = 1.5kilometers  # bubble radius
 z₀ = 2kilometers    # release height
 
-θ_bubble(x, z) = θ̄(z) + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
+θ_bubble(x, z) = θᵣ(z) + Δθ * max(0, 1 - sqrt(x^2 + (z - z₀)^2) / r₀)
 set!(model, θ=θ_bubble)
 
 # Let's visualize the initial condition:
@@ -188,14 +203,14 @@ end
 
 add_callback!(simulation, progress, IterationInterval(200))
 
-# We save the potential-temperature *perturbation* `θ′ = θ - θ̄(z)` — the signal
+# We save the potential-temperature *perturbation* `θ′ = θ - θᵣ(z)` — the signal
 # the bubble carries above the background — together with the velocities, once a
 # minute.
 
 θ = liquid_ice_potential_temperature(model)
-θ̄_field = Field{Nothing, Nothing, Center}(grid)
-set!(θ̄_field, θ̄)
-θ′ = θ - θ̄_field
+θᵣ_field = Field{Nothing, Nothing, Center}(grid)
+set!(θᵣ_field, θᵣ)
+θ′ = θ - θᵣ_field
 outputs = (; θ′, model.velocities...)
 
 bubble_ow = JLD2Writer(model, outputs;
@@ -260,7 +275,7 @@ model = AtmosphereModel(grid; dynamics, advection, boundary_conditions)
 # layer. We start from the background profile plus a whisper of noise and a light
 # mean wind (`u = 5 m s⁻¹`) to lean the plumes and work the bulk formulae.
 
-θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
+θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
 set!(model, θ=θᵢ, u=5)
 
 simulation = Simulation(model; Δt=1, stop_time=2hours)
@@ -276,7 +291,7 @@ end
 add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
-θ′ = θ - θ̄_field
+θ′ = θ - θᵣ_field
 outputs = (; θ′, model.velocities...)
 
 convection_ow = JLD2Writer(model, outputs;
@@ -340,7 +355,7 @@ mp4_html("free_convection.mp4")
 # the classic bell of mountain-wave theory. The grid's vertical coordinate follows
 # the terrain near the ground and decays back to flat aloft (`TwoLevelDecay`).
 
-h₀ = 1000          # m, hill height
+h₀ = 300           # m, hill height (Nh₀/U ≈ 0.3 — linear, non-breaking mountain wave)
 a = 5kilometers   # hill half-width (a gentle slope keeps the flow stable)
 
 agnesi_hill(x) = h₀ / (1 + (x / a)^2)
@@ -366,14 +381,19 @@ materialize_terrain!(agnesi_grid, agnesi_hill)
 # stays stable up to an advective Courant number of one, so the wizard targets
 # `cfl = 1`. A compressible model carries density as a prognostic field, so we
 # initialize it from the terrain-following hydrostatic reference. The warm surface
-# and bulk fluxes are reused verbatim from Part II; a light mean wind of `u = 2
-# m s⁻¹` drifts the convection over the hill.
+# and bulk fluxes are reused verbatim from Part II; the mean wind is `u = 10 m s⁻¹`.
+# With the stronger stratification (`N² = 1e-4`, so `N = 0.01 s⁻¹`) and uniform `N`,
+# the flow over the hill launches a **vertically propagating mountain wave** with
+# vertical wavelength `λ_z = 2π u / N ≈ 6 km`; its phase lines tilt upstream with
+# height. We keep the hill low — `h₀ = 300 m`, so the nondimensional mountain height
+# is `N h₀ / u ≈ 0.3`, comfortably below the wave-breaking threshold (`≈ 0.85`) — to
+# stay in the clean, linear regime rather than the turbulent overturning one.
 
 sponge = UpperSponge(damping_rate = 0.1, depth = 2.5kilometers)
 split_explicit_discretization = SplitExplicitTimeDiscretization(acoustic_cfl=0.5; sponge)
 
 dynamics = CompressibleDynamics(split_explicit_discretization;
-                                reference_potential_temperature = θ̄)
+                                reference_potential_temperature = θᵣ)
 
 model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
 
@@ -383,10 +403,10 @@ model = AtmosphereModel(agnesi_grid; dynamics, advection, boundary_conditions)
 # the compressible state from the terrain-following hydrostatic reference density, add
 # a light wind, and run the simulation in the next block.
 
-θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
+θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
-set!(model, ρ=ρᵢ, θ=θᵢ, u=2)
+set!(model, ρ=ρᵢ, θ=θᵢ, u=10)
 
 simulation = Simulation(model; Δt=1, stop_time=2hour)
 conjure_time_step_wizard!(simulation, cfl=1)
@@ -401,7 +421,7 @@ end
 add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
-θ′ = θ - θ̄_field
+θ′ = θ - θᵣ_field
 outputs = (; θ′, model.velocities...)
 
 hilly_ow = JLD2Writer(model, outputs;
@@ -464,17 +484,20 @@ microphysics = OneMomentCloudMicrophysics(; cloud_formation)
 
 model = AtmosphereModel(agnesi_grid; microphysics, dynamics, advection, boundary_conditions)
 
-θᵢ(x, z) = θ̄(z) + 1e-2 * randn()
+θᵢ(x, z) = θᵣ(z) + 1e-2 * randn()
 ρᵢ = model.dynamics.terrain_reference_density
 
-# A humid initial state primes the flow for condensation: we set the relative humidity
-# to 90% (`ℋ = 0.9`), which Breeze converts to a vapor mixing ratio `qᵗ = ℋ qᵛ⁺` from
-# the local saturation value `qᵛ⁺`. Orographic lifting over the hill, plus the surface
-# vapor flux, then nudge parcels past saturation — cloud liquid forms, and rains once
-# it exceeds the autoconversion threshold. We also raise the wind to `u = 10 m s⁻¹` so
-# the flow climbs the hill vigorously.
+# A humid initial state primes the flow for condensation. We give it a moist boundary
+# layer by setting the total water mixing ratio `qᵗ` directly — high near the surface
+# and decaying with height — rather than specifying a relative humidity. (Setting `ℋ`
+# triggers a saturation-specific-humidity diagnostic that does not yet compile on the
+# GPU in this Breeze release; prescribing `qᵗ` is the route Breeze's own GPU cloud
+# examples take.) Orographic lifting over the hill, plus the surface vapor flux, then
+# nudge parcels past saturation — cloud liquid forms, and rains once it exceeds the
+# autoconversion threshold. The wind is `u = 10 m s⁻¹` as in Part III.
 
-set!(model, ρ=ρᵢ, θ=θᵢ, u=10, ℋ=0.9)
+qᵗᵢ(x, z) = 0.012 * exp(-z / 3kilometers)   # kg/kg, moist near the surface, drying aloft
+set!(model, ρ=ρᵢ, θ=θᵢ, u=10, qᵗ=qᵗᵢ)
 
 simulation = Simulation(model; Δt=1, stop_time=1hour)
 conjure_time_step_wizard!(simulation, cfl=1)
@@ -495,7 +518,7 @@ end
 add_callback!(simulation, progress, IterationInterval(200))
 
 θ = liquid_ice_potential_temperature(model)
-θ′ = θ - θ̄_field
+θ′ = θ - θᵣ_field
 outputs = (; θ′, model.velocities..., qᶜˡ, qʳ)
 
 cloudy_ow = JLD2Writer(model, outputs;
