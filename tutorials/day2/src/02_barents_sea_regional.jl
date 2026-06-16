@@ -64,7 +64,7 @@ underlying_grid = LatitudeLongitudeGrid(arch;
                                         halo = (7, 7, 7))
 
 # Downloads land in `DATA_DIR` when that environment variable is set, else each product's default cache:
-dir_kw = haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
+dir_kw = (;) # haskey(ENV, "DATA_DIR") ? (; dir = ENV["DATA_DIR"]) : (;)
 
 bathymetry = Metadatum(:bottom_height; dataset = ETOPO2022(), dir_kw...)
 bottom_height = regrid_bathymetry(underlying_grid, bathymetry;
@@ -130,12 +130,12 @@ nothing #hide
 # `FieldTimeSeries` at the boundary index and the current clock time — the same zero-overhead pattern as every
 # forcing and flux function:
 
-@inline  west_obc(j, k, grid, clock, fields, φ) = @inbounds φ[1,           j, k, Time(clock.time)]
-@inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
-@inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Time(clock.time)]
+@inline  west_obc(j, k, grid, clock, fields, φ) = @inbounds φ[1,           j, k, Oceananigans.Units.Time(clock.time)]
+@inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Oceananigans.Units.Time(clock.time)]
+@inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Oceananigans.Units.Time(clock.time)]
 
-@inline  east_u_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx+1, j, k, Time(clock.time)]
-@inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny+1, k, Time(clock.time)]
+@inline  east_u_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx+1, j, k, Oceananigans.Units.Time(clock.time)]
+@inline north_v_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny+1, k, Oceananigans.Units.Time(clock.time)]
 nothing #hide
 
 # Radiation timescales à la Marchesiello: 1days on inflow (the boundary follows GLORYS closely where water
@@ -181,21 +181,21 @@ S_obcs = FieldBoundaryConditions(
 end
 
 @inline function west_U_obc(j, k, grid, clock, fields, p)
-    t = Time(clock.time)
+    t = Oceananigans.Units.Time(clock.time)
     U = vertical_integral(1, j, grid, p.u, t, Δzᶠᶜᶜ, Face(), Center(), Center())
     return (U, @inbounds p.η[1, j, 1, t])
 end
 
 @inline function east_U_obc(j, k, grid, clock, fields, p)
     i = grid.Nx+1
-    t = Time(clock.time)
+    t = Oceananigans.Units.Time(clock.time)
     U = vertical_integral(i, j, grid, p.u, t, Δzᶠᶜᶜ, Face(), Center(), Center())
     return (U, @inbounds p.η[grid.Nx, j, 1, t])
 end
 
 @inline function north_V_obc(i, k, grid, clock, fields, p)
     j = grid.Ny+1
-    t = Time(clock.time)
+    t = Oceananigans.Units.Time(clock.time)
     V = vertical_integral(i, j, grid, p.v, t, Δzᶜᶠᶜ, Center(), Face(), Center())
     return (V, @inbounds p.η[i, j, 1, t])
 end
@@ -236,7 +236,7 @@ FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region, dir_kw...),
 # we leave the Gent–McWilliams parameterization *out*: a resolved baroclinic front shows what the resolved
 # eddies can do by themselves:
 
-closure = (CATKEVerticalDiffusivity(minimum_tke=1e-7), HorizontalScalarBiharmonicDiffusivity(ν = 5e8))
+closure = (CATKEVerticalDiffusivity(minimum_tke=1e-7)) #, HorizontalScalarBiharmonicDiffusivity(ν = 5e8))
 time_discretization = AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
 
 ocean = ocean_simulation(grid;
@@ -282,7 +282,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 # Sixty days, watching the pack thin and the ice edge retreat from its mid-winter extent:
 
-simulation = Simulation(coupled_model; Δt = 6minutes, stop_time = 60days)
+simulation = Simulation(coupled_model; Δt = 10minutes, stop_time = 60days)
 
 wall_time = Ref(time_ns())
 
@@ -291,10 +291,11 @@ function progress(sim)
     sea_ice = sim.model.sea_ice
     T = ocean.model.tracers.T
     S = ocean.model.tracers.S
+    u, v, w = ocean.model.velocities
     h = sea_ice.model.ice_thickness
-    msg = @sprintf("time: %s, iter: %d, extrema(T, S): (%.1f, %.1f) °C (%.1f, %.1f) psu, max(h): %.2f m, wall: %s",
+    msg = @sprintf("time: %s, iter: %d, extrema(T, S): (%.1f, %.1f) °C (%.1f, %.1f) psu, extrema(u) (%.2e, %.2e, %.2e) max(h): %.2f m, wall: %s",
                    prettytime(sim), iteration(sim),
-                   extrema(T)..., extrema(S)..., maximum(h),
+                   extrema(T)..., extrema(S)..., maximum(abs, u), maximum(abs, v), maximum(abs, w), maximum(h),
                    prettytime(1e-9 * (time_ns() - wall_time[])))
     @info msg
     wall_time[] = time_ns()
