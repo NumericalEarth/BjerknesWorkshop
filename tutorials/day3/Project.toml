@@ -1,3 +1,9 @@
+[compat]
+Breeze = "0.6"
+Enzyme = "0.13.132"
+Oceananigans = "0.110"
+Reactant = "0.2.238"
+
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
@@ -22,11 +28,9 @@ Zarr = "0a941bbe-ad1d-11e8-39d9-ab76183a1d99"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
-[sources]
-Breeze = {rev = "glw/unify-solvers", url = "https://github.com/NumericalEarth/Breeze.jl.git"}
+[extras]
+CUDA_Runtime_jll = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"
 
-[compat]
-Breeze = "0.6"
-Enzyme = "0.13.132"
-Oceananigans = "0.110"
-Reactant = "0.2.238"
+[sources.Breeze]
+rev = "glw/unify-solvers"
+url = "https://github.com/NumericalEarth/Breeze.jl.git"
