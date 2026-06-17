@@ -62,7 +62,7 @@ center_lon = 6.15
 dlat = 25kilometers / 111320
 dlon = 25kilometers / (111320 * cosd(center_lat))
 
-Nλ = Nφ = PROD ? 768 : 160
+Nλ = Nφ = PROD ? 384 : 160
 Lz_a = 12kilometers   # atmosphere depth
 Lz_o = 500meters      # ocean depth (deeper bathymetry is truncated to a flat floor)
 Nz_o = PROD ? 40 : 20
@@ -160,9 +160,14 @@ dynamics = CompressibleDynamics(time_discretization;
 # Coriolis. We rotate it from cross-valley to along-valley over `t_rotate` by updating
 # the stored geostrophic velocity each step (callback below).
 
+## Inertial period at this latitude (2π/f ≈ 13.5 h at 62.35° N) sets the natural
+## timescale: we rotate the wind cross→along over ¼ inertial period and run for ½.
+f_coriolis = 2 * 7.2921e-5 * sind(center_lat)
+inertial_period = 2π / f_coriolis
+
 U_mag    = 12.0
 α_valley = 0.0                  # fjord-axis angle (rad from east); 0 ⇒ along-valley = eastward
-t_rotate = PROD ? 12hours : 3hours
+t_rotate = PROD ? inertial_period / 4 : 3hours
 wind_params = (; U_mag, α_valley, t_rotate)
 wind_angle(t, p) = (p.α_valley + π/2) + clamp(t / p.t_rotate, 0, 1) * (p.α_valley - (p.α_valley + π/2))
 target_u(t, p) = p.U_mag * cos(wind_angle(t, p))
@@ -235,7 +240,7 @@ checkpoint("coupled model built")
 
 # ## Simulation
 
-stop_time = PROD ? 18hours : 4hours
+stop_time = PROD ? inertial_period / 2 : 4hours
 simulation = Simulation(model; Δt = 1.0, stop_time)
 conjure_time_step_wizard!(simulation, cfl = 1.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
