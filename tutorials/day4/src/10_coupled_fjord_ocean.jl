@@ -51,20 +51,23 @@ nothing #hide
 
 # ## Domain & grid (latitude–longitude)
 #
-# A ~50 km box centered on the Sunnmøre coast (Ålesund / Storfjorden). `RUN_CLASS=production`
-# selects the fine grid; the default smoke grid iterates quickly.
+# An ~90 km box over the Sunnmøre coast: south edge ≈ 62.0° N, east edge ≈ 7.5° E, so it
+# opens onto the open Norwegian Sea in the NW (more ocean fetch) while the SE reaches the
+# *heads* of several fjords — Hjørundfjorden and the Storfjorden→Sunnylvsfjorden/
+# Geirangerfjorden/Tafjord system. `RUN_CLASS=production` selects the fine grid.
 
 const PROD = get(ENV, "RUN_CLASS", "smoke") == "production"
 
-center_lat = 62.35
-center_lon = 6.15
-## Half-spans in degrees for a ~50 km square (latitude ~111 km/°, longitude shrinks by cos).
-dlat = 25kilometers / 111320
-dlon = 25kilometers / (111320 * cosd(center_lat))
+center_lat = 62.40
+center_lon = 6.63
+## Half-spans in degrees for an ~90 km square (latitude ~111 km/°, longitude shrinks by
+## cos) ⇒ south ≈ 62.0° N, east ≈ 7.5° E, NW corner ≈ (62.8° N, 5.76° E) in open water.
+dlat = 45kilometers / 111320
+dlon = 45kilometers / (111320 * cosd(center_lat))
 
 Nλ = Nφ = PROD ? 384 : 160
 Lz_a = 12kilometers   # atmosphere depth
-Lz_o = 500meters      # ocean depth (deeper bathymetry is truncated to a flat floor)
+Lz_o = 700meters      # ocean depth (deeper bathymetry is truncated to a flat floor)
 Nz_o = PROD ? 40 : 20
 
 longitude = (center_lon - dlon, center_lon + dlon)
