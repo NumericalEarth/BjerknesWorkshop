@@ -35,28 +35,41 @@
 # We use stable stratification to suppress [Kelvin-Helmholtz instability](https://en.wikipedia.org/wiki/Kelvin%E2%80%93Helmholtz_instability)
 # and a logarithmic wind profile consistent with the atmospheric surface layer.
 
+using Pkg
+Pkg.activate("..")
+Pkg.instantiate()
+
 using Breeze
+using CUDA
 using Oceananigans: Oceananigans
 using Oceananigans.Units
 using Printf
 using CairoMakie
+using Base64
+
+# A small helper that base64-embeds a finished `.mp4` in an HTML5 `<video>` tag,
+# so the animation plays inline in the notebook (no external file serving needed).
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
 
 # ## Grid and model setup
 
 Nx, Nz = 128, 64
 Lx, Lz = 1000, 200  # (m)
 
-grid = RectilinearGrid(size = (Nx, Nz), x = (-Lx/2, Lx/2), z = (0, Lz),
+grid = RectilinearGrid(GPU(); size = (Nx, Nz), x = (-Lx/2, Lx/2), z = (0, Lz),
                        topology = (Periodic, Flat, Bounded))
 
-# This example is dry, so the θˡⁱ→T inversion has an exact closed form and needs no Newton steps.
-# `temperature_tolerance = 0` selects the fixed-trip (unrolled) inversion and `temperature_maxiter = 2`
-# keeps the trip count tiny: the differentiable pass at the end of this example takes a reverse-mode
-# gradient through the compressible time step with Reactant/Enzyme, and the default tolerance-based
-# `while` inversion compiles to an XLA `while` op that does not differentiate cheaply, while a high
-# iteration count needlessly inflates the traced graph (NumericalEarth/Breeze.jl#767). The forward
-# and adjoint models use identical dynamics.
-model = AtmosphereModel(grid; dynamics = CompressibleDynamics(ExplicitTimeStepping(); temperature_tolerance = 0, temperature_maxiter = 2))
+# This example is dry, so the θˡⁱ→T inversion has an exact closed form and needs no iteration.
+# `temperature_solver = nothing` selects the non-iterated, closed-form inversion: the differentiable
+# pass at the end of this example takes a reverse-mode gradient through the compressible time step
+# with Reactant/Enzyme, and the default iterative inversion compiles to an XLA `while` op that does
+# not differentiate cheaply (NumericalEarth/Breeze.jl#767, #780). The temperature solver lives on the
+# thermodynamic formulation; the forward and adjoint models use identical dynamics.
+formulation = LiquidIcePotentialTemperatureFormulation(temperature_solver = nothing)
+model = AtmosphereModel(grid; formulation, dynamics = CompressibleDynamics(ExplicitTimeStepping()))
 
 # ## Background state
 #
@@ -113,7 +126,6 @@ set!(model, ρ=ρᵢ_func, θ=θ₀, u=uᵢ_func)
 stop_time = 0.5 # (s) — long enough for the wave to traverse the domain and for refraction to bend rays visibly
 
 simulation = Simulation(model; Δt, stop_time)
-Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
 
 function progress(sim)
     u, v, w = sim.model.velocities
@@ -210,9 +222,8 @@ fig[0, :] = Label(fig, title, fontsize = 16, tellwidth = false)
 CairoMakie.record(fig, "acoustic_wave.mp4", 1:Nt, framerate = 18) do nn
     n[] = nn
 end
-nothing #hide
 
-# ![](acoustic_wave.mp4)
+mp4_html("acoustic_wave.mp4")
 
 # ---
 #
@@ -248,13 +259,13 @@ nothing #hide
 # buffers.  We therefore rebuild the *same* physical setup on a new grid whose
 # architecture is `ReactantState()`.
 
-using Reactant, CUDA    # CUDA is required for loading the Reactant extension
+using Reactant
 using Enzyme
 using Statistics: mean
 using Oceananigans.Architectures: ReactantState
 using Reactant: @trace
 
-Reactant.set_default_backend("cpu")
+Reactant.set_default_backend("gpu")
 
 # Rebuild the grid and model on `ReactantState`.
 
@@ -262,7 +273,8 @@ grid_ad = RectilinearGrid(ReactantState(); size = (Nx, Nz),
                           x = (-Lx/2, Lx/2), z = (0, Lz),
                           topology = (Periodic, Flat, Bounded))
 
-model_ad = AtmosphereModel(grid_ad; dynamics = CompressibleDynamics(ExplicitTimeStepping(); temperature_tolerance = 0, temperature_maxiter = 2)) # fixed-trip, low-iteration EOS inversion so Enzyme can differentiate it cheaply (see forward model)
+model_ad = AtmosphereModel(grid_ad; formulation = LiquidIcePotentialTemperatureFormulation(temperature_solver = nothing),
+                           dynamics = CompressibleDynamics(ExplicitTimeStepping())) # closed-form EOS inversion so Enzyme can differentiate it cheaply (see forward model)
 
 # ### Fixed and varying fields
 #
@@ -365,9 +377,6 @@ compiled_grad = Reactant.@compile raise=true raise_first=true sync=true grad_los
 @info "Running gradient..."
 du, J = compiled_grad(model_ad, dmodel_ad, uᵢ, duᵢ, ρ_total, ρᵇᵍ, θ₀, Δt, Nsteps)
 
-xs_u = xnodes(grid_ad, Face())
-zs   = znodes(grid_ad, Center())
-
 @info @sprintf("Surface-mean (ρ - ρ̄)² = %.6e after %d steps", Float64(only(J)), Nsteps)
 
 # ### Sensitivity visualization
@@ -378,16 +387,18 @@ zs   = znodes(grid_ad, Center())
 # the pattern reveals which parts of the wind profile feed energy into the
 # surface duct from anywhere along it.
 
-sensitivity = Array(interior(du, :, 1, :))
-abs_max     = maximum(abs, sensitivity)
+# `du` is an Oceananigans `Field` on the `ReactantState` grid; the Makie extension
+# copies it to the host, drops the singleton `Flat` dimension, and supplies the
+# node coordinates automatically, so we can pass it to `heatmap!` directly.
+
+abs_max = maximum(abs, Array(interior(du)))
 
 fig_sens = Figure(size = (800, 350), fontsize = 12)
 Label(fig_sens[0, :],
       "∂J / ∂uᵢ  (J = ⟨(ρ - ρ̄)²⟩ at surface,  t=$(prettytime(Nsteps * Δt))",
       fontsize = 14, tellwidth = false)
 ax_sens = Axis(fig_sens[1, 1]; xlabel = "x (m)", ylabel = "z (m)")
-hm = heatmap!(ax_sens, xs_u, zs, sensitivity; colormap = :balance,
-              colorrange = (-abs_max, abs_max))
+hm = heatmap!(ax_sens, du; colormap = :balance, colorrange = (-abs_max, abs_max))
 Colorbar(fig_sens[1, 2], hm; label = "∂J / ∂uᵢ")
 
 fig_sens
