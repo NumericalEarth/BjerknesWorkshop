@@ -1,4 +1,4 @@
-# # Visualizing: coupled flow over Lofoten
+# # Visualizing: coupled flow over the Sunnmøre coast
 #
 # *This is the **visualization** half of the Norway case. The simulation ran on a GPU
 # before this page was built and cached its output; everything here executes live
@@ -30,7 +30,7 @@ Nt = length(times)
 println("Loaded ", Nt, " frames spanning ", prettytime(times[1]), " – ", prettytime(times[end]))
 
 repo = get(ENV, "THURSDAY_REPO_ROOT", pwd())
-topo = load(joinpath(repo, "thursday", "data", "norway_lofoten_100m_topography.jld2"))
+topo = load(joinpath(repo, "thursday", "data", "sunnmore_50km_100m_topography.jld2"))
 xt, yt, h_data, land_data = topo["x"], topo["y"], topo["h"], topo["land_mask"]
 
 ## `bilinear` lives in ThursdayLES — the same interpolator the simulation used to
@@ -44,18 +44,18 @@ hh    = [h_fun(x, y)       for x in xs, y in ys]
 water = [1 - land_fun(x, y) for x in xs, y in ys]
 nothing #hide
 
-# ## Where in the world: the Lofoten archipelago
+# ## Where in the world: the Sunnmøre coast
 #
-# Lofoten is a ~160 km chain of granite peaks rising straight from the sea off the coast
-# of **northern Norway, near 68° N** — well inside the Arctic Circle, fronting the
-# Norwegian Sea. Steep mountains (many 600–1300 m) stand directly over deep, narrow
-# fjords, with essentially no coastal plain. In winter, cold continental or Arctic air
-# spilling over this wall of rock and water makes it a natural laboratory for
-# orographic flow, gap/fjord jets, and surface-flux heterogeneity. The locator below
-# (global ETOPO 2022 relief) marks the 100 km × 100 km LES domain in that setting.
+# Sunnmøre is the coast of **western Norway around Ålesund, near 62.4° N**, where the
+# open North Atlantic and its islands (Giske, Godøy) meet the steep Sunnmøre Alps —
+# peaks to ~1500 m (Slogen, Kolåstinden) rising almost straight from the water, cut by
+# the Hjørundfjorden and Storfjorden. Open-ocean fetch upwind and a wall of fjord-cut
+# peaks downwind, plus the cold-over-warm land/sea contrast, make it a natural
+# laboratory for orographic flow, gap/fjord jets, and surface-flux heterogeneity. The
+# locator below (global ETOPO 2022 relief) marks the 50 km × 50 km LES domain.
 
-lon0, lat0 = 13.7, 68.05        # domain center (≈ UTM33N fetch center)
-dlon, dlat = 1.25, 0.46         # ≈ ±50 km box at this latitude
+lon0, lat0 = 6.15, 62.35        # domain center (≈ UTM33N fetch center)
+dlon, dlat = 0.49, 0.225        # ≈ ±25 km box at this latitude
 box_lon, box_lat = (lon0 - dlon, lon0 + dlon), (lat0 - dlat, lat0 + dlat)
 
 ## Find the locally cached global ETOPO relief (downloaded by ClimaOcean/NumericalEarth).
@@ -94,7 +94,7 @@ figL = try
     zmax = maximum(abs, filter(isfinite, Z))
     fig_loc = Figure(size = (760, 740))
     axL = Axis(fig_loc[1, 1], xlabel = "longitude (°E)", ylabel = "latitude (°N)", aspect = DataAspect(),
-               title = "Lofoten, northern Norway — the 100 km LES domain (red)")
+               title = "Sunnmøre, western Norway — the 50 km LES domain (red)")
     hmL = heatmap!(axL, elons, elats, Z; colormap = :oleron, colorrange = (-zmax, zmax))
     contour!(axL, elons, elats, Z; levels = [0.0], color = :black, linewidth = 0.7)  # coastline
     bx = [box_lon[1], box_lon[2], box_lon[2], box_lon[1], box_lon[1]]
@@ -135,7 +135,7 @@ n = Observable(Nt)
 speed = @lift sqrt.(interior(u_xy[$n], :, :, 1).^2 .+ interior(v_xy[$n], :, :, 1).^2)
 wn    = @lift interior(w_xz[$n], :, 1, 1:k5)
 wxy   = @lift interior(w_xy[$n], :, :, 1)
-title = @lift "Coupled flow over Lofoten — t = " * prettytime(times[$n])
+title = @lift "Coupled flow over the Sunnmøre coast — t = " * prettytime(times[$n])
 
 fig = Figure(size = (1150, 1000))
 Label(fig[0, 1:2], title, fontsize = 18, tellwidth = false)

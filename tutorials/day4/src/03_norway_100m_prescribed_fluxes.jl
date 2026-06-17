@@ -1,15 +1,15 @@
-# # Steep island mountains as boundary conditions: 100 m coupled air–land flow over Lofoten
+# # A steep coast as a boundary condition: ~65 m coupled air–sea–land flow over Sunnmøre
 #
 # *Boundary heterogeneity writes turbulence into the fluid — case 3 of 3.*
 #
 # The flagship visual example: a real-terrain atmospheric LES over a
-# 100 km × 100 km patch of coastal northern Norway (Lofoten) at a 100 m horizontal
-# *production target*. Lofoten is a ~160 km chain of granite peaks that rise
-# *directly from the sea* — the highest, Higravstinden, reaches 1161 m, and dozens
-# of summits stand 600–1300 m above steep, narrow fjords such as Trollfjord. There
-# is essentially no coastal plain to soften the transition: the ocean meets a wall
-# of rock cut by fjord gaps. That geometry, **plus the land/sea surface contrast**,
-# is the entire forcing of this experiment.
+# 50 km × 50 km patch of the **Sunnmøre coast** of western Norway (around Ålesund), at
+# a ~65 m horizontal grid. The domain straddles the coastline: the open **North
+# Atlantic and its islands/skerries (Giske, Godøy)** fill the western ~third of the
+# box, and to the east the **Sunnmøre Alps** rise to ~1500 m *almost straight from the
+# water* (Slogen, Kolåstinden), cut by the steep Hjørundfjorden and Storfjorden. With
+# open ocean upwind and a wall of fjord-cut peaks downwind — **plus the land/sea
+# surface contrast** — this is a textbook cold-air-outbreak + orography setup.
 #
 # ## Two kinds of boundary heterogeneity, at once
 #
@@ -17,9 +17,9 @@
 #
 #  1. **Orography.** The single number that organizes stratified flow over a peak is
 #     the **nondimensional mountain height** `M = N h / U` (an inverse Froude number;
-#     Smith 1989, Bauer et al. 2000). For our peaks (`h ≈ 1100` m), free-tropospheric
+#     Smith 1989, Bauer et al. 2000). For these peaks (`h ≈ 1500` m), free-tropospheric
 #     stratification `N ≈ 0.0122 s⁻¹` (`N² = 1.5e-4`), and inflow `U = 12 m/s`, we get
-#     **M ≈ 1.35** — the nonlinear regime with flow splitting / windward stagnation,
+#     **M ≈ 1.5** — the nonlinear regime with flow splitting / windward stagnation,
 #     **gap / fjord jets** (Bernoulli acceleration; the high-latitude cousin of the
 #     Greenland tip jet — Doyle & Shapiro 1999), lee eddies / vortex shedding, and
 #     vertically propagating **mountain waves** (`λ_z = 2π U / N ≈ 6 km`, which is why
@@ -70,12 +70,12 @@ nothing #hide
 
 # ## Load the cached topography
 #
-# Produced by `03a` from the real Kartverket DTM (or a synthetic Lofoten fallback).
+# Produced by `03a` from the real Kartverket DTM (or a synthetic fjord fallback).
 # `land_mask` is 1 over land, 0 over water — we use its complement as the
 # **fjord/sea (wet) fraction**.
 
 repo_root = get(ENV, "THURSDAY_REPO_ROOT", pwd())
-topo_path = joinpath(repo_root, "thursday", "data", "norway_lofoten_100m_topography.jld2")
+topo_path = joinpath(repo_root, "thursday", "data", "sunnmore_50km_100m_topography.jld2")
 isfile(topo_path) || error("Missing topography artifact $topo_path — run 03a_prepare_norway_topography.jl first.")
 
 topo = load(topo_path)
@@ -91,7 +91,7 @@ land_fun = bilinear(land_data, xt, yt)
 
 # ## Grid and terrain-following vertical coordinate
 #
-# 100 km × 100 km × 12 km. We use Breeze's built-in `PiecewiseStretchedDiscretization`
+# 50 km × 50 km × 12 km. We use Breeze's built-in `PiecewiseStretchedDiscretization`
 # to build the vertical coordinate — fine ~120 m cells through the boundary layer and
 # lower troposphere where the convection and gap jets live, coarsening to ~800 m aloft
 # where only the mountain waves matter — instead of hand-coding a stretching formula.
@@ -99,14 +99,14 @@ land_fun = bilinear(land_data, xt, yt)
 # `TwoLevelDecay` relaxes the terrain-following surfaces back to flat with height so
 # the coordinate is smooth under the sponge.
 
-Lx = 100kilometers
-Ly = 100kilometers
+Lx = 50kilometers
+Ly = 50kilometers
 Lz = 12kilometers
 
-## ~200 m horizontal grid for a long run (≈34 M cells). Production: 1000×1000;
-## quick teaching run: 256×256.
-Nx = 512
-Ny = 512
+## ~65 m horizontal grid over the 50 km box (≈77 M cells). Drop to 512×512 (~98 m)
+## for a lighter teaching run; push to 1024×1024 (~49 m) for a production target.
+Nx = 768
+Ny = 768
 
 z_faces = PiecewiseStretchedDiscretization(z  = [0, 3000, 6000, Int(Lz)],
                                            Δz = [120, 120, 400, 800])
@@ -123,7 +123,7 @@ grid = RectilinearGrid(arch; size = (Nx, Ny, Nz), halo = (5, 5, 5),
                        topology = (Periodic, Periodic, Bounded))
 
 ## Carve the real terrain into the grid. The outer rim was tapered to flat in `03a`,
-## so the periodic boundaries see a clean buffer; the central ≈70 km is the science window.
+## so the periodic boundaries see a clean buffer; the central ≈38 km is the science window.
 checkpoint("start")
 materialize_terrain!(grid, (x, y) -> h_fun(x, y))
 @info "Terrain materialized into grid."
@@ -167,7 +167,7 @@ atmosphere = atmosphere_simulation(grid; dynamics,
                                    momentum_advection = WENO(order = 9),
                                    scalar_advection = WENO(order = 5),
                                    closure = SmagorinskyLilly(),
-                                   coriolis = FPlane(latitude = 68))
+                                   coriolis = FPlane(latitude = 62))
 checkpoint("atmosphere built")
 
 # ## The land surface: wet fjords, dry land
@@ -348,7 +348,7 @@ run!(simulation)
 #   - Manabe, S. (1969). Climate and the ocean circulation: the atmospheric circulation and the
 #     hydrology of the earth's surface. *Mon. Wea. Rev.*, 97, 739–774 — bucket land-surface hydrology.
 #   - Kartverket (Norwegian Mapping Authority) national DTM — https://hoydedata.no/ — the real
-#     Lofoten terrain (and land/water mask), CC BY 4.0.
+#     Sunnmøre terrain (and land/water mask), CC BY 4.0.
 
 nothing #hide
 

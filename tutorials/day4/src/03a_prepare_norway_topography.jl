@@ -3,21 +3,23 @@
 # *Boundary heterogeneity writes turbulence into the fluid — case 3 setup.*
 #
 # The Norway case study (`03_...`) runs a real-terrain atmospheric LES over a
-# 100 km × 100 km patch of coastal northern Norway (Lofoten) at 100 m resolution.
+# 50 km × 50 km patch of the **Sunnmøre coast** of western Norway (around Ålesund) —
+# open Atlantic and islands to the west, the steep Sunnmøre Alps and their fjords to
+# the east — sampled at 100 m resolution.
 # The simulation tutorial must **not** download or reproject DEM data live — that
 # pulls in a heavy GDAL/PROJ stack that is fragile on the GPU production machine.
 # Instead, *this* preprocessing source produces a cached artifact:
 #
 # ```text
-# thursday/data/norway_lofoten_100m_topography.jld2
+# thursday/data/sunnmore_50km_100m_topography.jld2
 # ```
 #
 # holding `(; x, y, h_raw, h, land_mask, ocean_mask, taper_mask, source_metadata)`.
 #
 # ## Three modes
 #
-# 1. **Kartverket** (`TOPO_SOURCE=kartverket`): real Lofoten terrain from the
-#    Norwegian Mapping Authority national DTM, fetched by Web Coverage Service
+# 1. **Kartverket** (`TOPO_SOURCE=kartverket`, the default): real Sunnmøre terrain
+#    from the Norwegian Mapping Authority national DTM, fetched by Web Coverage Service
 #    through the workshop's custom NumericalEarth dataset (`src/KartverketDEM.jl`).
 #    The DTM is served in UTM 33N (metres) and returned as NetCDF (read by
 #    `NCDatasets`) — **no GDAL/PROJ needed**, just network access. This is the
@@ -26,10 +28,11 @@
 # 2. **Generic DEM** (`TOPO_SOURCE=dem`): the documented GLO-30/ASTER pipeline
 #    below — download tiles, reproject to local UTM, crop, resample. This requires
 #    `ArchGDAL`/`Rasters` and is left as a stub for a dev machine.
-# 3. **Synthetic** (`TOPO_SOURCE=synthetic`, the default): a Lofoten-flavored
-#    idealized terrain — steep coastal massifs, fjord incisions, islands, and a
-#    land/sea split — produced with no external dependencies. This makes the whole
-#    Thursday workflow runnable with zero data access.
+# 3. **Synthetic** (`TOPO_SOURCE=synthetic`): a fjord-flavored idealized terrain —
+#    steep coastal massifs, fjord incisions, islands, and a land/sea split — produced
+#    with no external dependencies. This is the offline fallback (used automatically
+#    if the Kartverket fetch fails) that keeps the workflow runnable with zero data
+#    access; it is *not* the real Sunnmøre coast and is geographically generic.
 #
 # All modes write the *same* artifact schema, so `03_...` does not care which was
 # used.
@@ -48,21 +51,26 @@ using .ThursdayLES
 ## The workshop's custom Kartverket DTM dataset (extends NumericalEarth metadata).
 include(joinpath(@__DIR__, "..", "..", "..", "src", "KartverketDEM.jl"))
 
-Random.seed!(68_13)   # center_lat, center_lon mnemonic
+Random.seed!(62_61)   # center_lat, center_lon mnemonic
 
-const TOPO_SOURCE = Symbol(get(ENV, "TOPO_SOURCE", "synthetic"))
+const TOPO_SOURCE = Symbol(get(ENV, "TOPO_SOURCE", "kartverket"))
 
 # ## Domain definition
 #
-# Lofoten / coastal northern Norway: steep mountains, fjords, islands, and sharp
-# land/sea contrasts inside a 100 km square.
+# The Sunnmøre coast around Ålesund, western Norway: the open North Atlantic and its
+# islands to the west, and the steep Sunnmøre Alps (~1500 m) cut by Hjørundfjorden and
+# Storfjorden to the east. A 50 km square straddling the coastline captures ~38% open
+# water upwind and the fjord-cut massifs downwind.
+# Note: 6.15°E is geographically UTM zone 32, but Kartverket serves its national DTM
+# in EPSG:25833 (UTM 33N) countrywide, so the zone-33 projection in `KartverketDEM`
+# applies directly (the metric box stays internally consistent).
 
-const center_lat = 68.15
-const center_lon = 13.70
-const Lx = 100kilometers
-const Ly = 100kilometers
+const center_lat = 62.35
+const center_lon = 6.15
+const Lx = 50kilometers
+const Ly = 50kilometers
 const Δ  = 100meters          # target horizontal resolution
-const taper_width = 12kilometers   # outer numerical buffer
+const taper_width = 6kilometers    # outer numerical buffer
 
 Nx = Int(Lx ÷ Δ)
 Ny = Int(Ly ÷ Δ)
@@ -72,18 +80,18 @@ y = range(-Ly/2, Ly/2, length = Ny)
 
 const datadir = joinpath("thursday", "data")
 mkpath(datadir)
-const artifact_path = joinpath(datadir, "norway_lofoten_100m_topography.jld2")
+const artifact_path = joinpath(datadir, "sunnmore_50km_100m_topography.jld2")
 
 # ## Terrain smoothing target
 #
 # The LES cannot resolve arbitrarily steep slopes; we smooth raw topography to a
-# tractable maximum resolved slope and taper the outer 12 km to flat so the periodic
+# tractable maximum resolved slope and taper the outer 6 km to flat so the periodic
 # rim is a clean numerical buffer. Real DEMs (Kartverket) are *much* steeper than the
-# synthetic fallback — Lofoten has near-vertical cliffs — so we smooth to 800 m
-# (≈8 grid cells) to keep the terrain-following coordinate well-conditioned for the
-# 100 m LES. (At 400 m the real DTM left a max resolved slope ≈1.3, too steep for a
-# stable long run.) The synthetic terrain is already gentle, so the heavier smoothing
-# is harmless there.
+# synthetic fallback — the Sunnmøre Alps rise ~1500 m almost straight from the
+# fjords and sea — so we smooth to 800 m (≈8 grid cells) to keep the terrain-following
+# coordinate well-conditioned for the LES. (At 400 m the real DTM left a max resolved
+# slope ≈1.3, too steep for a stable long run.) The synthetic terrain is already
+# gentle, so the heavier smoothing is harmless there.
 
 const max_slope = 0.4
 const smoothing_length = 800meters
@@ -100,8 +108,8 @@ function prepare_from_dem(x, y)
           On a dev machine with network + GDAL:
             1. Download a DEM covering ($(center_lat)°N, $(center_lon)°E) ± 60 km
                (e.g. Copernicus GLO-30, ASTER GDEM, or Kartverket DTM).
-            2. Reproject to the local UTM zone (33N for Lofoten).
-            3. Crop a 100 km × 100 km square centered on the domain.
+            2. Reproject to the Kartverket national grid (EPSG:25833, UTM 33N).
+            3. Crop a 50 km × 50 km square centered on the domain.
             4. Resample to $(Int(Δ)) m (e.g. bilinear).
             5. Return the raw height array h_raw[i, j] on the (x, y) grid.
           Then the shared smoothing / mask / taper steps below produce the artifact.
@@ -241,7 +249,7 @@ ocean_mask = 1 .- land_mask
 
 # Clamp ocean to zero height *first*, then smooth, then taper the rim to flat.
 # Order matters: masking (sharp 0 over ocean) BEFORE smoothing lets the Gaussian
-# round the coastline cliffs — Lofoten mountains rise straight from the sea, so a
+# round the coastline cliffs — the fjord walls rise straight from the water, so a
 # sharp land mask applied *after* smoothing would re-introduce near-vertical 0→peak
 # steps (and heavier height-smoothing then bleeds more inland height toward the
 # coast, making the step *worse*). Smoothing the already-masked field instead
@@ -293,7 +301,7 @@ heatmap!(ax3, xkm, ykm, land_mask, colormap = :grays)
 heatmap!(ax4, xkm, ykm, taper_mask, colormap = :grays)
 Colorbar(fig[1, 0], hm1, label = "m")
 
-figpath = joinpath("thursday", "figures", "norway_raw_vs_smoothed_topography.png")
+figpath = joinpath("thursday", "figures", "sunnmore_raw_vs_smoothed_topography.png")
 mkpath(dirname(figpath))
 save(figpath, fig)
 @info "Saved validation figure" figpath

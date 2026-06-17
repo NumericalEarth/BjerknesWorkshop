@@ -480,10 +480,10 @@ function case_registry(root::AbstractString = pwd())
             "norway_land.jld2",
         ],
         workdir = :artifacts,
-        parameters = (Lx = 100_000, Ly = 100_000, Lz = 12_000, Nx = 256, Ny = 256, Nz = 64,
-                      stop_minutes = 15, U0 = 10),
+        parameters = (Lx = 50_000, Ly = 50_000, Lz = 12_000, Nx = 768, Ny = 768, Nz = 64,
+                      stop_minutes = 180, U0 = 12),
         critical = false,
-        description = "Breeze terrain-following LES over coastal Norway (Lofoten) with prescribed land/ocean fluxes.",
+        description = "Breeze terrain-following LES over the Sunnmøre coast (western Norway, near Ålesund), real Kartverket DTM, with coupled land/ocean fluxes.",
     ))
     push!(cases, TutorialCase(
         # Day 2 (Breeze session). Slug/output_root kept under
