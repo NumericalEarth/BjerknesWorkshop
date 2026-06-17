@@ -277,13 +277,10 @@ jmid = Nφ ÷ 2 + 1
 k_a_surface = 2
 k_o_surface = Nz_o
 
-## Statics on the plain 2-D land_grid so they round-trip cleanly through FieldTimeSeries.
-h_field     = Field{Center, Center, Nothing}(land_grid)
-depth_field = Field{Center, Center, Nothing}(land_grid)
-water_field = Field{Center, Center, Nothing}(land_grid)
-set!(h_field, land_elev)
-set!(depth_field, -bottom_cpu)
-set!(water_field, FT.(land_frac_cpu .== 0))
+## Statics for the viz (terrain, bathymetry, water mask + lon/lat) as a plain JLD2 file —
+## simpler and more robust than an output-writer snapshot of a terrain-following field.
+jldsave("coupled_fjord_statics.jld2"; lon = λc, lat = φc,
+        h = land_elev, depth = -bottom_cpu, water = FT.(land_frac_cpu .== 0))
 
 atmos_outputs = (u_xy = view(u_a, :, :, k_a_surface), v_xy = view(v_a, :, :, k_a_surface),
                  w_xy = view(w_a, :, :, k_a_surface), w_xz = view(w_a, :, jmid, :))
@@ -297,8 +294,6 @@ flux_outputs = (tau_x = ao.x_momentum, tau_y = ao.y_momentum,
                 Q_sensible = ao.sensible_heat, Q_latent = ao.latent_heat)
 
 out_schedule = TimeInterval(PROD ? 5minutes : 2minutes)
-simulation.output_writers[:statics] = JLD2Writer(atmosphere.model, (; h = h_field, depth = depth_field, water = water_field);
-    filename = "coupled_fjord_statics.jld2", schedule = IterationInterval(typemax(Int)), overwrite_existing = true)
 simulation.output_writers[:atmos] = JLD2Writer(atmosphere.model, atmos_outputs;
     filename = "coupled_fjord_atmos.jld2", schedule = out_schedule, overwrite_existing = true)
 simulation.output_writers[:ocean] = JLD2Writer(ocean.model, ocean_outputs;
@@ -306,8 +301,7 @@ simulation.output_writers[:ocean] = JLD2Writer(ocean.model, ocean_outputs;
 simulation.output_writers[:fluxes] = JLD2Writer(atmosphere.model, flux_outputs;
     filename = "coupled_fjord_fluxes.jld2", schedule = out_schedule, overwrite_existing = true)
 
-write_once!(simulation.output_writers[:statics], atmosphere.model)
-checkpoint("statics written; starting run!")
+checkpoint("starting run!")
 
 # ## Go time
 run!(simulation)

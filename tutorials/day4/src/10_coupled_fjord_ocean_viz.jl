@@ -47,7 +47,6 @@ v_oce_xy  = FieldTimeSeries(ocean_file, "v_xy")
 T_oce_xz  = FieldTimeSeries(ocean_file, "T_xz")
 w_oce_xz  = FieldTimeSeries(ocean_file, "w_xz")
 e_oce_xz  = FieldTimeSeries(ocean_file, "e_xz")
-h_mld_ts  = FieldTimeSeries(ocean_file, "h_mld")
 
 ## --- surface fluxes ---
 tau_x_ts   = FieldTimeSeries(flux_file, "tau_x")
@@ -81,12 +80,13 @@ xz_xa, _, xz_za = nodes(w_atm_xz)
 xo, yo, _    = nodes(T_oce_xy)
 xz_xo, _, xz_zo = nodes(T_oce_xz)
 
-xa_km  = xa  ./ 1e3
-ya_km  = ya  ./ 1e3
-xo_km  = xo  ./ 1e3
-yo_km  = yo  ./ 1e3
-xz_xa_km = xz_xa ./ 1e3
-xz_xo_km = xz_xo ./ 1e3
+## coordinates are now longitude/latitude in degrees (LatitudeLongitudeGrid)
+lon_a  = xa    # longitude (°E), atmosphere
+lat_a  = ya    # latitude  (°N), atmosphere
+lon_o  = xo    # longitude (°E), ocean
+lat_o  = yo    # latitude  (°N), ocean
+xz_lon_a = xz_xa   # longitude (°E) along atmosphere xz transect
+xz_lon_o = xz_xo   # longitude (°E) along ocean xz transect
 nothing #hide
 
 # ## Colour limits — computed once over the whole run, held fixed
@@ -145,12 +145,11 @@ end
 wind_dirs = [mean_wind_dir(i) for i in 1:Nt]   # pre-compute for the summary figure
 nothing #hide
 
-# ## Mixed-layer depth from the `h_mld` output field
+# ## Mixed-layer depth from a temperature threshold
 #
-# The simulation writes `h_mld` directly from CATKE. We also compute a temperature-
-# threshold fallback: depth where the horizontally-averaged ocean temperature profile
-# first drops by `ΔT = 0.2 °C` below the surface value. Both diagnostics are
-# domain-averaged over water cells only (using the `water_mask`).
+# We diagnose the mixed-layer depth as the depth where the horizontally-averaged ocean
+# temperature profile (along the fjord transect) first drops by `ΔT = 0.2 °C` below the
+# surface value — a robust, standard MLD estimate computed from the cached `T_xz`.
 
 ΔT_threshold = 0.2   # °C
 
@@ -171,13 +170,10 @@ function mld_from_temperature(T_xz_frame)
     return mld
 end
 
-## Pre-compute both MLD diagnostics for the summary figure.
-mld_direct  = [mean(interior(h_mld_ts[i], :, :, 1)[water_mask .> 0.5]) for i in 1:Nt]
-mld_fallback = [mld_from_temperature(T_oce_xz[i]) for i in 1:Nt]
-
-## Use the direct output; fall back to the temperature-based estimate wherever it
-## looks unphysical (e.g. all-zero before the mixed layer develops).
-mld_use = [mld_direct[i] > 1.0 ? mld_direct[i] : mld_fallback[i] for i in 1:Nt]
+## Mixed-layer depth from the temperature-threshold diagnostic (transect-averaged):
+## the depth where the horizontally-averaged ocean temperature first drops ΔT below
+## the surface. (The ocean does not output a dedicated MLD field.)
+mld_use = [mld_from_temperature(T_oce_xz[i]) for i in 1:Nt]
 
 println("MLD range: ", @sprintf("%.1f – %.1f m", minimum(mld_use), maximum(mld_use)))
 
@@ -227,8 +223,8 @@ end
 # The frame title carries the simulation time and the instantaneous mean wind direction.
 
 ## Arrow sub-sampling strides (tune if the grids are very fine/coarse)
-atm_stride = max(1, div(length(xa), 20))
-oce_stride = max(1, div(length(xo), 20))
+atm_stride = max(1, div(length(lon_a), 20))
+oce_stride = max(1, div(length(lon_o), 20))
 
 ## Build crop index for the transect: deepest resolved ocean level
 kbot_oz = findfirst(z -> z > -2000, xz_zo)   # top 2 km of ocean (xz_zo < 0)
@@ -243,7 +239,7 @@ speed_n = @lift sqrt.(interior(u_atm_xy[$n], :, :, 1).^2 .+
 arrow_atm_n = @lift begin
     U = interior(u_atm_xy[$n], :, :, 1)
     V = interior(v_atm_xy[$n], :, :, 1)
-    subsample_arrows(xa_km, ya_km, U, V; stride = atm_stride)
+    subsample_arrows(lon_a, lat_a, U, V; stride = atm_stride)
 end
 
 ## --- panel (b): SST + surface-current arrows ---
@@ -251,14 +247,14 @@ T_sst_n = @lift interior(T_oce_xy[$n], :, :, 1)
 arrow_oce_n = @lift begin
     U = interior(u_oce_xy[$n], :, :, 1)
     V = interior(v_oce_xy[$n], :, :, 1)
-    subsample_arrows(xo_km, yo_km, U, V; stride = oce_stride)
+    subsample_arrows(lon_o, lat_o, U, V; stride = oce_stride)
 end
 
 ## --- panel (c): ocean T transect + MLD overlay ---
 T_xz_n = @lift interior(T_oce_xz[$n], :, 1, krange_oz)
 mld_line_n = @lift begin
     mld_val = mld_direct[$n] > 1.0 ? mld_direct[$n] : mld_fallback[$n]
-    fill(-mld_val, length(xz_xo_km))
+    fill(-mld_val, length(xz_lon_o))
 end
 
 ## --- panel (d): CATKE TKE transect ---
@@ -282,12 +278,12 @@ fig = Figure(size = (1280, 1080))
 Label(fig[0, 1:4], title_n, fontsize = 16, tellwidth = false)
 
 ## (a) atmosphere wind speed
-ax_a = Axis(fig[1, 1], xlabel = "x (km)", ylabel = "y (km)",
+ax_a = Axis(fig[1, 1], xlabel = "longitude (°E)", ylabel = "latitude (°N)",
             title = "near-surface wind speed (m s⁻¹)", aspect = DataAspect())
-hm_a = heatmap!(ax_a, xa_km, ya_km, speed_n;
+hm_a = heatmap!(ax_a, lon_a, lat_a, speed_n;
                 colormap = :speed, colorrange = (0, speed_atm_max))
 ## terrain contours for geographic context
-contour!(ax_a, xa_km, ya_km, h_terrain;
+contour!(ax_a, lon_a, lat_a, h_terrain;
          levels = [200.0, 600.0, 1000.0], color = (:white, 0.5), linewidth = 0.7)
 ## wind arrows
 arrows!(ax_a,
@@ -297,9 +293,9 @@ arrows!(ax_a,
 Colorbar(fig[1, 2], hm_a, label = "speed (m s⁻¹)")
 
 ## (b) SST + current arrows
-ax_b = Axis(fig[1, 3], xlabel = "x (km)", ylabel = "y (km)",
+ax_b = Axis(fig[1, 3], xlabel = "longitude (°E)", ylabel = "latitude (°N)",
             title = "sea-surface temperature (°C)", aspect = DataAspect())
-hm_b = heatmap!(ax_b, xo_km, yo_km, T_sst_n;
+hm_b = heatmap!(ax_b, lon_o, lat_o, T_sst_n;
                 colormap = :thermal, colorrange = T_oce_lims)
 arrows!(ax_b,
         @lift($arrow_oce_n[1]), @lift($arrow_oce_n[2]),
@@ -308,19 +304,19 @@ arrows!(ax_b,
 Colorbar(fig[1, 4], hm_b, label = "T (°C)")
 
 ## (c) ocean temperature transect + MLD
-ax_c = Axis(fig[2, 1], xlabel = "x (km)", ylabel = "depth (m)",
+ax_c = Axis(fig[2, 1], xlabel = "longitude (°E)", ylabel = "depth (m)",
             title = "fjord temperature transect (°C)")
-hm_c = heatmap!(ax_c, xz_xo_km, xz_zo[krange_oz], T_xz_n;
+hm_c = heatmap!(ax_c, xz_lon_o, xz_zo[krange_oz], T_xz_n;
                 colormap = :thermal, colorrange = T_xz_lims)
-lines!(ax_c, xz_xo_km, mld_line_n; color = :white, linewidth = 2,
+lines!(ax_c, xz_lon_o, mld_line_n; color = :white, linewidth = 2,
        label = "MLD")
 axislegend(ax_c; position = :lt, labelsize = 11)
 Colorbar(fig[2, 2], hm_c, label = "T (°C)")
 
 ## (d) CATKE TKE transect
-ax_d = Axis(fig[2, 3], xlabel = "x (km)", ylabel = "depth (m)",
+ax_d = Axis(fig[2, 3], xlabel = "longitude (°E)", ylabel = "depth (m)",
             title = "CATKE TKE transect (m² s⁻²)")
-hm_d = heatmap!(ax_d, xz_xo_km, xz_zo[krange_oz], e_xz_n;
+hm_d = heatmap!(ax_d, xz_lon_o, xz_zo[krange_oz], e_xz_n;
                 colormap = :inferno, colorrange = (0, e_lim))
 Colorbar(fig[2, 4], hm_d, label = "e (m² s⁻²)")
 
