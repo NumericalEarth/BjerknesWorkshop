@@ -143,7 +143,7 @@ checkpoint("atmosphere terrain materialized")
 ## Ocean grid with an immersed bottom. The bathymetry gives sea-floor depth (≥0);
 ## the immersed bottom sits at z = -depth(x,y), so dry (land) columns where depth≈0
 ## have the bottom at the surface (no wet cells) — exactly the fjord planform.
-ocean_base_grid = RectilinearGrid(arch; size = (Nx, Ny, Nz_o), halo = (5, 5, 5),
+ocean_base_grid = RectilinearGrid(arch; size = (Nx, Ny, Nz_o), halo = (7, 7, 7),
                                   x = (-Lx/2, Lx/2), y = (-Ly/2, Ly/2), z = (-Lz_o, 0),
                                   topology = (Periodic, Periodic, Bounded))
 bottom(x, y) = -depth_fun(x, y)
@@ -164,7 +164,9 @@ land_grid = RectilinearGrid(arch; size = (Nx, Ny), halo = (atmos_grid.Hx, atmos_
 xc = [xnode(i, atmos_grid, Center()) for i in 1:Nx]
 yc = [ynode(j, atmos_grid, Center()) for j in 1:Ny]
 land_fraction_data = FT.([clamp(land_fun(xc[i], yc[j]), 0, 1) for i in 1:Nx, j in 1:Ny])
-land_fraction = Field{Center, Center, Nothing}(land_grid)
+## land_fraction lives on the exchange grid (= ocean grid), which the weighted-flux
+## coupler kernel indexes [i, j, 1]; same Nx×Ny as the atmosphere grid.
+land_fraction = Field{Center, Center, Nothing}(ocean_grid)
 interior(land_fraction) .= Oceananigans.on_architecture(arch, reshape(land_fraction_data, Nx, Ny, 1))
 
 # ## Atmosphere component (compressible, terrain-following, coupling-ready)
@@ -311,6 +313,9 @@ stop_time = PROD ? 18hours : 4hours
 simulation = Simulation(model; Δt = 1.0, stop_time)
 conjure_time_step_wizard!(simulation, cfl = 1.0)
 Oceananigans.Diagnostics.erroring_NaNChecker!(simulation)
+## Optional iteration cap for a quick GPU validation smoke (leaves the science
+## defaults untouched when unset).
+haskey(ENV, "COUPLED_STOP_ITERATION") && (simulation.stop_iteration = parse(Int, ENV["COUPLED_STOP_ITERATION"]))
 
 wall_clock = Ref(time_ns())
 function progress(sim)
