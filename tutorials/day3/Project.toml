@@ -1,17 +1,36 @@
+[compat]
+Breeze = "0.6"
+Enzyme = "0.13.132"
+Oceananigans = "0.110"
+Reactant = "0.2.238"
+
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+Breeze = "660aa2fb-d4c8-4359-a52c-9c057bc511da"
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
 Lux = "b2108857-7c20-44ae-9111-449ecde12c47"
 MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
 MLUtils = "f1d291b0-491e-4a28-83b9-f70985020b54"
 NCDatasets = "85f8d34a-cbdd-5861-8df4-14fed0d494ab"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
 Optimisers = "3bd65402-5787-11e9-1adc-39752487f4e2"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 SpeedyWeather = "9e226e20-d153-4fed-8a5b-493def4f21a9"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Zarr = "0a941bbe-ad1d-11e8-39d9-ab76183a1d99"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
+
+[extras]
+CUDA_Runtime_jll = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"
+
+[sources.Breeze]
+rev = "glw/unify-solvers"
+url = "https://github.com/NumericalEarth/Breeze.jl.git"
