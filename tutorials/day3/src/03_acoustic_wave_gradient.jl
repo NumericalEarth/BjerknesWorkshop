@@ -59,7 +59,7 @@ mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
 Nx, Nz = 128, 64
 Lx, Lz = 1000, 200  # (m)
 
-grid = RectilinearGrid(GPU(); size = (Nx, Nz), x = (-Lx/2, Lx/2), z = (0, Lz),
+grid = RectilinearGrid(CPU(); size = (Nx, Nz), x = (-Lx/2, Lx/2), z = (0, Lz),
                        topology = (Periodic, Flat, Bounded))
 
 # This example is dry, so the θˡⁱ→T inversion has an exact closed form and needs no iteration.
@@ -108,7 +108,7 @@ Uᵢ(z) = U₀ * log((z + ℓ) / ℓ)
 σ = 20       # Pulse width (m)
 
 gaussian(x, z) = exp(-(x^2 + z^2) / 2σ^2)
-ρ₀ = interior(reference.density, 1, 1, 1)[]
+ρ₀ = CUDA.@allowscalar first(reference.density)
 
 ρᵢ_func(x, z) = adiabatic_hydrostatic_density(z, p₀, θ₀, pˢᵗ, constants) + δρ * gaussian(x, z)
 uᵢ_func(x, z) = Uᵢ(z) # + (ℂᵃᶜ / ρ₀) * δρ * gaussian(x, z)
@@ -265,7 +265,7 @@ using Statistics: mean
 using Oceananigans.Architectures: ReactantState
 using Reactant: @trace
 
-Reactant.set_default_backend("gpu")
+Reactant.set_default_backend("cpu")
 
 # Rebuild the grid and model on `ReactantState`.
 
