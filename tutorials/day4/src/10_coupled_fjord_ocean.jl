@@ -51,17 +51,17 @@ nothing #hide
 
 # ## Domain & grid (latitude–longitude)
 #
-# An ~90 km box over the Sunnmøre coast: south edge ≈ 62.0° N, east edge ≈ 7.5° E, so it
+# An ~90 km box over the Sunnmøre coast: south edge ≈ 62.0° N, east edge ≈ 7.3° E, so it
 # opens onto the open Norwegian Sea in the NW (more ocean fetch) while the SE reaches the
 # *heads* of several fjords — Hjørundfjorden and the Storfjorden→Sunnylvsfjorden/
-# Geirangerfjorden/Tafjord system. `RUN_CLASS=production` selects the fine grid.
+# Geirangerfjorden system. `RUN_CLASS=production` selects the fine grid.
 
 const PROD = get(ENV, "RUN_CLASS", "smoke") == "production"
 
 center_lat = 62.40
-center_lon = 6.63
+center_lon = 6.43
 ## Half-spans in degrees for an ~90 km square (latitude ~111 km/°, longitude shrinks by
-## cos) ⇒ south ≈ 62.0° N, east ≈ 7.5° E, NW corner ≈ (62.8° N, 5.76° E) in open water.
+## cos) ⇒ south ≈ 62.0° N, east ≈ 7.3° E, NW corner ≈ (62.8° N, 5.56° E) in open water.
 dlat = 45kilometers / 111320
 dlon = 45kilometers / (111320 * cosd(center_lat))
 
