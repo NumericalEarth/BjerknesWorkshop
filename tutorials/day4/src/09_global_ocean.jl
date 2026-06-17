@@ -27,6 +27,7 @@ using Dates
 using CUDA
 using Printf
 using Statistics
+using CairoMakie
 
 arch = GPU()   # CPU() works too — heroically — at reduced resolution
 
@@ -41,15 +42,64 @@ arch = GPU()   # CPU() works too — heroically — at reduced resolution
 
 Nx = 1440
 Ny = 720
-Nz = 40
+Nz = 20
 
-depth = 5000meters
+depth = 3000meters
 z = ExponentialDiscretization(Nz, -depth, 0; scale = depth/4, mutable = true)
 
 underlying_grid = TripolarGrid(arch; size = (Nx, Ny, Nz), halo = (7, 7, 7), z)
 
 # (`mutable = true` makes the vertical coordinate a *z★* coordinate that breathes with the free surface —
 # relevant for tides and shelf seas, free to keep on.)
+#
+# It is worth looking at what "warped sphere" buys us, and a north-polar *stereographic* projection makes the
+# point clear. On a plain latitude–longitude grid every meridian runs to the geographic North Pole: in the
+# projection the cells become concentric rings that shrink onto a single point in the middle of the Arctic
+# Ocean, where the zonal cell width — and the affordable time step — go to zero. The tripolar construction
+# splits that singularity into two poles and places both over land (Siberia and Canada), so the meridians
+# converge on the continents and every wet Arctic cell keeps a finite size:
+
+using GeoMakie
+
+projection = "+proj=stere +lat_0=90 +lat_ts=90"
+
+fig = Figure(size = (1160, 620))
+
+# A regular latitude–longitude grid: concentric rings collapsing onto one pole.
+
+ax = GeoAxis(fig[1, 1]; dest = projection, limits = ((-180, 180), (15, 90)),
+             title = "latitude–longitude grid: one pole, a singularity")
+hidedecorations!(ax)
+for φ₀ in 20:10:80
+    lines!(ax, range(-180, 180, length = 361), fill(φ₀, 361); color = (:black, 0.65), linewidth = 0.7)
+end
+for λ₀ in -180:15:165
+    lines!(ax, fill(λ₀, 181), range(0, 90, length = 181); color = (:black, 0.65), linewidth = 0.7)
+end
+lines!(ax, GeoMakie.coastlines(); color = (:dodgerblue, 0.9), linewidth = 1)
+
+# The tripolar grid: the mesh steps around the Arctic Ocean and converges on two poles, both on land.
+
+viz_grid = TripolarGrid(size = (90, 45, 1), halo = (5, 5, 5), z = (0, 1))
+λ = Array(λnodes(viz_grid, Face(), Face(), Center()))
+φ = Array(φnodes(viz_grid, Face(), Face(), Center()))
+λ = vcat(λ, λ[1:1, :])   # close the periodic seam in longitude
+φ = vcat(φ, φ[1:1, :])
+
+ax = GeoAxis(fig[1, 2]; dest = projection, limits = ((-180, 180), (15, 90)),
+             title = "tripolar grid: two poles, both over land")
+hidedecorations!(ax)
+for j in 1:2:size(λ, 2)
+    lines!(ax, λ[:, j], φ[:, j]; color = (:black, 0.65), linewidth = 0.6)
+end
+for i in 1:3:size(λ, 1)
+    lines!(ax, λ[i, :], φ[i, :]; color = (:black, 0.65), linewidth = 0.6)
+end
+lines!(ax, GeoMakie.coastlines(); color = (:dodgerblue, 0.9), linewidth = 1)
+save("tripolar_grid.png", fig)
+fig
+
+# ![](tripolar_grid.png)
 #
 # The real bathymetry comes from ETOPO1, regridded with a few smoothing passes; `major_basins = 2` keeps the
 # two largest connected ocean basins and fills lakes and disconnected seas:
@@ -87,8 +137,8 @@ vertical_mixing = CATKEVerticalDiffusivity(minimum_tke=1e-7)
 # keyword arguments, with the objects you already know:
 
 free_surface       = SplitExplicitFreeSurface(grid; substeps = 70)
-+momentum_advection = WENOVectorInvariant(time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
-+tracer_advection   = WENO(order=7, time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
+momentum_advection = WENOVectorInvariant(time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
+tracer_advection   = WENO(order=7, time_discretization=AdaptiveVerticallyImplicitDiscretization(cfl=0.5))
 
 ocean = ocean_simulation(grid; momentum_advection, tracer_advection, free_surface, closure = vertical_mixing)
 
@@ -134,6 +184,140 @@ radiation     = JRA55PrescribedRadiation(arch; ocean_surface, dir_kw...)
 # coupler:
 
 coupled_model = OceanSeaIceModel(ocean, sea_ice; atmosphere, land, radiation)
+
+# ## Interface fluxes and Monin–Obukhov similarity theory
+#
+# `OceanSeaIceModel` computes the interface fluxes already at construction, so before time-stepping we can stop
+# and look at what the coupler does. Every exchanged flux is a plain `Field` stored under
+# `coupled_model.interfaces`; there is no hidden coupler state to dig into.
+#
+# The turbulent exchange of momentum, heat, and water vapor between the atmosphere and the surface below is
+# written with bulk formulae,
+#
+# ```math
+# \overline{\mathbf{u}' w'} = C_D \, U \, \Delta \mathbf{u}, \qquad
+# \overline{w' \theta'} = C_\theta \, U \, \Delta \theta, \qquad
+# \overline{w' q'} = C_q \, U \, \Delta q ,
+# ```
+#
+# where ``\Delta`` denotes the air–surface difference and ``U`` a characteristic velocity scale. The transfer
+# coefficients ``C_D``, ``C_\theta``, ``C_q`` are not constants — Monin–Obukhov similarity theory derives them
+# from the structure of the surface layer. Introducing the characteristic scales
+#
+# ```math
+# u_\star^2 \equiv |\overline{\mathbf{u}' w'}|, \qquad
+# u_\star \theta_\star \equiv \overline{w' \theta'}, \qquad
+# u_\star q_\star \equiv \overline{w' q'} ,
+# ```
+#
+# similarity theory supposes that the near-surface shear depends only on height, ``\partial_z u = u_\star /
+# (\kappa z)``, with ``\kappa`` the von Kármán constant. Integrating from a roughness length ``\ell_u`` up to
+# the measurement height ``h``, and correcting for buoyancy fluxes through the stability function ``\psi_u``
+# evaluated at ``\zeta = z / L_\star`` (where ``L_\star = -u_\star^2 / (\kappa b_\star)`` is the Monin–Obukhov
+# length), the velocity difference becomes
+#
+# ```math
+# \Delta u = \frac{u_\star}{\kappa}
+#            \left[ \log \frac{h}{\ell_u} - \psi_u\!\left(\frac{h}{L_\star}\right) \right] .
+# ```
+#
+# Over the ocean ``\ell_u`` itself depends on ``u_\star``, so this is a nonlinear equation for ``u_\star``,
+# solved by fixed-point iteration. The friction velocity, the temperature scale, and the effective drag
+# coefficient ``C_D = u_\star^2 / |\Delta u|^2`` are exactly the quantities that the interface stores.
+#
+# These quantities — the friction velocity, and the heat and momentum fluxes — are computed for the real
+# global state already at construction, one value per surface cell. To look at them, we first move them off
+# the tripolar grid.
+#
+# ## From the model grid to a map: conservative regridding
+#
+# These fluxes are computed on the tripolar grid, whose cells are curvilinear quadrilaterals of uneven
+# size. To draw them on a map — or to compare with a product on a different mesh — we move them onto a regular
+# longitude–latitude grid. Pointwise interpolation would not conserve the area integral of a flux, which is the
+# property we usually care about (the total heat or freshwater exchanged). *Conservative* regridding instead
+# computes, for each target cell, the area-weighted average of the source cells it overlaps; the global
+# integral is preserved up to the mismatch at the domain edges.
+#
+# `ConservativeRegridding` builds a `Regridder` from the geometric overlap of two grids (`dst` first, `src`
+# second). The weights depend only on the meshes, so a single regridder is reused for every field that lives on
+# the same grid and location — and all our scalar fluxes are `(Center, Center)` fields on the same tripolar
+# grid:
+
+using ConservativeRegridding
+using GeoMakie
+using Oceananigans.Architectures: on_architecture
+
+ao = coupled_model.interfaces.atmosphere_ocean_interface.fluxes
+io = coupled_model.interfaces.sea_ice_ocean_interface.fluxes
+
+wind_stress = Field(sqrt(ao.x_momentum^2 + ao.y_momentum^2))
+compute!(wind_stress)
+
+# The flux Fields live wherever the model runs; the regridding and plotting happen on the CPU:
+
+sensible = on_architecture(CPU(), ao.sensible_heat)
+latent   = on_architecture(CPU(), ao.latent_heat)
+friction = on_architecture(CPU(), ao.friction_velocity)
+stress   = on_architecture(CPU(), wind_stress)
+ice_heat = on_architecture(CPU(), io.interface_heat)
+ice_salt = on_architecture(CPU(), io.salt)
+
+# A quarter-degree target, matching the simulation resolution:
+
+latlon_grid = LatitudeLongitudeGrid(size = (1440, 720, 1),
+                                    longitude = (-180, 180),
+                                    latitude  = (-80, 90),
+                                    z = (0, 1))
+
+regridder = ConservativeRegridding.Regridder(Field{Center, Center, Nothing}(latlon_grid), sensible)
+
+function regrid(field)
+    out = Field{Center, Center, Nothing}(latlon_grid)
+    ConservativeRegridding.regrid!(out, regridder, field)
+    return out
+end
+
+# An ocean fraction, regridded the same way, masks the continents:
+
+source_grid  = sensible.grid
+bottom       = source_grid.immersed_boundary.bottom_height
+ocean_source = Field{Center, Center, Nothing}(source_grid)
+interior(ocean_source) .= ifelse.(interior(bottom) .< 0, 1, 0)
+ocean_fraction = interior(regrid(ocean_source), :, :, 1)
+mask(data) = ifelse.(ocean_fraction .> 0.5, data, NaN)
+
+λ = λnodes(latlon_grid, Center(), Center(), Center())
+φ = φnodes(latlon_grid, Center(), Center(), Center())
+
+panels = [(sensible, "sensible heat (W m⁻²)",        :balance, (-200, 200)),
+          (latent,   "latent heat (W m⁻²)",          :balance, (-300, 300)),
+          (stress,   "wind stress (N m⁻²)",          :solar,   (0, 0.4)),
+          (friction, "friction velocity u★ (m s⁻¹)", :solar,   (0, 0.5)),
+          (ice_heat, "ice-ocean heat (W m⁻²)",       :balance, (-50, 50)),
+          (ice_salt, "ice-ocean salt (psu m s⁻¹)",   :haline,  (0, 2e-6))]
+
+fig = Figure(size = (1200, 1200))
+
+for (k, (field, name, colormap, colorrange)) in enumerate(panels)
+    i, j = fldmod1(k, 2)
+    gl = GridLayout(fig[i, j])
+    ax = GeoAxis(gl[1, 1]; dest = "+proj=robin", title = name)
+    data = mask(interior(regrid(field), :, :, 1))
+    sf = surface!(ax, λ, φ, data; colormap, colorrange, nan_color = :gray20, shading = NoShading)
+    lines!(ax, GeoMakie.coastlines(); color = :black, linewidth = 0.4)
+    Colorbar(gl[1, 2], sf)
+end
+
+save("interface_fluxes_map.png", fig)
+fig
+
+# ![](interface_fluxes_map.png)
+#
+# The maps read as the coupler's diagnosis of the January state estimate: strong latent and sensible heat loss
+# over the warm western-boundary currents and along the sea-ice edge, the wind-stress imprint of the storm
+# tracks and the trades, and a sharply localized ice–ocean heat flux confined to the marginal ice zones.
+#
+# ## Running forward
 
 simulation = Simulation(coupled_model; Δt = 20minutes, stop_time = 365days)
 
@@ -186,9 +370,13 @@ run!(simulation)
 
 # ## A planetary movie
 #
-# Surface speed, surface temperature, and the sea-ice cover, with land masked to `NaN`:
+# Surface speed, surface temperature, and the sea-ice cover — rendered on the same quarter-degree
+# longitude–latitude grid, regridding every frame conservatively from the tripolar output and drawing it on a
+# GeoMakie map, with land masked:
 
-using CairoMakie
+using GeoMakie
+using ConservativeRegridding
+using Oceananigans.Architectures: on_architecture
 
 Uo = FieldTimeSeries("global_ocean_surface.jld2", "𝒱")
 To = FieldTimeSeries("global_ocean_surface.jld2", "T")
@@ -197,44 +385,63 @@ hi = FieldTimeSeries("global_sea_ice_surface.jld2", "h")
 
 times = To.times
 
-land_mask = interior(To.grid.immersed_boundary.bottom_height, :, :, 1) .≥ 0
+movie_grid = LatitudeLongitudeGrid(size = (1440, 720, 1),
+                                   longitude = (-180, 180),
+                                   latitude  = (-80, 90),
+                                   z = (0, 1))
+
+# One regridder, shared by every (Center, Center) frame:
+
+regridder = ConservativeRegridding.Regridder(Field{Center, Center, Nothing}(movie_grid),
+                                             on_architecture(CPU(), Uo[1]))
+
+function to_map(field)
+    out = Field{Center, Center, Nothing}(movie_grid)
+    ConservativeRegridding.regrid!(out, regridder, on_architecture(CPU(), field))
+    return interior(out, :, :, 1)
+end
+
+# An ocean fraction on the target grid masks the continents:
+
+ocean_source = Field{Center, Center, Nothing}(Uo.grid)
+interior(ocean_source) .= ifelse.(interior(Uo.grid.immersed_boundary.bottom_height) .< 0, 1, 0)
+land = .!(to_map(ocean_source) .> 0.5)
+
+λ = λnodes(movie_grid, Center(), Center(), Center())
+φ = φnodes(movie_grid, Center(), Center(), Center())
 
 n = Observable(length(times))
-
 title = @lift "global ocean and sea ice — day " * string(round(Int, times[$n] / days))
 
-speedₙ = @lift begin
-    s = interior(Uo[$n], :, :, 1))
-    s[land_mask] .= NaN
-    s
-end
+mask_land!(data) = (data[land] .= NaN; data)
 
-Tₙ = @lift begin
-    T = interior(To[$n], :, :, 1)
-    T[land_mask] .= NaN
-    T
-end
-
-iceₙ = @lift begin
-    hℵ = interior(hi[$n], :, :, 1) .* interior(ℵi[$n], :, :, 1)
-    hℵ[land_mask] .= NaN
-    hℵ[hℵ .< 0.05] .= NaN  # show only where there is actual ice
+speedₙ = @lift mask_land!(to_map(Uo[$n]))
+Tₙ     = @lift mask_land!(to_map(To[$n]))
+iceₙ   = @lift begin
+    hℵ = to_map(hi[$n]) .* to_map(ℵi[$n])
+    hℵ[land] .= NaN
+    hℵ[hℵ .< 0.05] .= NaN   # show only where there is actual ice
     hℵ
 end
 
-fig = Figure(size = (900, 1000))
+projection = "+proj=robin"
+
+fig = Figure(size = (1000, 1200))
 fig[1, :] = Label(fig, title, fontsize = 22, tellwidth = false)
 
-ax_s = Axis(fig[2, 1], title = "surface speed [m s⁻¹]")
-hm_s = heatmap!(ax_s, speedₙ, colormap = :solar, colorrange = (0, 0.6), nan_color = :lightgray)
+ax_s = GeoAxis(fig[2, 1]; dest = projection, title = "surface speed [m s⁻¹]")
+hm_s = surface!(ax_s, λ, φ, speedₙ; colormap = :solar, colorrange = (0, 0.6), nan_color = :lightgray, shading = NoShading)
+lines!(ax_s, GeoMakie.coastlines(); color = :black, linewidth = 0.4)
 Colorbar(fig[2, 2], hm_s)
 
-ax_T = Axis(fig[3, 1], title = "surface temperature [°C]")
-hm_T = heatmap!(ax_T, Tₙ, colormap = :magma, colorrange = (-2, 30), nan_color = :lightgray)
+ax_T = GeoAxis(fig[3, 1]; dest = projection, title = "surface temperature [°C]")
+hm_T = surface!(ax_T, λ, φ, Tₙ; colormap = :magma, colorrange = (-2, 30), nan_color = :lightgray, shading = NoShading)
+lines!(ax_T, GeoMakie.coastlines(); color = :black, linewidth = 0.4)
 Colorbar(fig[3, 2], hm_T)
 
-ax_h = Axis(fig[4, 1], title = "sea ice volume per area [m]")
-hm_h = heatmap!(ax_h, iceₙ, colormap = Reverse(:blues), colorrange = (0, 2), nan_color = :lightgray)
+ax_h = GeoAxis(fig[4, 1]; dest = projection, title = "sea ice volume per area [m]")
+hm_h = surface!(ax_h, λ, φ, iceₙ; colormap = Reverse(:blues), colorrange = (0, 2), nan_color = :lightgray, shading = NoShading)
+lines!(ax_h, GeoMakie.coastlines(); color = :black, linewidth = 0.4)
 Colorbar(fig[4, 2], hm_h)
 
 CairoMakie.record(fig, "global_ocean.mp4", 1:length(times), framerate = 12) do i

@@ -1,0 +1,13 @@
+[deps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+ConservativeRegridding = "8e50ac2c-eb48-49bc-a402-07c87b949343"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+GeoMakie = "db073c08-6b98-4ee5-b6a4-5efafb3259c6"
+NumericalEarth = "904d977b-046a-4731-8b86-9235c0d1ef02"
+Oceananigans = "9e8cae18-63c1-5223-a75c-80ca9d6e9a09"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[compat]
+julia = "1.10"
