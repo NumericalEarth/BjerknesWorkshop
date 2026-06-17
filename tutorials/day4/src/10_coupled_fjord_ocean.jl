@@ -360,9 +360,11 @@ k_o_surface = Nz_o
 
 ## Static fields for the viz (terrain, bathymetry, water fraction).
 water_data = FT.([1 - land_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny])
-h_field     = Field{Center, Center, Nothing}(atmos_grid)
-depth_field = Field{Center, Center, Nothing}(atmos_grid)
-water_field = Field{Center, Center, Nothing}(atmos_grid)
+## Statics live on the plain 2-D land_grid (NOT the terrain-following atmosphere grid),
+## so they round-trip cleanly through JLD2/FieldTimeSeries in the visualization.
+h_field     = Field{Center, Center, Nothing}(land_grid)
+depth_field = Field{Center, Center, Nothing}(land_grid)
+water_field = Field{Center, Center, Nothing}(land_grid)
 interior(h_field)     .= Oceananigans.on_architecture(arch, reshape(FT.([h_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]), Nx, Ny, 1))
 interior(depth_field) .= Oceananigans.on_architecture(arch, reshape(FT.([depth_fun(xc[i], yc[j]) for i in 1:Nx, j in 1:Ny]), Nx, Ny, 1))
 interior(water_field) .= Oceananigans.on_architecture(arch, reshape(water_data, Nx, Ny, 1))

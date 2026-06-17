@@ -12,6 +12,7 @@
 # a deeper mixed layer through direct shear production. We track the transition through
 # mixed-layer depth, TKE from the CATKE closure, and the evolving temperature structure.
 
+using Breeze   # registers the terrain-following grid types so atmosphere slices deserialize
 using Oceananigans
 using Oceananigans.Units
 using CairoMakie
