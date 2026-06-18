@@ -16,7 +16,8 @@ grid = RectilinearGrid(topology = (Flat, Flat, Bounded),
 
 surface_PAR(t) = 60 * (1 - cos(2π * (t + 23days) / (365days)))
 
-# NO₃, NH₄, P, Z, DOM, sPOM, bPOM
+# Here we're going to setup a biogeochemical model with NO₃, NH₄, P, Z, DOM, sPOM, and bPOM
+# (small and big POM)
 biogeochemistry = LOBSTER(grid;
                           surface_PAR)
 
