@@ -1,0 +1,52 @@
+using Oceananigans
+using OceanBioME
+using CairoMakie
+
+using Oceananigans.Units
+
+Nz = 32
+Lz = 250
+
+grid = RectilinearGrid(topology = (Flat, Flat, Bounded),
+                       size = (Nz, ),
+                       z = ExponentialDiscretization(Nz, -Lz, 0; scale = Lz/2))
+
+surface_PAR(t) = 60 * (1 - cos(2π * (t + 23days) / (365days)))
+
+# NO₃, NH₄, P, Z, DOM, sPOM, bPOM
+biogeochemistry = LOBSTER(grid;
+                          surface_PAR)
+
+nutrient_restoring = Forcing((z, t, NO₃, p) -> (p.NO₃ - NO₃) / p.τ * (z < p.z₀),
+                             parameters = (NO₃ = 40, τ = 30days, z₀ = -100),
+                             field_dependencies = :NO₃)
+
+model = HydrostaticFreeSurfaceModel(grid;
+                                    biogeochemistry,
+                                    free_surface = nothing,
+                                    momentum_advection = nothing,
+                                    tracer_advection = UpwindBiased(),
+                                    forcing = (; NO₃ = nutrient_restoring),
+                                    closure = ScalarDiffusivity(VerticallyImplicitTimeDiscretization(); κ = 1e-4))
+
+set!(model, P = 0.1,  Z = 0.1, NO₃ = 10)
+
+Δt = 0.5 * minimum_zspacing(grid) / (200/day) # limited by the fast sinking tracers because of the explicit sinking
+
+simulation = Simulation(model; Δt, stop_time = 365*10days)
+
+prog(sim) = @info prettytime(sim) * " in " * prettytime(sim.run_wall_time) * " max(P) = $(round(maximum(sim.model.tracers.P), digits = 2))"
+
+add_callback!(simulation, prog, IterationInterval(1000))
+
+simulation.output_writers[:tracers] = 
+    JLD2Writer(model, model.tracers, 
+               filename = "01b_column.jld2",
+               schedule = TimeInterval(1day), 
+               overwrite_existing=true)
+
+# Things to try:
+# - Prescribed seasonal mixed layer - Replace constant diffusivity with a time-varying κ
+# - Change the restoring
+# - How about diurnally varying light
+# - Or different nutrient limitations/other parameters
