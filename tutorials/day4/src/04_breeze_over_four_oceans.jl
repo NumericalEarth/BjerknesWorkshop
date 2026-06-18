@@ -270,9 +270,13 @@ run!(nh_simulation)
 # turbulence: cloud water and vertical velocity in the atmosphere, and the ocean
 # temperature below.
 
-qˡ_ts = FieldTimeSeries("four_oceans_nh_atmos.jld2", "qˡ"; grid)
-w_ts  = FieldTimeSeries("four_oceans_nh_atmos.jld2", "w"; grid)
-T_ts  = FieldTimeSeries("four_oceans_nh_ocean.jld2", "T"; grid=nh_ocean_grid)
+# We load the series without passing a grid, so they are reconstructed on the CPU
+# from the file — Makie iterates over each frame to render it, which is a scalar
+# operation that must not touch GPU arrays.
+
+qˡ_ts = FieldTimeSeries("four_oceans_nh_atmos.jld2", "qˡ")
+w_ts  = FieldTimeSeries("four_oceans_nh_atmos.jld2", "w")
+T_ts  = FieldTimeSeries("four_oceans_nh_ocean.jld2", "T")
 
 times = w_ts.times
 Nt = length(times)
@@ -294,7 +298,7 @@ title = @lift "Nonhydrostatic ocean — t = " * prettytime(times[$n])
 Label(fig[0, 1], title, fontsize=16)
 
 @info "Rendering animation..."
-record(fig, "four_oceans_nonhydrostatic.mp4", 1:Nt; framerate=12) do nn
+CairoMakie.record(fig, "four_oceans_nonhydrostatic.mp4", 1:Nt; framerate=12) do nn
     n[] = nn
 end
 @info "Animation saved."
