@@ -276,7 +276,7 @@ fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
 
 ax_N = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
             title = "Nutrients", aspect = 1)
-hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (-0.4, 0.4), colormap = Reverse(:bamako))
+hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (0, 10), colormap = Reverse(:bamako))
 Colorbar(fig[2, 2], hm_N, label = "mmolN/m³")
 
 ax_P = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",

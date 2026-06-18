@@ -229,8 +229,7 @@ FAlk = DatasetRestoring(Metadata(:alkalinity;                 bgc_kwargs..., dir
 
 
 closure = (CATKEVerticalDiffusivity(minimum_tke=1e-7), 
-	   HorizontalScalarBiharmonicDiffusivity(ν = 5e8),
-	   HorizontalScalarDiffusivity(κ = (λ, φ, z, t) -> sponge_mask(λ, φ, z, t) * 500))
+	       HorizontalScalarBiharmonicDiffusivity(ν = 5e8))
 time_discretization = AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
 
 # We construct the light model, because we don't have phytoplankton we don't need 
@@ -278,6 +277,7 @@ coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 simulation = Simulation(coupled_model; Δt = 6minutes, stop_time = 60days)
 
+# we have to add this temporary hack so the bgc knows about the seaice...
 add_callback!(simulation, pass_sea_ice_to_bgc!)
 
 wall_time = Ref(time_ns())
@@ -299,7 +299,7 @@ function progress(sim)
     return nothing
 end
 
-add_callback!(simulation, progress, IterationInterval(1))
+add_callback!(simulation, progress, IterationInterval(10))
 
 # ## Output
 #
@@ -354,11 +354,11 @@ fig[0, 1:4] = Label(fig, title, fontsize = 20, tellwidth = false)
 ax = Axis(fig[1, 1], ylabel = "latitude [°N]")
 hm_N = heatmap!(ax, Nₙ, colormap = Reverse(:bamako), colorrange = (0, 13), nan_color = :gray80)
 ax = Axis(fig[1, 3])
-hm_F = heatmap!(ax, Feₙ, colormap = Reverse(:lajolla), colorrange = (0, 0.0001), nan_color = :gray80)
+hm_F = heatmap!(ax, Feₙ, colormap = Reverse(:lajolla), colorrange = (0, 0.001), nan_color = :gray80)
 ax = Axis(fig[2, 1], xlabel = "longitude [°E]", ylabel = "latitude [°N]")
-hm_D = heatmap!(ax, DICₙ, colormap = Reverse(:lipari), colorrange = (2100, 2300), nan_color = :gray80)
+hm_D = heatmap!(ax, DICₙ, colormap = Reverse(:lipari), colorrange = (2050, 2250), nan_color = :gray80)
 ax = Axis(fig[2, 3], xlabel = "longitude [°E]")
-hm_q = heatmap!(ax, qCO₂ₙ, colormap = :balance, colorrange = (-0.0001, 0.0001), nan_color = :gray80)
+hm_q = heatmap!(ax, qCO₂ₙ, colormap = :balance, colorrange = (-0.0003, 0.0003), nan_color = :gray80)
 Colorbar(fig[1, 2], hm_N, label = "Nitrogen [mmolN/m³]")
 Colorbar(fig[1, 4], hm_F, label = "Iron [mmolFe/m³]")
 Colorbar(fig[2, 2], hm_D, label = "Dissolved inorganic carbon [mmolC/m³]")
