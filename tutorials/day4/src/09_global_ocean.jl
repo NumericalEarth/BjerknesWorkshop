@@ -347,6 +347,7 @@ add_callback!(simulation, progress, TimeInterval(5days))
 #
 # Surface fields only, daily — the `indices` trick from the baroclinic channel, at planetary scale:
 
+u, v, w = ocean.model.velocities
 𝒱 = @at((Center, Center, Center), sqrt(u^2 + v^2))
 ocean_outputs = merge(ocean.model.tracers, (; 𝒱))
 
