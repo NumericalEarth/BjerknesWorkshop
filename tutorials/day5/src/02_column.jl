@@ -139,7 +139,7 @@ end
 
 closure = ScalarDiffusivity(VerticallyImplicitTimeDiscretization(); 
                             κ = κₘ, 
-                            parameters = (κB = 1e-4, 
+                            parameters = (κB = 1e-5, 
                                           κM = 1e-1,
                                           mld = mld_itp,
                                           δ = 5),
@@ -147,7 +147,7 @@ closure = ScalarDiffusivity(VerticallyImplicitTimeDiscretization();
 
 fig = Figure()
 ax = Axis(fig[1, 1], xlabel = "Day", ylabel = "Mixed layer depth (m)")
-lines!(ax, DateTime(2022, 1, 1) .+ Second.(data_times), mld_data)
+lines!(ax, DateTime(2022, 6, 1) .+ Second.(data_times), mld_data)
 fig
 
 # And since we're in a column we aren't considering the lateral input of nutrients,
@@ -219,7 +219,7 @@ P = FieldTimeSeries(fname*"_tracers.jld2", "P")
 NO₃ = FieldTimeSeries(fname*"_tracers.jld2", "NO₃")
 qCO₂ = FieldTimeSeries(fname*"_co2_flux.jld2", "qCO₂") # mmol C / m² / s 
 
-fig = Figure()
+fig = Figure(size=(512, 750))
 
 ax = Axis(fig[1, 1], ylabel = "P (mmol N / m³)")
 ax2 = Axis(fig[2, 1], ylabel = "NO₃ (mmol N / m³)")
@@ -233,5 +233,21 @@ lines!(ax2, DateTime(2022, 6, 1) .+ Second.(NO₃.times), map(n->mean(NO₃[n]),
 
 lines!(ax3, faeroe_data.plotting.qCO₂_obs_dt, faeroe_data.plotting.qCO₂_obs, color = :black)
 lines!(ax3, DateTime(2022, 6, 1) .+ Second.(qCO₂.times[1:end-30]), map(n->-mean(qCO₂[n:n+30]) / 1000 * 365days , 1:length(qCO₂.times)-30))
+
+fig
+#
+fig = Figure()
+
+ax = Axis(fig[1, 1], ylabel = "Depth (m)", xticks = ([0:365days:3*365days;], "06/".*string.(year.([DateTime(2022, 6, 1):Year(1):DateTime(2025, 6, 1);]))))
+ax2 = Axis(fig[2, 1], ylabel = "Depth (m)")
+
+hm = heatmap!(ax, P)
+hm2 = heatmap!(ax2, NO₃)
+
+lines!(ax, P.times, map(t->max(-60, faeroe_data.mld_itp(t)), P.times), color = :black)
+lines!(ax2, P.times, map(t->max(-60, faeroe_data.mld_itp(t)), P.times), color = :black)
+
+Colorbar(fig[1, 2], hm, label = "Phytoplankton (mmolN/m³)")
+Colorbar(fig[2, 2], hm2, label = "Nitrate (mmolN/m³)")
 
 fig

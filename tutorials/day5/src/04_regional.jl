@@ -347,11 +347,12 @@ sea_ice.output_writers[:surface] = JLD2Writer(sea_ice.model, sea_ice_outputs;
 run!(simulation)
 
 # And load the results to plot:
-N    = FieldTimeSeries("barents_ocean_surface.jld2", "N")
-Fe   = FieldTimeSeries("barents_ocean_surface.jld2", "Fe")
-DIC  = FieldTimeSeries("barents_ocean_surface.jld2", "DIC")
-qCO₂ = FieldTimeSeries("barents_ocean_surface.jld2", "CO₂_flux")
-
+N    = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "N")
+Fe   = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "Fe")
+DIC  = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "DIC")
+qCO₂ = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "CO₂_flux")
+nothing
+#
 times = To.times
 n = Observable(length(times))
 
