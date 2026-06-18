@@ -1,4 +1,3 @@
-
 using Pkg; Pkg.activate("..")
 
 using Base64
@@ -106,3 +105,133 @@ end
 # - Or different nutrient limitations/other parameters
 
 # We can make this remarkably realistic with data, here for the Faeroe islands
+include("../src/faeroe_data.jl") 
+
+# This returns `faeroe_data` which contains `surface_PAR`, `NO₃_itp`, `DIC_itp`, `Alk_itp`,
+# `T_itp`, `wind_itp`, and `mld_itp`. Next we construct the grid and biogeochemistry as before:
+Nz = 32
+grid = RectilinearGrid(topology = (Flat, Flat, Bounded), 
+                       size = (32, ),
+                       z = ExponentialDiscretization(Nz, -60, 0; scale = 60/2))
+
+biogeochemistry = LOBSTER(grid;
+                          surface_PAR = faeroe_data.surface_PAR, 
+                          inorganic_carbon = CarbonateSystem(),
+                          scale_negatives = true)
+
+# except now we have added `inorganic_carbon` so have `DIC` and `Alk`alinity tracers. Notice 
+# how the model is now automatically trying to conserve both nitrogen and carbon (although this 
+# is a little flawed). For the DIC we also define define the surface flux which solves the carbon 
+# chemistry equilibrium in the water and computes the exchange with the air:
+surface_CO₂_flux = 
+    CarbonDioxideGasExchangeBoundaryCondition(; wind_speed = (x, y, t) -> faeroe_data.wind_itp(t),
+                                                air_concentration = 409)
+
+# We want the mixed layer to move seasonally to bring nutrients to the surface, so we can make a 
+# function to compute it based on a mixed layer depth:
+
+function κₘ(i, j, k, grid, lx, ly, lz, clock, fields, p)
+    z = Oceananigans.Grids.znode(i, j, k, grid, lx, ly, lz)
+    t = clock.time
+
+    return p.κB + p.κM * (1 + tanh((z - p.mld(t))/p.δ))/2
+end
+
+closure = ScalarDiffusivity(VerticallyImplicitTimeDiscretization(); 
+                            κ = κₘ, 
+                            parameters = (κB = 1e-4, 
+                                          κM = 1e-1,
+                                          mld = mld_itp,
+                                          δ = 5),
+                            discrete_form = true) 
+
+fig = Figure()
+ax = Axis(fig[1, 1], xlabel = "Day", ylabel = "Mixed layer depth (m)")
+lines!(ax, DateTime(2022, 1, 1) .+ Second.(data_times), mld_data)
+fig
+
+# And since we're in a column we aren't considering the lateral input of nutrients,
+# DIC, and alkalinity so we restore them:
+τ = 10days
+
+@inline restoring(z, t, X, p) = @inbounds X * (log(p.X(t)) - log(X))/p.τ * (z < max(p.mld(t),  -30))
+
+nitrate_restoring = Forcing(restoring, 
+                            parameters = (; X = faeroe_data.NO₃_itp, τ, mld = faeroe_data.mld_itp),
+                            field_dependencies = :NO₃) 
+
+DIC_restoring = Forcing(restoring, 
+                        parameters = (; X = faeroe_data.DIC_itp, τ, mld = faeroe_data.mld_itp),
+                        field_dependencies = :DIC)
+
+Alk_restoring = Forcing(restoring, 
+                        parameters = (; X = faeroe_data.Alk_itp, τ, mld = faeroe_data.mld_itp),
+                        field_dependencies = :Alk)
+
+# The carbon chemistry needs the temperature and salinity, and the most straightforward way to
+# handel this here is to make them auxiliary fields.
+using Oceananigans.Fields: FunctionField, ConstantField
+clock = Clock(grid)
+T = FunctionField{Center, Center, Center}((z, t) -> faeroe_data.T_itp(t), grid; clock)
+S = ConstantField(34.9)
+
+# Then we can put the model together:
+Oceananigans.TimeSteppers.reset!(clock)
+model = NonhydrostaticModel(grid; 
+                            advection = WENO(bounds = (0, 99999), order = 3),
+                            biogeochemistry, 
+                            closure,
+                            clock,
+                            auxiliary_fields = (; T, S),
+                            forcing = (; NO₃ = nitrate_restoring,
+                                         DIC = DIC_restoring,
+                                         Alk = Alk_restoring),
+                            boundary_conditions = (; DIC = FieldBoundaryConditions(top = surface_CO₂_flux)))
+
+# Setting the initial conditions and build the simulation:
+set!(model, NO₃ = 10, P = 0.75, Z = 0.4, DIC = 2147, Alk = 2375)
+
+simulation = Simulation(model; Δt = 20minutes, stop_time = 365*3days)
+
+fname = "faeroes"
+
+simulation.output_writers[:tracers] = JLD2Writer(model, model.tracers, 
+                                                 filename = fname*"_tracers.jld2",
+                                                 schedule = TimeInterval(1days),
+                                                 overwrite_existing = true)
+
+CO₂_flux = BoundaryConditionOperation(model.tracers.DIC, :top, model)
+
+simulation.output_writers[:fCO₂] = JLD2Writer(model, (; qCO₂ = CO₂_flux), indices = (1, 1, grid.Nz),
+                                              filename = fname*"_co2_flux.jld2",
+                                              schedule = TimeInterval(1days),
+                                              overwrite_existing = true)
+
+prog(sim) = @info prettytime(sim) * " in " * prettytime(sim.run_wall_time) * ", DIC∈$(extrema(sim.model.tracers.DIC))" 
+
+add_callback!(simulation, prog, IterationInterval(100))
+
+# and run:
+run!(simulation)
+
+# Now we can plot alongside data:
+P = FieldTimeSeries(fname*"_tracers.jld2", "P")
+NO₃ = FieldTimeSeries(fname*"_tracers.jld2", "NO₃")
+qCO₂ = FieldTimeSeries(fname*"_co2_flux.jld2", "qCO₂") # mmol C / m² / s 
+
+fig = Figure()
+
+ax = Axis(fig[1, 1], ylabel = "P (mmol N / m³)")
+ax2 = Axis(fig[2, 1], ylabel = "NO₃ (mmol N / m³)")
+ax3 = Axis(fig[3, 1], ylabel = "Carbon flux (mol C / m² / year)", xlabel = "Date") 
+
+lines!(ax, faeroe_data.plotting.P_obs_dt, mean(faeroe_data.plotting.P_obs, dims = 1)[1, :], color = :black)
+lines!(ax, DateTime(2022, 6, 1) .+ Second.(P.times), map(n->mean(P[n]), 1:length(P.times)))
+
+lines!(ax2, DateTime(2022, 6, 1) .+ Second.(faeroe_data.plotting.data_times), mean(faeroe_data.plotting.NO₃_data, dims = 1)[1, :], color = :black)
+lines!(ax2, DateTime(2022, 6, 1) .+ Second.(NO₃.times), map(n->mean(NO₃[n]), 1:length(NO₃.times)))
+
+lines!(ax3, faeroe_data.plotting.qCO₂_obs_dt, faeroe_data.plotting.qCO₂_obs, color = :black)
+lines!(ax3, DateTime(2022, 6, 1) .+ Second.(qCO₂.times[1:end-30]), map(n->-mean(qCO₂[n:n+30]) / 1000 * 365days , 1:length(qCO₂.times)-30))
+
+fig

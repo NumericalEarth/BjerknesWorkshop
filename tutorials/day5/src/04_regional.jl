@@ -31,6 +31,12 @@
 #     tracers (NO₃, PO₄, Fe, DOP, POP, DIC, ALK) significantly increases the cost
 #     (mainly because of advection)
 using Pkg; Pkg.activate("..")
+using Base64
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
+
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
@@ -88,19 +94,21 @@ bgc_dataset = ECCO4DarwinMonthly()
 bgc_dates   = DateTime(1993, 1, 1) : Month(1) : DateTime(1993, 3, 1)
 
 bgc_kwargs = (dataset = bgc_dataset, dates = bgc_dates, region)
-
+#
 Tᵉˣᵗ   = FieldTimeSeries(Metadata(:temperature;  dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 Sᵉˣᵗ   = FieldTimeSeries(Metadata(:salinity;     dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 uᵉˣᵗ   = FieldTimeSeries(Metadata(:u_velocity;   dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 vᵉˣᵗ   = FieldTimeSeries(Metadata(:v_velocity;   dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
 ηᵉˣᵗ   = FieldTimeSeries(Metadata(:free_surface; dates, dataset, region, dir_kw...), grid, inpainting=100, time_indices_in_memory=length(dates))
-
+nothing
+#
 NO₃ᵉˣᵗ = FieldTimeSeries(Metadata(:nitrate;  bgc_kwargs..., dir_kw...), grid, inpainting=100, time_indices_in_memory=length(bgc_dates))
 PO₄ᵉˣᵗ = FieldTimeSeries(Metadata(:phosphate;  bgc_kwargs..., dir_kw...), grid, inpainting=100, time_indices_in_memory=length(bgc_dates))
 Feᵉˣᵗ  = FieldTimeSeries(Metadata(:dissolved_iron;  bgc_kwargs..., dir_kw...), grid, inpainting=100, time_indices_in_memory=length(bgc_dates))
 DICᵉˣᵗ = FieldTimeSeries(Metadata(:dissolved_inorganic_carbon;  bgc_kwargs..., dir_kw...), grid, inpainting=100, time_indices_in_memory=length(bgc_dates))
 Alkᵉˣᵗ = FieldTimeSeries(Metadata(:alkalinity;  bgc_kwargs..., dir_kw...), grid, inpainting=100, time_indices_in_memory=length(bgc_dates))
-
+nothing
+#
 @inline  west_obc(j, k, grid, clock, fields, φ) = @inbounds φ[1,           j, k, Time(clock.time)]
 @inline  east_obc(j, k, grid, clock, fields, φ) = @inbounds φ[grid.Nx,     j, k, Time(clock.time)]
 @inline north_obc(i, k, grid, clock, fields, φ) = @inbounds φ[i, grid.Ny,     k, Time(clock.time)]
@@ -125,8 +133,6 @@ S_obcs = FieldBoundaryConditions(
     east  = ValueBoundaryCondition(east_obc,  discrete_form = true, parameters = Sᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)),
     north = ValueBoundaryCondition(north_obc, discrete_form = true, parameters = Sᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)))
 
-zero_grad = GradientBoundaryCondition(0)
-
 NO₃_obcs = FieldBoundaryConditions(
     west  = ValueBoundaryCondition(west_obc,  discrete_form = true, parameters = NO₃ᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)),
     east  = ValueBoundaryCondition(east_obc,  discrete_form = true, parameters = NO₃ᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)),
@@ -141,6 +147,7 @@ PO₄_obcs = FieldBoundaryConditions(
     west  = ValueBoundaryCondition(west_obc,  discrete_form = true, parameters = PO₄ᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)),
     east  = ValueBoundaryCondition(east_obc,  discrete_form = true, parameters = PO₄ᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)),
     north = ValueBoundaryCondition(north_obc, discrete_form = true, parameters = PO₄ᵉˣᵗ, scheme = Radiation(inflow_timescale = 1days)))
+nothing
 
 # Here is our first difference from the physics setup, we need to setup the air-sea exchange
 # carbon dioxide into the DIC pool. We follow the typical parametrisation:
@@ -212,6 +219,7 @@ V_obcs = FieldBoundaryConditions(grid, (Center(), Face(), nothing);
 
 @inline rim(ξ, edge, width) = exp(-(ξ - edge)^2 / 2width^2)
 @inline sponge_mask(λ, φ, z, t) = max(rim(λ, λ₁, 2), rim(λ, λ₂, 2), rim(φ, φ₂, 1))
+nothing
 
 # Here we setup the relaxation as before, but have to tell `DatasetRestoring` what we call
 # the tracer, this interface will change soon though.
@@ -219,6 +227,8 @@ Fu = DatasetRestoring(Metadata(:u_velocity;  dates, dataset, region, dir_kw...),
 Fv = DatasetRestoring(Metadata(:v_velocity;  dates, dataset, region, dir_kw...), grid; rate = 1/20minutes, mask = sponge_mask, inpainting=100)
 FT = DatasetRestoring(Metadata(:temperature; dates, dataset, region, dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 FS = DatasetRestoring(Metadata(:salinity;    dates, dataset, region, dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
+nothing
+#
 FNO₃ = DatasetRestoring(Metadata(:nitrate;                    bgc_kwargs..., dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100, 
                         field_name = SingleNitrogen())
 FFe  = DatasetRestoring(Metadata(:dissolved_iron;             bgc_kwargs..., dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
@@ -226,13 +236,12 @@ FPO₄ = DatasetRestoring(Metadata(:phosphate;                  bgc_kwargs..., d
 FDIC = DatasetRestoring(Metadata(:dissolved_inorganic_carbon; bgc_kwargs..., dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100)
 FAlk = DatasetRestoring(Metadata(:alkalinity;                 bgc_kwargs..., dir_kw...), grid; rate = 1/1days,     mask = sponge_mask, inpainting=100, 
                         field_name = Alk_alinity())
-
-
-
+nothing
+#
 closure = (CATKEVerticalDiffusivity(minimum_tke=1e-7), 
 	       HorizontalScalarBiharmonicDiffusivity(ν = 5e8))
 time_discretization = AdaptiveVerticallyImplicitDiscretization(cfl=0.5)
-
+nothing
 # We construct the light model, because we don't have phytoplankton we don't need 
 # to integrate like normal so just have a fixed coefficient (again, I will put this in 
 # OceanBioME soon). This just sets:
@@ -244,6 +253,7 @@ underlying_light_attenuation = fixed_attenuation_par_from_radiation(grid, radiat
 light_attenuation = GlobalOceanBioME.IceMaskedLightAttenuation(; underlying_light_attenuation, 
                                                                  ice_thickness = Field{Center, Center, Nothing}(grid), 
                                                                  ice_concentration = Field{Center, Center, Nothing}(grid))
+nothing
 
 # Finally we built the biogeochemistry and put it into the `ocean_simulation`:
 biogeochemistry = ImplicitBiology(grid;
@@ -264,8 +274,10 @@ ocean = ocean_simulation(grid;
                                                 Fe = Fe_obcs, 
                                                 DIC = DIC_obcs, Alk = Alk_obcs))
 
+# And the sea ice
 sea_ice = sea_ice_simulation(grid, ocean; dynamics=nothing)
 
+# Then set the initial conditions:
 set!(ocean.model, T = Tᵉˣᵗ[1], S = Sᵉˣᵗ[1], 
                   N = NO₃ᵉˣᵗ[1], PO₄ = PO₄ᵉˣᵗ[1], Fe = Feᵉˣᵗ[1], 
                   DIC = DICᵉˣᵗ[1], Alk = Alkᵉˣᵗ[1])
@@ -273,12 +285,12 @@ set!(ocean.model, T = Tᵉˣᵗ[1], S = Sᵉˣᵗ[1],
 set!(sea_ice.model, h = Metadata(:sea_ice_thickness;     dates, dataset=ECCO4Monthly(), dir_kw...)[1],
                     ℵ = Metadata(:sea_ice_concentration; dates, dataset=ECCO4Monthly(), dir_kw...)[1])
 
-
+# And couple the model
 coupled_model = EarthSystemModel(; ocean, sea_ice, land, atmosphere, radiation)
 
 simulation = Simulation(coupled_model; Δt = 6minutes, stop_time = 60days)
 
-# we have to add this temporary hack so the bgc knows about the seaice...
+# we have to add this temporary hack so the bgc knows about the sea ice...
 add_callback!(simulation, pass_sea_ice_to_bgc!)
 
 wall_time = Ref(time_ns())
@@ -331,9 +343,10 @@ sea_ice.output_writers[:surface] = JLD2Writer(sea_ice.model, sea_ice_outputs;
                                               filename = "barents_sea_ice_surface_$(suffix).jld2",
                                               schedule = TimeInterval(1days),
                                               overwrite_existing = true)
-
+# And then we can run:
 run!(simulation)
 
+# And load the results to plot:
 N    = FieldTimeSeries("barents_ocean_surface.jld2", "N")
 Fe   = FieldTimeSeries("barents_ocean_surface.jld2", "Fe")
 DIC  = FieldTimeSeries("barents_ocean_surface.jld2", "DIC")
@@ -368,7 +381,4 @@ Colorbar(fig[2, 4], hm_q, label = "Air-sea CO₂ exchange [gC/m²/year]")
 CairoMakie.record(fig, "barents_sea_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-nothing #hide
-
-# ![](barents_sea_bgc.mp4)
-
+mp4_html("barents_sea_bgc.mp4")

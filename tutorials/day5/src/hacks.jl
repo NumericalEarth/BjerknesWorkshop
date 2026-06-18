@@ -10,7 +10,7 @@ struct Alk_alinity end
 
 import Oceananigans.Biogeochemistry: 
     biogeochemical_auxiliary_fields,
-    update_biogeochemical_state!s
+    update_biogeochemical_state!
 
 using Adapt
 
