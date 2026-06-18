@@ -42,7 +42,7 @@ arch = GPU()   # CPU() works too — heroically — at reduced resolution
 
 Nx = 1440
 Ny = 720
-Nz = 20
+Nz = 15
 
 depth = 3000meters
 z = ExponentialDiscretization(Nz, -depth, 0; scale = depth/4, mutable = true)
