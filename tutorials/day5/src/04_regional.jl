@@ -30,6 +30,7 @@
 #     weight of explicit multi-trophic ecosystems, tracking multiple passive
 #     tracers (NO₃, PO₄, Fe, DOP, POP, DIC, ALK) significantly increases the cost
 #     (mainly because of advection)
+using Pkg; Pkg.activate(".."); Pkg.instantiate()
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ

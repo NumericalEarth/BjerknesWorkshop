@@ -50,6 +50,7 @@
 # 
 # There are lots different configurations which can produce different results, you can 
 # play with this example to try and get different things to happen:
+using Pkg; Pkg.activate(".."); Pkg.instantiate()
 using CairoMakie
 
 # We setup a simple timestepping:
@@ -230,11 +231,11 @@ P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
 
 times = N_timeseries.times
 
-x, y, _ = nodes(ζ_timeseries[1])
+x, y, _ = nodes(N_timeseries[1])
 
 n = Observable(1)
 
-title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / day)
+title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / days)
 
 Nₙ = @lift interior(N_timeseries[$n], :, :, 1)
 Pₙ = @lift interior(P_timeseries[$n], :, :, 1)

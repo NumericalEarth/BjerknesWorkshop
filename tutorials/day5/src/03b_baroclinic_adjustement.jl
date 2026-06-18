@@ -1,118 +1,5 @@
-# # Upwelling: how resolution effects biogeochemical models
-# *Friday - physical insights from Biogeochemistry
-#
-# Biogeochemical modelling is inherently resolution dependant because 
-# the parametrisations are non-linear in concentration. We think that, for example
-# the nutrients evolves following an equation like:
-# ```math
-# \frac{\partial N}{\partial t} + \vec{u}\cdot\nabla N = \kappa \nabla^2 N + T(N, P, ...),
-# ```
-# but when we solve this numerically were actually solving for the average over a control volume, 
-# so the values on a discrete grid don't represent the full range of values.
-# Biogeochemical parametrisations therefore deal with the spatial average.
-#
-# Consider the classical phytoplankton growth rate:
-# ```math
-# \mu \sim \mu_0f(\text{PAR}, T, ...)\frac{N}{k+N}P,
-# ```
-# where $k$ is the "half saturation" (this is a Holling type II or Mondo model), $N$ is 
-# the nutrient concentration, $PAR$ is the light, $T$ the temperature, etc.
-# As this is non-linear in $N$ when we solve this numerically the resolution is important 
-# because,
-# ```math
-# \int_\Omega \frac{N}{N + k} dV \neq \frac{\int_\Omega N dV}{k + \int_\Omega N dV}.
-# ```
-#
-# Before we get into the full example we can construct think about $\mu$ and consider a
-# unit "box" with some amount of nutrients. If the box is well mixed then we get:
-# ```math
-# \mu \sim \frac{\bar{N}}{\bar{N} + k} ∀ x,
-# ```
-# in the whole box, but if the box has all the nutrients in one half then:
-# ```math
-# \mu(x<0.5) \sim \frac{2\bar{N}}{2\bar{N} + k},
-# ```
-# and
-# ```math
-# \mu(x>0.5) \sim 0.
-# ```
-# So the average growth rate is:
-# ```math
-# \bar{\mu} \sim \frac{\bar{N}}{2\bar{N} + k} < \frac{\bar{N}}{\bar{N} + k}.
-# ```
+using Pkg; Pkg.activate(".."); Pkg.instantiate()
 
-# This means that if nutrients are segregated in some small volume we would expect
-# to "resolve" a lower growth rate in a more coarse model where the volume is averaged.
-# Since there is also phytoplankton concentration dependency, if the nutrients and 
-# phytoplankton are colocated in the volume, we resolve lower growth, but if they are
-# segregated in reality but mixed in a coarse model then we may resolve more overall 
-# growth (consider that $P(x<0) = 0$ and $P(x>0)>0$ in the case above).
-# 
-# There are lots different configurations which can produce different results, you can 
-# play with this example to try and get different things to happen:
-using CairoMakie
-
-# We setup a simple timestepping:
-function step!(Pt, Nt, n, Δt = 0.1)
-    N = Nt[n-1]
-    P = Pt[n-1]
-
-    μ =  P * N / (N + 1)
-
-    Nt[n] = N - Δt * μ
-    Pt[n] = P + Δt * μ
-    
-    return nothing
-end
-
-nt = 100
-Δt = 0.1
-
-# Then we setup the "average" and two compartments
-P̄,  N̄  = zeros(nt), zeros(nt)
-P₁, N₁ = zeros(nt), zeros(nt)
-P₂, N₂ = zeros(nt), zeros(nt)
-
-P₁[1], N₁[1] = 0.1, 0.9
-P₂[1], N₂[1] = 0.1, 0.1
-
-P̄[1],  N̄[1]  = (P₁[1] + P₂[1])/2, (N₁[1] + N₂[1])/2 
-
-for n in 2:nt
-    step!(P̄, N̄, n, Δt)
-    step!(P₁, N₁, n, Δt)
-    step!(P₂, N₂, n, Δt)
-end
-
-fig = Figure()
-
-ax = Axis(fig[1, 1])
-
-lines!(ax, 0:Δt:(nt-1)*Δt, P̄)
-lines!(ax, 0:Δt:(nt-1)*Δt, @. (P₁ + P₂)/2)
-
-fig
-# 
-# We could consider taking this to the extreme where we might want to consider every
-# cell (~$10^6$ per litre!) but that is obviously infeasible. 
-# Instead we parameterise, for example using the Holling relation above, so must find
-# a balance that captures sufficient detail for a chosen problem, but we also have to 
-# remember that a model calibrated for some resolution, is not necessarily valid at 
-# a different resolution. 
-# (Another example of this is averaged light, which models historically were 
-# calibrated using, vs diurnally varying since 
-# $\int_0^T\frac{sin(2\pi t/T)}{sin(2\pi t/T)+k}dt 
-# \neq \frac{\overline{sin(2\pi t/T)}}{\overline{sin(2\pi t/T)} + k})$
-#
-# ## A more realistic situation
-# To investing this effect in a more realistic setting we are going to take the baroclinic
-# adjustment case from earlier in the week and add a simple NPZD model.
-# For details of the physical case, see the notebook from earlier in the week, but 
-# simply put we have an unstable buoyancy configuration which generates eddies. 
-# If we imagine a case of a stratified ocean which is depleted of nutrients in the 
-# surface where there is sufficient light for the phytoplankton to grow. 
-# The upwelling produced by the eddies brings nutrients to the surface inducing a bloom.
-# Lets set up the case as before:
 using Oceananigans
 using Oceananigans.Units
 using OceanBioME
@@ -248,11 +135,11 @@ P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
 
 times = N_timeseries.times
 
-x, y, _ = nodes(ζ_timeseries[1])
+x, y, _ = nodes(N_timeseries[1])
 
 n = Observable(1)
 
-title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / day)
+title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / days)
 
 Nₙ = @lift interior(N_timeseries[$n], :, :, 1)
 Pₙ = @lift interior(P_timeseries[$n], :, :, 1)

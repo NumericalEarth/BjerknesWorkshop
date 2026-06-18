@@ -1,6 +1,7 @@
 # # NPZD box model: the basics of biogeochemical modelling
-# *Friday - physical insights from Biogeochemistry
+# * Friday - physical insights from Biogeochemistry
 # 
+using Pkg; Pkg.activate(".."); Pkg.instantiate()
 
 using Oceananigans
 using OceanBioME
