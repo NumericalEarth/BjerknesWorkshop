@@ -432,58 +432,40 @@ function case_registry(root::AbstractString = pwd())
 
     # ---- Day 4 (the working Thursday science cases) ----
     push!(cases, TutorialCase(
-        day = 4, name = "Atmospheric turbulence over a sea-ice lead",
-        slug = "lead_atmosphere",
-        source = joinpath(DAY4_SRC, "01_atmospheric_turbulence_over_a_sea_ice_lead.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "01_atmospheric_turbulence_over_a_sea_ice_lead.jl"),
-        output_root = joinpath("output", "day4", "lead_atmosphere"),
+        day = 4, name = "Coupled fjord — Phase 1: atmosphere + land-as-ocean",
+        slug = "fjord_atmosphere_land",
+        source = joinpath(DAY4_SRC, "03a_atmosphere_land.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "03a_atmosphere_land.jl"),
+        output_root = joinpath("output", "day4", "fjord_atmosphere_land"),
         required_outputs = [
-            "lead_atmosphere_statics.jld2",
-            "lead_atmosphere_slices.jld2",
-            "lead_atmosphere_profiles.jld2",
+            "fjord_phase1_statics.jld2",
+            "fjord_phase1_atmos.jld2",
+            "fjord_phase1_land.jld2",
+            "fjord_phase1_fluxes.jld2",
         ],
         workdir = :artifacts,
-        parameters = (Lx = 40_000, Ly = 12_000, Lz = 3_000, Nx = 640, Ny = 192, Nz = 128,
-                      stop_minutes = 40, U0 = 8, Q_lead = 300),
-        critical = true,
-        description = "Breeze atmosphere-only LES of a convective plume over a sea-ice lead.",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "Ocean turbulence below a lead with surface waves",
-        slug = "lead_ocean_waves",
-        source = joinpath(DAY4_SRC, "02_ocean_turbulence_below_a_lead_with_surface_waves.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "02_ocean_turbulence_below_a_lead_with_surface_waves.jl"),
-        output_root = joinpath("output", "day4", "lead_ocean_waves"),
-        required_outputs = [
-            "ocean_lead_nowaves_statics.jld2",
-            "ocean_lead_nowaves_slices.jld2",
-            "ocean_lead_nowaves_profiles.jld2",
-            "ocean_lead_waves_statics.jld2",
-            "ocean_lead_waves_slices.jld2",
-            "ocean_lead_waves_profiles.jld2",
-        ],
-        workdir = :artifacts,
-        parameters = (Lx = 2_000, Ly = 1_000, Lz = 160, Nx = 320, Ny = 160, Nz = 128,
-                      stop_minutes = 30, wavelength = 60, wave_amplitude = 0.8),
-        critical = true,
-        description = "Oceananigans nonhydrostatic LES below the lead: no-waves control vs. Craik-Leibovich waves.",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "Norway 100 m prescribed fluxes",
-        slug = "norway_100m",
-        source = joinpath(DAY4_SRC, "03_norway_100m_prescribed_fluxes.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "03_norway_100m_prescribed_fluxes.jl"),
-        output_root = joinpath("output", "day4", "norway_100m"),
-        required_outputs = [
-            "norway_statics.jld2",
-            "norway_slices.jld2",
-            "norway_land.jld2",
-        ],
-        workdir = :artifacts,
-        parameters = (Lx = 100_000, Ly = 100_000, Lz = 12_000, Nx = 256, Ny = 256, Nz = 64,
-                      stop_minutes = 15, U0 = 10),
+        parameters = (Lx = 90_000, Ly = 90_000, Lz_a = 12_000, Nλ = 384, Nφ = 384, Nz_a = 130,
+                      center_lat = 62.40, center_lon = 6.43),
         critical = false,
-        description = "Breeze terrain-following LES over coastal Norway (Lofoten) with prescribed land/ocean fluxes.",
+        description = "Coupled fjord Phase 1: Breeze terrain-following atmosphere over the Sunnmøre coast (ETOPO2022 relief) with a SlabLand hacked to mimic the sea (warm, saturated slab), under a wind rotating cross→along fjord.",
+    ))
+    push!(cases, TutorialCase(
+        day = 4, name = "Coupled fjord — Phase 2: atmosphere + prognostic ocean",
+        slug = "fjord_ocean",
+        source = joinpath(DAY4_SRC, "03b_atmosphere_ocean.jl"),
+        generated_script = joinpath(DAY4_SCRIPTS, "03b_atmosphere_ocean.jl"),
+        output_root = joinpath("output", "day4", "fjord_ocean"),
+        required_outputs = [
+            "fjord_phase2_statics.jld2",
+            "fjord_phase2_atmos.jld2",
+            "fjord_phase2_ocean.jld2",
+            "fjord_phase2_fluxes.jld2",
+        ],
+        workdir = :artifacts,
+        parameters = (Lx = 90_000, Ly = 90_000, Lz_a = 12_000, Lz_o = 700, Nλ = 384, Nφ = 384,
+                      Nz_a = 130, Nz_o = 40, center_lat = 62.40, center_lon = 6.43),
+        critical = false,
+        description = "Coupled fjord Phase 2: the same Breeze atmosphere two-way coupled to a prognostic hydrostatic ocean (CATKE mixing) filling the fjords — the boundary is now a living, mixing ocean.",
     ))
     push!(cases, TutorialCase(
         # Day 2 (Breeze session). Slug/output_root kept under
@@ -507,51 +489,6 @@ function case_registry(root::AbstractString = pwd())
                       U_convection = 5, U_mountain = 10, h0 = 600, q0 = 9.5e-3),
         critical = false,
         description = "Intro mega-tutorial: thermal bubble (anelastic), free convection (anelastic vs split-explicit compressible), Agnesi lee waves (terrain-following), and a 3D Gaussian mountain with one-moment warm-rain clouds and drizzle.",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "Intro: 2D coupled air–sea convection",
-        slug = "intro_coupled",
-        source = joinpath(DAY4_SRC, "07_intro_coupled_convection.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "07_intro_coupled_convection.jl"),
-        output_root = joinpath("output", "day4", "intro_coupled"),
-        required_outputs = [
-            "coupled_convection_atmosphere.jld2",
-            "coupled_convection_ocean.jld2",
-            "coupled_convection_fluxes.jld2",
-        ],
-        workdir = :artifacts,
-        parameters = (Lx = 4_000, Lz_a = 3_000, Lz_o = 100, Nx = 128, Nz_a = 96, Nz_o = 64, stop_hours = 2),
-        critical = false,
-        description = "Intro: 2D coupled EarthSystemModel — convection above and below one air–sea interface, fluxes computed by similarity theory.",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "A warm filament writes a cloud street",
-        slug = "warm_filament",
-        source = joinpath(DAY4_SRC, "08_coupled_warm_filament.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "08_coupled_warm_filament.jl"),
-        output_root = joinpath("output", "day4", "warm_filament"),
-        required_outputs = [
-            "warm_filament_spinup.jld2",
-            "warm_filament_atmosphere.jld2",
-            "warm_filament_ocean.jld2",
-            "warm_filament_fluxes.jld2",
-        ],
-        workdir = :artifacts,
-        parameters = (Lx = 12_000, Ly = 6_000, Lz_a = 3_000, Lz_o = 120,
-                      Nx = 192, Ny = 96, Nz_a = 96, Nz_o = 48,
-                      stop_hours = 2, spinup_hours = 10, filament_sigma = 600),
-        critical = false,
-        description = "Flagship coupled LES: a warm SST filament organizes a marine cloud street overhead (3D Breeze atmosphere + nonhydrostatic ocean).",
-    ))
-    push!(cases, TutorialCase(
-        day = 4, name = "Smoke case", slug = "smoke_case",
-        source = joinpath(DAY4_SRC, "99_smoke_case.jl"),
-        generated_script = joinpath(DAY4_SCRIPTS, "99_smoke_case.jl"),
-        output_root = joinpath("output", "day4", "smoke_case"),
-        required_outputs = ["fields.jld2"],
-        optional_outputs = ["summary.png"],
-        critical = false,
-        description = "Trivial CPU smoke test exercising the full deploy pipeline end-to-end.",
     ))
 
     return cases

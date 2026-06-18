@@ -89,7 +89,7 @@ function _helper_sources(day::Int)
     elseif day == 4
         return [
             joinpath("tutorials", "day4", "src", "00_common.jl"),
-            joinpath("tutorials", "day4", "src", "03a_prepare_norway_topography.jl"),
+            joinpath("tutorials", "day4", "src", "03_fjord_setup.jl"),
         ]
     else
         return String[]
