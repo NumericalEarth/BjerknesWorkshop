@@ -9,7 +9,7 @@ using Oceananigans
 using Oceananigans.Units
 using OceanBioME
 using Printf
-using Random
+using Randoms
 
 Random.seed!(1234)
 
@@ -54,9 +54,14 @@ nothing #hide
 include("../src/00_tools.jl")
 
 particles = BiogeochemicalParticles(1; grid,
-                                    biogeochemistry = ReleaseIron(1.0))# 1mmol Fe / s
+                                    biogeochemistry = Whaleish(; grazing_rate = 0.0,#200000/days,
+                                                                 grazing_half_saturation = 0.1,
+                                                                 excretion_rate = 700000.0/days),
+                                    advection = SwimmingUpAndDown(; cycle_time = 90minutes,
+                                                                    dive_depth = 900.0,
+                                                                    horizontal_radius = 250kilometers))
 
-set!(particles, x = Lx)
+set!(particles, x = Lx/2, biomass = 4e8)
 
 biogeochemistry = NPZD(grid;
                        modifiers = ScaleNegativeTracers((:N, :P, :Z, :D); invalid_fill_value = 0),
@@ -90,8 +95,13 @@ ramp(y, Δy) = min(max(0, y / Δy + 1/2), 1)
 
 bᵢ(x, y, z) = N² * z + Δb * ramp(y, Δy) + 1e-2 * Δb * randn()
 Nᵢ(x, y, z) = - 40 *  z / Lz
+Zᵢ(x, y, z) = - 1 *  z / Lz
 
-set!(model, b = bᵢ, N = Nᵢ, P = 0.1)
+set!(model, b = bᵢ, 
+            N = Nᵢ, 
+            #Fe = 0.0002,
+            P = 0.1, 
+)#Z = Zᵢ)
 
 # ## Simulation with adaptive time stepping
 #
@@ -123,6 +133,8 @@ N  = model.tracers.N
 Fe = model.tracers.Fe
 P  = model.tracers.P
 
+kinetic_energy = Average((u^2 + v^2) / 2)
+
 filename = "baroclinic_instability"
 
 simulation.output_writers[:surface] = JLD2Writer(model, (; N, P, Fe);
@@ -135,7 +147,7 @@ run!(simulation)
 
 # now to plot
 
-N_timeseries = FieldTimeSeries(filename * "_surface.jld2", "N")
+Fe_timeseries = FieldTimeSeries(filename * "_surface.jld2", "Fe")
 P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
 
 times = N_timeseries.times
@@ -146,7 +158,9 @@ n = Observable(1)
 
 title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] / days)
 
-Nₙ = @lift interior(N_timeseries[$n], :, :, 1)
+n = Observable(1)
+
+Feₙ = @lift interior(Fe_timeseries[$n], :, :, 1)
 Pₙ = @lift interior(P_timeseries[$n], :, :, 1)
 
 fig = Figure(size = (1000, 520))
@@ -154,8 +168,8 @@ fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
 
 ax_N = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
             title = "Nutrients", aspect = 1)
-hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (0, 10), colormap = Reverse(:bamako))
-Colorbar(fig[2, 2], hm_N, label = "mmolN/m³")
+hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Feₙ, colorrange = (0, 0.1), colormap = Reverse(:bamako))
+Colorbar(fig[2, 2], hm_N, label = "mmolFe/m³")
 
 ax_P = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
             title = "Phytoplankton", aspect = 1)
