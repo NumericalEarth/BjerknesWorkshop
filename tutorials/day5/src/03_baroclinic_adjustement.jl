@@ -50,7 +50,14 @@
 # 
 # There are lots different configurations which can produce different results, you can 
 # play with this example to try and get different things to happen:
-using Pkg; Pkg.activate(".."); Pkg.instantiate()
+using Pkg; Pkg.activate("..")
+
+using Base64
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
+
 using CairoMakie
 
 # We setup a simple timestepping:
@@ -245,20 +252,19 @@ fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
 
 ax_N = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
             title = "Nutrients", aspect = 1)
-hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (-0.4, 0.4), colormap = Reverse(:bamako))
+hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (0, 10), colormap = Reverse(:bamako))
 Colorbar(fig[2, 2], hm_N, label = "mmolN/m³")
 
 ax_P = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
             title = "Phytoplankton", aspect = 1)
-hm_P = heatmap!(ax_P, xb ./ 1e3, yb ./ 1e3, Pₙ, colormap = :lapaz)
+hm_P = heatmap!(ax_P, x ./ 1e3, y ./ 1e3, Pₙ, colormap = :lapaz)
 Colorbar(fig[2, 4], hm_P, label = "mmolN/m³")
 
 CairoMakie.record(fig, "baroclinic_instability_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-nothing #hide
+mp4_html("baroclinic_instability_bgc.mp4")
 
-# ![](baroclinic_instability_bgc.mp4)
 #
 # It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value)
 # at the start, or to plot the detritus and see how it sinks after the bloom passes

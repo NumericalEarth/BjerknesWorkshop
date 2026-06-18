@@ -1,3 +1,6 @@
+
+using Pkg; Pkg.activate("..")
+
 using Oceananigans
 using OceanBioME
 using CairoMakie
@@ -41,9 +44,38 @@ add_callback!(simulation, prog, IterationInterval(1000))
 
 simulation.output_writers[:tracers] = 
     JLD2Writer(model, model.tracers, 
-               filename = "01b_column.jld2",
+               filename = "02_column.jld2",
                schedule = TimeInterval(1day), 
                overwrite_existing=true)
+
+# and run
+
+run!(simulation)
+
+# now plot
+
+fds = FieldDataset("02_column.jld2")
+
+n = Observable(1)
+z = znodes(fds["P"])
+
+title = @lift prettytime(fds["P"].times[$n])
+
+fig = Figure(; title)
+
+ax = Axis(fig[1, 1])
+
+lines!(ax, (@lift fds["NO₃"][$n]), z)
+lines!(ax, (@lift fds["NH₄"][$n]), z)
+lines!(ax, (@lift fds["P"][$n]), z)
+lines!(ax, (@lift fds["Z"][$n]), z)
+lines!(ax, (@lift fds["DOM"][$n]), z)
+lines!(ax, (@lift fds["sPOM"][$n]), z)
+lines!(ax, (@lift fds["bPOM"][$n]), z)
+
+record(fig, "02_column.mp4", 1:Nz, framerate=8) do i
+    n[] = i
+end
 
 # Things to try:
 # - Prescribed seasonal mixed layer - Replace constant diffusivity with a time-varying κ

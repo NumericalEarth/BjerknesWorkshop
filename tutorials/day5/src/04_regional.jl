@@ -30,7 +30,7 @@
 #     weight of explicit multi-trophic ecosystems, tracking multiple passive
 #     tracers (NO₃, PO₄, Fe, DOP, POP, DIC, ALK) significantly increases the cost
 #     (mainly because of advection)
-using Pkg; Pkg.activate(".."); Pkg.instantiate()
+using Pkg; Pkg.activate("..")
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
 using Oceananigans.Operators: Δzᶠᶜᶜ, Δzᶜᶠᶜ
@@ -46,7 +46,7 @@ arch = GPU()
 
 # Global/regional runs of OceanBioME are still in their infancy so we have to include some
 # hacky thing that will eventually find their way into NumericalEarth or OceanBioME
-include("hacks.jl")
+include("../src/hacks.jl")
 
 const λ₁, λ₂ =  5, 60
 const φ₁, φ₂ = 63, 78

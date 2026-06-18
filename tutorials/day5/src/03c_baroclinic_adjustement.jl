@@ -1,9 +1,15 @@
-using Pkg; Pkg.activate(".."); Pkg.instantiate()
+using Pkg; Pkg.activate("..")
+using Base64
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
+
 using Oceananigans
 using Oceananigans.Units
 using OceanBioME
 using Printf
-using Random
+using Randoms
 
 Random.seed!(1234)
 
@@ -45,7 +51,7 @@ nothing #hide
 # common method is to just clip negative values which is cheaper, but does 
 # lead to non-conservation.
 
-include("00_tools.jl")
+include("../src/00_tools.jl")
 
 particles = BiogeochemicalParticles(1; grid,
                                     biogeochemistry = Whaleish(; grazing_rate = 0.0,#200000/days,
@@ -141,7 +147,7 @@ run!(simulation)
 
 # now to plot
 
-N_timeseries = FieldTimeSeries(filename * "_surface.jld2", "N")
+Fe_timeseries = FieldTimeSeries(filename * "_surface.jld2", "Fe")
 P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
 
 times = N_timeseries.times
@@ -154,7 +160,7 @@ title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] /
 
 n = Observable(1)
 
-Nₙ = @lift interior(N_timeseries[$n], :, :, 1)
+Feₙ = @lift interior(Fe_timeseries[$n], :, :, 1)
 Pₙ = @lift interior(P_timeseries[$n], :, :, 1)
 
 fig = Figure(size = (1000, 520))
@@ -162,8 +168,8 @@ fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
 
 ax_N = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
             title = "Nutrients", aspect = 1)
-hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (0, 10), colormap = Reverse(:bamako))
-Colorbar(fig[2, 2], hm_N, label = "mmolN/m³")
+hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Feₙ, colorrange = (0, 0.1), colormap = Reverse(:bamako))
+Colorbar(fig[2, 2], hm_N, label = "mmolFe/m³")
 
 ax_P = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
             title = "Phytoplankton", aspect = 1)
@@ -173,9 +179,8 @@ Colorbar(fig[2, 4], hm_P, label = "mmolN/m³")
 CairoMakie.record(fig, "baroclinic_instability_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-nothing #hide
+mp4_html("baroclinic_instability_bgc.mp4")
 
-# ![](baroclinic_instability_bgc.mp4)
 #
 # It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value)
 # at the start, or to plot the detritus and see how it sinks after the bloom passes
