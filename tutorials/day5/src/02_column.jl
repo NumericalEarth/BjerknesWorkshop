@@ -98,6 +98,8 @@ record(fig, "02_column.mp4", 1:length(fds["P"]), framerate=8) do i
     n[] = i
 end
 
+mp4_html("02_column.mp4")
+
 # Things to try:
 # - Prescribed seasonal mixed layer - Replace constant diffusivity with a time-varying κ
 # - Change the restoring
@@ -106,6 +108,7 @@ end
 
 # We can make this remarkably realistic with data, here for the Faeroe islands
 include("../src/faeroe_data.jl") 
+nothing
 
 # This returns `faeroe_data` which contains `surface_PAR`, `NO₃_itp`, `DIC_itp`, `Alk_itp`,
 # `T_itp`, `wind_itp`, and `mld_itp`. Next we construct the grid and biogeochemistry as before:
@@ -167,6 +170,7 @@ DIC_restoring = Forcing(restoring,
 Alk_restoring = Forcing(restoring, 
                         parameters = (; X = faeroe_data.Alk_itp, τ, mld = faeroe_data.mld_itp),
                         field_dependencies = :Alk)
+nothing
 
 # The carbon chemistry needs the temperature and salinity, and the most straightforward way to
 # handel this here is to make them auxiliary fields.
@@ -177,7 +181,7 @@ S = ConstantField(34.9)
 
 # Then we can put the model together:
 Oceananigans.TimeSteppers.reset!(clock)
-model = NonhydrostaticModel(grid; 
+model = NonhydrostaticModel(grid;
                             advection = WENO(bounds = (0, 99999), order = 3),
                             biogeochemistry, 
                             closure,
@@ -207,7 +211,7 @@ simulation.output_writers[:fCO₂] = JLD2Writer(model, (; qCO₂ = CO₂_flux), 
                                               schedule = TimeInterval(1days),
                                               overwrite_existing = true)
 
-prog(sim) = @info prettytime(sim) * " in " * prettytime(sim.run_wall_time) * ", DIC∈$(extrema(sim.model.tracers.DIC))" 
+prog(sim) = @info prettytime(sim) * " in " * prettytime(sim.run_wall_time) * ", DIC ∈ $(extrema(sim.model.tracers.DIC))" 
 
 add_callback!(simulation, prog, IterationInterval(100))
 

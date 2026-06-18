@@ -1,3 +1,13 @@
+# # Some whales?
+# In this example we will build on the previous example adding iron limitation 
+# to the bgc and adding an "active" Lagrangian particle that represent maybe 
+# a whale swimming around, diving to eat and surfacing to defecate, fertilising
+# surface water.
+#
+# The "whale" is not realistic and maybe represents ~100,000 going along together,
+# also if I haven't managed to fix it, the whales don't actually eat and their weight
+# goes negative.
+
 using Pkg; Pkg.activate("..")
 using Base64
 
@@ -9,7 +19,8 @@ using Oceananigans
 using Oceananigans.Units
 using OceanBioME
 using Printf
-using Randoms
+using Random
+using CairoMakie
 
 Random.seed!(1234)
 
@@ -17,7 +28,7 @@ Lx = 1000kilometers
 Ly = 1000kilometers
 Lz = 1kilometers
 
-Nx, Ny, Nz = 96, 96, 16
+Nx, Ny, Nz = (96, 96, 16).*2
 
 grid = RectilinearGrid(size = (Nx, Ny, Nz),
                        x = (0, Lx),
@@ -36,33 +47,22 @@ u_bcs = FieldBoundaryConditions(bottom = u_bottom_bc)
 v_bcs = FieldBoundaryConditions(bottom = v_bottom_bc)
 nothing #hide
 
-# But before we setup the model we need to define the biogeochemistry.
-# This is similar to the box example, but we need a few more elements.
-# First we're going to manually set `plankton` to `PhytoZoo`, which is the 
-# plankton from the LOBSTER model (because its nicer behaved than the NPZD
-# default). As we've not got a non-`Flat` z dimension we just need to set the
-# surface PAR, initially to a constant.
-#
-# In this (and most) cases we also need to handel tracers going negative from 
-# numerical errors (from the stiffness of the loss terms like $-νP$ or from 
-# non-positivity preserving transport errors). Our preferred method is 
-# `ScaleNegativeTracers`, which sets negatives values to zero but removes 
-# mass from other positive tracers to maintain mass conservation. An Alternative
-# common method is to just clip negative values which is cheaper, but does 
-# lead to non-conservation.
-
+# we fetch the whale model from this script:
 include("../src/00_tools.jl")
 
+# then build `BiogeochemicalParticles`,
 particles = BiogeochemicalParticles(1; grid,
                                     biogeochemistry = Whaleish(; grazing_rate = 0.0,#200000/days,
                                                                  grazing_half_saturation = 0.1,
-                                                                 excretion_rate = 700000.0/days),
+                                                                 excretion_rate = 100000*700000.0/days),
                                     advection = SwimmingUpAndDown(; cycle_time = 90minutes,
                                                                     dive_depth = 900.0,
                                                                     horizontal_radius = 250kilometers))
 
+# set the initial positions,
 set!(particles, x = Lx/2, biomass = 4e8)
 
+# and build the biogeochemical model, now with the particles and iron limiting growth:
 biogeochemistry = NPZD(grid;
                        modifiers = ScaleNegativeTracers((:N, :P, :Z, :D); invalid_fill_value = 0),
                        nutrients = Nutrients(nitrogen = OceanBioME.N, iron = OceanBioME.Fe),
@@ -102,13 +102,8 @@ set!(model, b = bᵢ,
             #Fe = 0.0002,
             P = 0.1, 
 )#Z = Zᵢ)
-
-# ## Simulation with adaptive time stepping
+nothing
 #
-# Eddying flows accelerate as the instability grows, and a time step chosen for the
-# quiet beginning would be wasteful (or unstable) later. The `TimeStepWizard` adapts
-# ``\Delta t`` to track a target advective CFL number; `conjure_time_step_wizard!`
-# attaches it to the simulation as a callback:
 
 simulation = Simulation(model; Δt = 20minutes, stop_time = 30days)
 
@@ -129,15 +124,9 @@ end
 
 add_callback!(simulation, progress, IterationInterval(100))
 
-N  = model.tracers.N
-Fe = model.tracers.Fe
-P  = model.tracers.P
+filename = "baroclinic_instability_whaleish"
 
-kinetic_energy = Average((u^2 + v^2) / 2)
-
-filename = "baroclinic_instability"
-
-simulation.output_writers[:surface] = JLD2Writer(model, (; N, P, Fe);
+simulation.output_writers[:surface] = JLD2Writer(model, model.tracers;
                                                  filename = filename * "_surface.jld2",
                                                  indices = (:, :, grid.Nz),
                                                  schedule = TimeInterval(12hours),
@@ -147,8 +136,15 @@ run!(simulation)
 
 # now to plot
 
+N_timeseries = FieldTimeSeries(filename * "_surface.jld2", "N")
 Fe_timeseries = FieldTimeSeries(filename * "_surface.jld2", "Fe")
 P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
+nothing
+#
+N_timeseries = FieldTimeSeries(filename * "_surface.jld2", "N")
+Fe_timeseries = FieldTimeSeries(filename * "_surface.jld2", "Fe")
+P_timeseries = FieldTimeSeries(filename * "_surface.jld2", "P")
+Z_timeseries = FieldTimeSeries(filename * "_surface.jld2", "Z")
 
 times = N_timeseries.times
 
@@ -160,25 +156,37 @@ title = @lift @sprintf("baroclinic instability after t = %.1f days", times[$n] /
 
 n = Observable(1)
 
+Nₙ = @lift interior(N_timeseries[$n], :, :, 1)
 Feₙ = @lift interior(Fe_timeseries[$n], :, :, 1)
 Pₙ = @lift interior(P_timeseries[$n], :, :, 1)
 
-fig = Figure(size = (1000, 520))
+fig = Figure(size = (1000, 1000))
 fig[1, :] = Label(fig, title, fontsize = 20, tellwidth = false)
 
 ax_N = Axis(fig[2, 1], xlabel = "x [km]", ylabel = "y [km]",
-            title = "Nutrients", aspect = 1)
-hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Feₙ, colorrange = (0, 0.1), colormap = Reverse(:bamako))
-Colorbar(fig[2, 2], hm_N, label = "mmolFe/m³")
+            title = "Nitrate", aspect = 1)
+hm_N = heatmap!(ax_N, x ./ 1e3, y ./ 1e3, Nₙ, colorrange = (0, 10), colormap = Reverse(:bamako))
+Colorbar(fig[2, 2], hm_N, label = "mmolN/m³")
 
-ax_P = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
+ax_Fe = Axis(fig[2, 3], xlabel = "x [km]", ylabel = "y [km]",
+            title = "Iron", aspect = 1)
+hm_Fe = heatmap!(ax_Fe, x ./ 1e3, y ./ 1e3, Feₙ, colormap = :lapaz, colorrange = (0, 1e-5))
+Colorbar(fig[2, 4], hm_Fe, label = "mmolFe/m³")
+
+ax_P = Axis(fig[3, 1], xlabel = "x [km]", ylabel = "y [km]",
             title = "Phytoplankton", aspect = 1)
 hm_P = heatmap!(ax_P, x ./ 1e3, y ./ 1e3, Pₙ, colormap = :lapaz)
-Colorbar(fig[2, 4], hm_P, label = "mmolN/m³")
+Colorbar(fig[3, 2], hm_P, label = "mmolN/m³")
+
+ax_Z = Axis(fig[3, 3], xlabel = "x [km]", ylabel = "y [km]",
+            title = "Zooplankton", aspect = 1)
+hm_Z = heatmap!(ax_Z, x ./ 1e3, y ./ 1e3, Pₙ, colormap = :lapaz)
+Colorbar(fig[3, 4], hm_Z, label = "mmolN/m³")
 
 CairoMakie.record(fig, "baroclinic_instability_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
+mp4_html("baroclinic_instability_bgc.mp4")
 mp4_html("baroclinic_instability_bgc.mp4")
 
 #

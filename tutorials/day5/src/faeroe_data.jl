@@ -32,7 +32,7 @@ end
 
 @inline (dsw::DownwellingShortWave)(x, y, t) = dsw(t)
 
-data_path = ENV["DATA_DIR"]
+data_path = ENV["DATA_DIR"]*"/faeroe_islands/"
 
 # This could all be done with NumericalEarth now, but I already had these files etc.
 data_times = ncread(data_path * "nitrate.nc", "time")[1:end-1] # seconds since 01/01/1970

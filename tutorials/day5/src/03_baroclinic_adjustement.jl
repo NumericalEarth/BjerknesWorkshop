@@ -46,7 +46,7 @@
 # Since there is also phytoplankton concentration dependency, if the nutrients and 
 # phytoplankton are colocated in the volume, we resolve lower growth, but if they are
 # segregated in reality but mixed in a coarse model then we may resolve more overall 
-# growth (consider that $P(x<0) = 0$ and $P(x>0)>0$ in the case above).
+# growth (consider that `P(x<0) = 0`` and `P(x>0)>0` in the case above).
 # 
 # There are lots different configurations which can produce different results, you can 
 # play with this example to try and get different things to happen:
@@ -266,5 +266,5 @@ end
 mp4_html("baroclinic_instability_bgc.mp4")
 
 #
-# It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value)
-# at the start, or to plot the detritus and see how it sinks after the bloom passes
+# It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value
+# at the start), or to plot the detritus and see how it sinks after the bloom passes
