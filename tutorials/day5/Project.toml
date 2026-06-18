@@ -27,6 +27,8 @@ ClimaSeaIce = {rev = "main", url = "https://github.com/CliMA/ClimaSeaIce.jl.git"
 GlobalOceanBioME = {rev = "main", url = "https://github.com/OceanBioME/GlobalOceanBioME"}
 OceanBioME = {rev = "jsw/implicit-productivity", url = "https://github.com/OceanBioME/OceanBioME.jl.git"}
 Oceananigans = {rev = "ss/open-boundary-conditions", url = "https://github.com/CliMA/Oceananigans.jl.git"}
+NumericalEarth = {rev = "main", url = "https://github.com/NumericalEarth/NumericalEarth.jl.git"}
 
 [compat]
 julia = "1.10"
+NumericalEarth = "0.5.7"
