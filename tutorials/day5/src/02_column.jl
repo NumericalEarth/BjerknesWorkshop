@@ -1,6 +1,12 @@
 
 using Pkg; Pkg.activate("..")
 
+using Base64
+
+mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
+                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
+                             "\" style=\"max-width:100%\"></video>"))
+
 using Oceananigans
 using OceanBioME
 using CairoMakie
@@ -98,3 +104,5 @@ end
 # - Change the restoring
 # - How about diurnally varying light
 # - Or different nutrient limitations/other parameters
+
+# We can make this remarkably realistic with data, here for the Faeroe islands
