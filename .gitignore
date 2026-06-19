@@ -47,3 +47,5 @@ docs/src/day*/*.mp4
 # random stuff
 *.swp
 *.DS_Store
+
+*.CondaPkg*
