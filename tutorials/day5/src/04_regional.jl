@@ -353,7 +353,7 @@ DIC  = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "DIC")
 qCO₂ = FieldTimeSeries("barents_ocean_surface_$(suffix).jld2", "CO₂_flux")
 nothing
 #
-times = To.times
+times = N.times
 n = Observable(length(times))
 
 title = @lift "Barents Sea — day " * string(round(Int, times[$n] / days))
