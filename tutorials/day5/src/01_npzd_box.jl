@@ -77,7 +77,9 @@ lines!(ax2, times./days, interior(fds["P"], 1, 1, 1, :))
 lines!(ax3, times./days, interior(fds["Z"], 1, 1, 1, :))
 lines!(ax4, times./days, interior(fds["D"], 1, 1, 1, :))
 
-fig
+save("npzd_timeseries.png", fig)
+
+# ![Nutrients, Phytoplankton, Zooplankton, and Detritus time series over 2 years](npzd_timeseries.png)
 
 # and we can plot in phase space:
 
@@ -93,4 +95,6 @@ lines!(ax2, interior(fds["PAR"], 1, 1, 1, :), interior(fds["P"], 1, 1, 1, :))
 lines!(ax3, interior(fds["P"], 1, 1, 1, :), interior(fds["Z"], 1, 1, 1, :))
 lines!(ax4, interior(fds["P"], 1, 1, 1, :), interior(fds["D"], 1, 1, 1, :))
 
-fig
+save("npzd_phase_space.png", fig)
+
+# ![Phase space of biogeochemical tracers](npzd_phase_space.png)

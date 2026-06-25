@@ -9,11 +9,6 @@
 # goes negative.
 
 using Pkg; Pkg.activate("..")
-using Base64
-
-mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
-                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
-                             "\" style=\"max-width:100%\"></video>"))
 
 using Oceananigans
 using Oceananigans.Units
@@ -186,8 +181,8 @@ Colorbar(fig[3, 4], hm_Z, label = "mmolN/m³")
 CairoMakie.record(fig, "baroclinic_instability_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-mp4_html("baroclinic_instability_bgc.mp4")
-mp4_html("baroclinic_instability_bgc.mp4")
+
+# ![Nutrients, phytoplankton, and whale particles in baroclinic instability](baroclinic_instability_bgc.mp4)
 
 #
 # It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value)

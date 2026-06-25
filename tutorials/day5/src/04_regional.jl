@@ -31,11 +31,6 @@
 #     tracers (NO₃, PO₄, Fe, DOP, POP, DIC, ALK) significantly increases the cost
 #     (mainly because of advection)
 using Pkg; Pkg.activate("..")
-using Base64
-
-mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
-                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
-                             "\" style=\"max-width:100%\"></video>"))
 
 using NumericalEarth, Oceananigans, Oceananigans.Units
 using Oceananigans.BoundaryConditions: Radiation, FlatherBoundaryCondition, NormalFlowBoundaryCondition
@@ -382,4 +377,5 @@ Colorbar(fig[2, 4], hm_q, label = "Air-sea CO₂ exchange [gC/m²/year]")
 CairoMakie.record(fig, "barents_sea_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-mp4_html("barents_sea_bgc.mp4")
+
+# ![Nitrogen, iron, DIC, and CO₂ exchange in the Barents Sea](barents_sea_bgc.mp4)

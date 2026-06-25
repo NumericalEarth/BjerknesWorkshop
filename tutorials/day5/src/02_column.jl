@@ -1,10 +1,6 @@
-using Pkg; Pkg.activate("..")
-
-using Base64
-
-mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
-                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
-                             "\" style=\"max-width:100%\"></video>"))
+# # Column biogeochemistry: the LOBSTER model
+#
+#using Pkg; Pkg.activate("..")
 
 using Oceananigans
 using OceanBioME
@@ -29,7 +25,7 @@ biogeochemistry = LOBSTER(grid;
 nutrient_restoring = Forcing((z, t, NO₃, p) -> (p.NO₃ - NO₃) / p.τ * (z < p.z₀),
                              parameters = (NO₃ = 40, τ = 30days, z₀ = -100),
                              field_dependencies = :NO₃)
-
+#=
 model = HydrostaticFreeSurfaceModel(grid;
                                     biogeochemistry,
                                     free_surface = nothing,
@@ -96,9 +92,9 @@ axislegend(ax3, position = :rb)
 
 record(fig, "02_column.mp4", 1:length(fds["P"]), framerate=8) do i
     n[] = i
-end
+end=#
 
-mp4_html("02_column.mp4")
+# ![LOBSTER column model: nutrients, plankton, and detritus over 3 years](02_column.mp4)
 
 # Things to try:
 # - Prescribed seasonal mixed layer - Replace constant diffusivity with a time-varying κ
@@ -238,6 +234,7 @@ lines!(ax2, DateTime(2022, 6, 1) .+ Second.(NO₃.times), map(n->mean(NO₃[n]),
 lines!(ax3, faeroe_data.plotting.qCO₂_obs_dt, faeroe_data.plotting.qCO₂_obs, color = :black)
 lines!(ax3, DateTime(2022, 6, 1) .+ Second.(qCO₂.times[1:end-30]), map(n->-mean(qCO₂[n:n+30]) / 1000 * 365days , 1:length(qCO₂.times)-30))
 
+save("faeroe_timeseries.png", fig)
 fig
 #
 fig = Figure()
@@ -254,4 +251,6 @@ lines!(ax2, P.times, map(t->max(-60, faeroe_data.mld_itp(t)), P.times), color = 
 Colorbar(fig[1, 2], hm, label = "Phytoplankton (mmolN/m³)")
 Colorbar(fig[2, 2], hm2, label = "Nitrate (mmolN/m³)")
 
+save("faeroe_heatmap.png", fig)
 fig
+#

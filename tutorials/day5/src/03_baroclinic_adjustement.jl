@@ -23,8 +23,8 @@
 # \int_\Omega \frac{N}{N + k} dV \neq \frac{\int_\Omega N dV}{k + \int_\Omega N dV}.
 # ```
 #
-# Before we get into the full example we can construct think about $\mu$ and consider a
-# unit "box" with some amount of nutrients. If the box is well mixed then we get:
+# To get some intuition, consider a unit "box" with some amount of nutrients.
+# If the box is well mixed then we get:
 # ```math
 # \mu \sim \frac{\bar{N}}{\bar{N} + k} ∀ x,
 # ```
@@ -47,60 +47,7 @@
 # phytoplankton are colocated in the volume, we resolve lower growth, but if they are
 # segregated in reality but mixed in a coarse model then we may resolve more overall 
 # growth (consider that `P(x<0) = 0`` and `P(x>0)>0` in the case above).
-# 
-# There are lots different configurations which can produce different results, you can 
-# play with this example to try and get different things to happen:
-using Pkg; Pkg.activate("..")
-
-using Base64
-
-mp4_html(path) = HTML(string("<video autoplay loop muted playsinline controls ",
-                             "src=\"data:video/mp4;base64,", base64encode(read(path)),
-                             "\" style=\"max-width:100%\"></video>"))
-
-using CairoMakie
-
-# We setup a simple timestepping:
-function step!(Pt, Nt, n, Δt = 0.1)
-    N = Nt[n-1]
-    P = Pt[n-1]
-
-    μ =  P * N / (N + 1)
-
-    Nt[n] = N - Δt * μ
-    Pt[n] = P + Δt * μ
-    
-    return nothing
-end
-
-nt = 100
-Δt = 0.1
-
-# Then we setup the "average" and two compartments
-P̄,  N̄  = zeros(nt), zeros(nt)
-P₁, N₁ = zeros(nt), zeros(nt)
-P₂, N₂ = zeros(nt), zeros(nt)
-
-P₁[1], N₁[1] = 0.1, 0.9
-P₂[1], N₂[1] = 0.1, 0.1
-
-P̄[1],  N̄[1]  = (P₁[1] + P₂[1])/2, (N₁[1] + N₂[1])/2 
-
-for n in 2:nt
-    step!(P̄, N̄, n, Δt)
-    step!(P₁, N₁, n, Δt)
-    step!(P₂, N₂, n, Δt)
-end
-
-fig = Figure()
-
-ax = Axis(fig[1, 1])
-
-lines!(ax, 0:Δt:(nt-1)*Δt, P̄)
-lines!(ax, 0:Δt:(nt-1)*Δt, @. (P₁ + P₂)/2)
-
-fig
-# 
+#
 # We could consider taking this to the extreme where we might want to consider every
 # cell (~$10^6$ per litre!) but that is obviously infeasible. 
 # Instead we parameterise, for example using the Holling relation above, so must find
@@ -121,6 +68,7 @@ fig
 # surface where there is sufficient light for the phytoplankton to grow. 
 # The upwelling produced by the eddies brings nutrients to the surface inducing a bloom.
 # Lets set up the case as before:
+using Pkg; Pkg.activate("..")
 using Oceananigans
 using Oceananigans.Units
 using OceanBioME
@@ -263,7 +211,8 @@ Colorbar(fig[2, 4], hm_P, label = "mmolN/m³")
 CairoMakie.record(fig, "baroclinic_instability_bgc.mp4", 1:length(times), framerate = 8) do i
     n[] = i
 end
-mp4_html("baroclinic_instability_bgc.mp4")
+
+# ![Nutrients and phytoplankton in a baroclinic instability with BGC](baroclinic_instability_bgc.mp4)
 
 #
 # It might be interesting to look at how zooplankton responds to the bloom (just set it to some low value
